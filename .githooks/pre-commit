@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs automatically before every commit. Turn it on once per computer with:
+#   git config core.hooksPath .githooks
+exec sh "$(git rev-parse --show-toplevel)/.githooks/check-secrets.sh"
