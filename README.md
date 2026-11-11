@@ -12,3 +12,13 @@ git config core.hooksPath .githooks
 It runs before every commit and blocks API keys, passwords and secrets files.
 The rules are in [AGENTS.md](AGENTS.md). Real keys go in a local `.env` file
 (copy `.env.example`), never in the code.
+
+## Run the app
+
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+The login needs a local `.streamlit/secrets.toml` (copy
+`.streamlit/secrets.toml.example`). Run the tests with `pytest`.

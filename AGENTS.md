@@ -1,5 +1,17 @@
 # Rules for AI agents (and humans) working in this repository
 
+## Stack
+
+- Python with Streamlit. Do not add another language or web framework.
+- Run the app with `streamlit run app.py`, the tests with `pytest`.
+  Install packages with `pip install -r requirements.txt`.
+- Login goes through Auth0, using Streamlit's built-in `st.login("auth0")`.
+  The app never sees or stores a password. Do not build sign-up, password
+  or reset forms.
+- Only a verified `@novasbe.pt` address may come in. Use `nova_email()` and
+  `email_is_verified()` from `accounts.py` for that check, and check it
+  where the action happens, not only by hiding a button.
+
 ## Secrets
 
 A secret is any API key, password, database connection string, login-provider
