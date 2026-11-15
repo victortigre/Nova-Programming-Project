@@ -20,5 +20,9 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The login needs a local `.streamlit/secrets.toml` (copy
+The login and the database need a local `.streamlit/secrets.toml` (copy
 `.streamlit/secrets.toml.example`). Run the tests with `pytest`.
+
+The data is stored in Supabase. Its tables are created by pasting
+`database_setup.sql` into the Supabase SQL Editor and running it. This is
+done once for the whole team, and again whenever that file changes.

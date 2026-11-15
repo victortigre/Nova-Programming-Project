@@ -32,3 +32,15 @@ def email_is_verified(user_info: dict) -> bool:
     Clicking the link proves they can read that mailbox.
     """
     return user_info.get("email_verified") is True
+
+
+def verified_nova_email(user_info: dict) -> str | None:
+    """Return the email of a person who may use the app, or None.
+
+    This puts the two checks above together: a Nova address AND a confirmed
+    email. Every page calls this before it shows or changes anything.
+    """
+    email = nova_email(user_info)
+    if email is None or not email_is_verified(user_info):
+        return None
+    return email

@@ -3,7 +3,7 @@
 Run them with:  pytest
 """
 
-from accounts import email_is_verified, nova_email
+from accounts import email_is_verified, nova_email, verified_nova_email
 
 # --- nova_email: is it a Nova address? ----------------------------------------
 
@@ -56,3 +56,26 @@ def test_only_a_real_true_counts():
     # Anything that is not exactly True must not open the door.
     assert email_is_verified({"email_verified": "true"}) is False
     assert email_is_verified({"email_verified": 1}) is False
+
+
+# --- verified_nova_email: both checks together --------------------------------
+
+
+def test_verified_nova_student_may_use_the_app():
+    user_info = {"email": "12345@novasbe.pt", "email_verified": True}
+    assert verified_nova_email(user_info) == "12345@novasbe.pt"
+
+
+def test_unverified_nova_student_may_not():
+    user_info = {"email": "12345@novasbe.pt", "email_verified": False}
+    assert verified_nova_email(user_info) is None
+
+
+def test_verified_outsider_may_not():
+    user_info = {"email": "someone@gmail.com", "email_verified": True}
+    assert verified_nova_email(user_info) is None
+
+
+def test_nobody_logged_in_may_not():
+    assert verified_nova_email({"is_logged_in": False}) is None
+    assert verified_nova_email({}) is None

@@ -8,9 +8,15 @@
 - Login goes through Auth0, using Streamlit's built-in `st.login("auth0")`.
   The app never sees or stores a password. Do not build sign-up, password
   or reset forms.
-- Only a verified `@novasbe.pt` address may come in. Use `nova_email()` and
-  `email_is_verified()` from `accounts.py` for that check, and check it
+- Only a verified `@novasbe.pt` address may come in. Use
+  `verified_nova_email()` from `accounts.py` for that check, and check it
   where the action happens, not only by hiding a button.
+- Pages live in the `views` folder and are listed at the bottom of `app.py`.
+  Every page starts with the `verified_nova_email()` check and uses the
+  email it returns, never an email typed into a form.
+- Data and photos are stored in Supabase. Only `database.py` talks to
+  Supabase; pages call its functions. New tables are added to
+  `database_setup.sql`. SQL is allowed in that one file only.
 
 ## Secrets
 
