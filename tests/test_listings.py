@@ -309,3 +309,17 @@ def test_money_conversion():
     assert listings.euros_to_cents(0.1 + 0.2) == 30
     assert listings.format_price(1250) == "€12.50"
     assert listings.format_price(123456) == "€1,234.56"
+
+
+# --- showing titles as plain text -----------------------------------------------
+
+def test_plain_text_escapes_a_link():
+    assert listings.plain_text("[click](http://x)") == r"\[click\]\(http\://x\)"
+
+
+def test_plain_text_escapes_bold():
+    assert listings.plain_text("**bold**") == r"\*\*bold\*\*"
+
+
+def test_plain_text_leaves_normal_text_alone():
+    assert listings.plain_text("Desk lamp 2024") == "Desk lamp 2024"

@@ -26,6 +26,7 @@ module (the real Supabase storage). The tests pass a pretend database that
 lives in memory (tests/fake_database.py), so they run without internet.
 """
 
+import re
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounts import nova_email
@@ -75,6 +76,17 @@ def euros_to_cents(euros) -> int:
 def format_price(cents: int) -> str:
     """1250 -> '€12.50', 0 -> 'Free'."""
     return "Free" if cents == 0 else f"€{cents / 100:,.2f}"
+
+
+# --- showing text -----------------------------------------------------------------
+
+def plain_text(text: str) -> str:
+    """Escape Markdown, so text a student typed (like a title) shows exactly as typed.
+
+    '[click](http://x)' -> '\\[click\\]\\(http\\:...' : no link, no formatting.
+    A backslash is put before every character Markdown treats as special.
+    """
+    return re.sub(r"([\\`*_{}\[\]()#+\-.!|>~<$:])", r"\\\1", text)
 
 
 # --- input rules ------------------------------------------------------------------
