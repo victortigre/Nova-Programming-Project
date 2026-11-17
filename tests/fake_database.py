@@ -13,17 +13,28 @@ class FakeDatabase:
         self.profiles = {}  # email -> profile
         self.listings = {}  # id -> listing
         self.photos = {}  # stored name -> picture bytes
+        self.reports = {}  # id -> report
         self._numbers = itertools.count(1)
 
-    def add_profile(self, email: str) -> dict:
-        profile = {"id": next(self._numbers), "email": email}
+    def add_profile(self, email: str, name: str = "Test Student") -> dict:
+        profile = {"id": next(self._numbers), "email": email, "name": name}
         self.profiles[email] = profile
         return profile
+
+    def add_listing(self, seller_id: int, title: str = "Desk lamp") -> dict:
+        """Put a listing straight in, without the checks of listings.py."""
+        return self.insert_listing({"seller_id": seller_id, "title": title, "photo_paths": []})
 
     # --- the same functions as database.py ------------------------------------
 
     def get_profile(self, email):
         return self.profiles.get(email)
+
+    def get_profile_by_id(self, profile_id):
+        for profile in self.profiles.values():
+            if profile["id"] == profile_id:
+                return dict(profile)
+        return None
 
     def insert_listing(self, row):
         listing = {**row, "id": next(self._numbers), "status": "active"}
@@ -63,3 +74,16 @@ class FakeDatabase:
     def delete_listing_photos(self, paths):
         for path in paths:
             self.photos.pop(path, None)
+
+    def insert_report(self, row):
+        report = {**row, "id": next(self._numbers), "status": "open"}
+        self.reports[report["id"]] = report
+        return dict(report)
+
+    def open_report(self, reporter_id, listing_id, reported_profile_id):
+        for report in self.reports.values():
+            if (report["reporter_id"] == reporter_id and report["status"] == "open"
+                    and report["listing_id"] == listing_id
+                    and report["reported_profile_id"] == reported_profile_id):
+                return dict(report)
+        return None

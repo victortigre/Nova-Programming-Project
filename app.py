@@ -83,5 +83,12 @@ pages = [
         url_path="student",
         visibility="hidden",
     ),
+    # Opened through the "Report" links on a listing or a profile.
+    st.Page(
+        "views/report.py",
+        title="Report",
+        url_path="report",
+        visibility="hidden",
+    ),
 ]
 st.navigation(pages).run()

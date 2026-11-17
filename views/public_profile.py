@@ -58,9 +58,20 @@ with text_column:
         st.write(f"Leaving Lisbon on {shown['leaving_lisbon_on']:%d %B %Y}")
     st.caption(f"Member since {shown['member_since']:%B %Y}")
 
+# Nobody reports themselves, so the Report links only show on other profiles.
+is_own_profile = profile["email"] == email
+if not is_own_profile:
+    st.page_link("views/report.py", label="Report this student",
+                 query_params={"student": shown["id"]})
+
 st.subheader("Active listings")
 listings = database.get_active_listings(shown["id"])
 if not listings:
     st.write("No active listings at the moment.")
 for listing in listings:
-    st.write(f"**{listing['title']}** - {format_price(listing['price_cents'])}")
+    title_column, link_column = st.columns([4, 1])
+    # st.text shows the title as it is, so a title can't add links or formatting.
+    title_column.text(f"{listing['title']} - {format_price(listing['price_cents'])}")
+    if not is_own_profile:
+        link_column.page_link("views/report.py", label="Report",
+                              query_params={"listing": listing["id"]})
