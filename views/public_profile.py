@@ -13,12 +13,12 @@ from datetime import date
 import streamlit as st
 
 import database
-from accounts import verified_nova_email
+from accounts import logged_in_user, verified_nova_email
 from listings import format_price, plain_text
 from profiles import profile_id_from_text, public_profile
 
 # Only verified Nova students may look at profiles.
-email = verified_nova_email(st.user.to_dict())
+email = verified_nova_email(logged_in_user())
 if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()

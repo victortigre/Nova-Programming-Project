@@ -9,7 +9,7 @@ verified Nova student gets through to the pages listed at the bottom.
 import streamlit as st
 
 import database
-from accounts import email_is_verified, nova_email
+from accounts import email_is_verified, logged_in_user, nova_email
 
 
 def login_is_set_up() -> bool:
@@ -48,7 +48,7 @@ if not st.user.is_logged_in:
         st.login("auth0")
     st.stop()
 
-user_info = st.user.to_dict()
+user_info = logged_in_user()
 email = nova_email(user_info)
 
 # 3. Logged in, but not with a Nova address: no entry.
@@ -61,8 +61,16 @@ if email is None:
 if not email_is_verified(user_info):
     st.info(
         f"We sent a confirmation link to {email}. "
-        "Click it, then sign out here and sign in again."
+        "Click it, then come back here and press the button below."
     )
+    # Pressing the button runs this file again, and logged_in_user() then
+    # asks Auth0 whether the email is confirmed now.
+    if st.button("I clicked the link", type="primary"):
+        st.caption(
+            "Your email is not confirmed yet. If you did click the link, "
+            "sign in again to finish."
+        )
+        st.button("Sign in again", on_click=st.login, args=("auth0",))
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
