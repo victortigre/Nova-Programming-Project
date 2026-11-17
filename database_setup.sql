@@ -54,3 +54,39 @@ alter table listings enable row level security;
 insert into storage.buckets (id, name, public)
 values ('listing-photos', 'listing-photos', false)
 on conflict (id) do nothing;
+
+-- One row per report a student sends about a listing or about another
+-- student. A report points to exactly one of the two. If that listing or
+-- student is deleted, the report goes with it: a report about nothing
+-- would break the "exactly one" rule below.
+create table if not exists reports (
+    id                  bigint generated always as identity primary key,
+    reporter_id         bigint not null references profiles(id) on delete cascade,
+    listing_id          bigint references listings(id) on delete cascade,
+    reported_profile_id bigint references profiles(id) on delete cascade,
+    reason              text not null
+                        check (reason in ('Forbidden item', 'Scam or fake listing',
+                                          'Offensive content', 'Harassment', 'Other')),
+    details             text check (char_length(details) <= 500),
+    status              text not null default 'open'
+                        check (status in ('open', 'removed', 'blocked', 'dismissed')),
+    created_at          timestamptz not null default now(),
+    handled_at          timestamptz,
+    -- Exactly one target: a listing OR a student, never both and never none.
+    check ((listing_id is null) <> (reported_profile_id is null))
+);
+
+-- For the admin list: only the open reports, oldest first.
+create index if not exists reports_open_idx on reports (created_at) where status = 'open';
+-- For the check "has this student already reported this?".
+create index if not exists reports_reporter_idx on reports (reporter_id, status);
+
+-- Locked the same way as the other tables: only our app can read or change rows.
+alter table reports enable row level security;
+
+-- The database itself refuses a second open report by the same student about
+-- the same thing, even if "Send" is clicked twice very fast.
+create unique index if not exists reports_one_open_per_listing
+    on reports (reporter_id, listing_id) where status = 'open' and listing_id is not null;
+create unique index if not exists reports_one_open_per_student
+    on reports (reporter_id, reported_profile_id) where status = 'open' and reported_profile_id is not null;

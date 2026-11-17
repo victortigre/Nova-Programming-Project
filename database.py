@@ -133,6 +133,33 @@ def delete_listing(listing_id: int, seller_id: int) -> None:
     _client().table("listings").delete().eq("id", listing_id).eq("seller_id", seller_id).execute()
 
 
+# --- Reports ------------------------------------------------------------------
+#
+# The rules (who may report what) are in reports.py. A report points to a
+# listing OR to a student, never both.
+
+
+def insert_report(row: dict) -> dict:
+    """Store a new report and return it, with its new id."""
+    return _client().table("reports").insert(row).execute().data[0]
+
+
+def open_report(
+    reporter_id: int, listing_id: int | None, reported_profile_id: int | None
+) -> dict | None:
+    """Return this student's open report about this listing or student, or None."""
+    query = (
+        _client().table("reports").select("*")
+        .eq("reporter_id", reporter_id).eq("status", "open")
+    )
+    if listing_id is not None:
+        query = query.eq("listing_id", listing_id)
+    else:
+        query = query.eq("reported_profile_id", reported_profile_id)
+    rows = query.limit(1).execute().data
+    return rows[0] if rows else None
+
+
 # --- Photos -------------------------------------------------------------------
 
 
