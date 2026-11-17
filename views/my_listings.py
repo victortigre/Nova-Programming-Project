@@ -9,15 +9,22 @@ import re
 
 import streamlit as st
 
+import database
 import listings
-from seller_login import require_nova_student
+from accounts import verified_nova_email
 
-st.set_page_config(page_title="My listings · Nova Marketplace", page_icon="📦")
+# Who is using this page? The email always comes from the login, never from a form.
+email = verified_nova_email(st.user.to_dict())
+if email is None:
+    st.error("Please sign in with your @novasbe.pt email first.")
+    st.stop()
 
-me = require_nova_student()
-conn = listings.connect()
+st.header("My listings")
 
-st.title("My listings")
+if database.get_profile(email) is None:
+    st.info("Fill in your profile first. After that you can sell items.")
+    st.page_link("views/profile.py", label="Fill in my profile")
+    st.stop()
 
 # A message from the last button press survives the page reload.
 if "listing_message" in st.session_state:
@@ -32,7 +39,7 @@ def plain(text: str) -> str:
 def run(action, listing_id: int, done_message: str) -> None:
     """Call a listings.py function, show any error, reload the page on success."""
     try:
-        action(conn, listing_id, me["email"])
+        action(database, listing_id, email)
     except listings.ListingError as exc:
         for message in exc.errors:
             st.error(message)
@@ -48,8 +55,8 @@ def listing_row(listing: dict) -> None:
     status = listing["status"]
     with st.container(border=True):
         photo_col, info_col = st.columns([1, 3])
-        if listing["cover"]:
-            photo_col.image(listing["cover"])
+        if listing["photo_paths"]:
+            photo_col.image(database.listing_photo_url(listing["photo_paths"][0]))
         info_col.markdown(f"**{plain(listing['title'])}**")
         info_col.caption(f"{listings.format_price(listing['price_cents'])} · "
                          f"{listing['category']} · {listing['pickup_area']}")
@@ -65,18 +72,18 @@ def listing_row(listing: dict) -> None:
             run(listings.relist, lid, "Back on the marketplace.")
         if buttons[3].button("Edit", key=f"edit-{lid}"):
             st.session_state["edit_listing_id"] = lid
-            st.switch_page("pages/1_Sell_an_item.py")
+            st.switch_page("views/sell_item.py")
         with buttons[4].popover("Delete"):
             st.write("Delete this listing for good?")
             if st.button("Yes, delete", key=f"delete-{lid}", type="primary"):
                 run(listings.delete_listing, lid, "Listing deleted.")
 
 
-groups = listings.my_listings(conn, me["email"])
+groups = listings.my_listings(database, email)
 
 if not any(groups.values()):
     st.info("You haven't listed anything yet.")
-    st.page_link("pages/1_Sell_an_item.py", label="Sell an item", icon="➕")
+    st.page_link("views/sell_item.py", label="Sell an item", icon="➕")
     st.stop()
 
 tab_titles = [f"Active ({len(groups[listings.ACTIVE])})",

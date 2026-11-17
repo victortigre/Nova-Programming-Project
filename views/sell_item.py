@@ -6,30 +6,40 @@ The page only collects the input and shows messages. The rules themselves
 
 import streamlit as st
 
+import database
 import listings
-from seller_login import require_nova_student
+from accounts import verified_nova_email
 
 SELL = "Sell for a price"
 FREE = "Give it away for free"
 
-st.set_page_config(page_title="Sell an item · Nova Marketplace", page_icon="➕")
+# Who is using this page? The email always comes from the login, never from a form.
+email = verified_nova_email(st.user.to_dict())
+if email is None:
+    st.error("Please sign in with your @novasbe.pt email first.")
+    st.stop()
 
-me = require_nova_student()
-conn = listings.connect()
+# Every listing belongs to a profile, so buyers can see who is selling.
+profile = database.get_profile(email)
+if profile is None:
+    st.header("Sell an item")
+    st.info("Fill in your profile first, so buyers know who they are dealing with.")
+    st.page_link("views/profile.py", label="Fill in my profile")
+    st.stop()
 
 # --- new listing, or editing one? --------------------------------------------
 editing = None
 edit_id = st.session_state.get("edit_listing_id")
 if edit_id:
-    editing = listings.get_listing(conn, edit_id)
-    if editing is None or editing["seller_email"] != me["email"]:
+    editing = listings.get_listing(database, edit_id)
+    if editing is None or editing["seller_id"] != profile["id"]:
         st.session_state.pop("edit_listing_id", None)
         editing = None
 
-st.title("Edit listing" if editing else "Sell an item")
+st.header("Edit listing" if editing else "Sell an item")
 if editing and st.button("← Cancel editing"):
     st.session_state.pop("edit_listing_id", None)
-    st.switch_page("pages/2_My_listings.py")
+    st.switch_page("views/my_listings.py")
 
 
 def start_value(field, fallback):
@@ -49,19 +59,19 @@ offer = st.radio("How do you want to offer it?", [SELL, FREE], horizontal=True,
 free = offer == FREE
 
 # --- current photos (only when editing) --------------------------------------
-keep_ids = None
+keep_paths = None
 if editing:
-    current_photos = listings.get_photos(conn, editing["id"])
+    current_photos = listings.get_photos(database, editing["id"])
     st.subheader("Current photos")
     st.caption("Untick a photo to remove it. The first photo you keep is the cover.")
-    keep_ids = []
+    keep_paths = []
     columns = st.columns(max(len(current_photos), 1))
-    for number, (column, photo) in enumerate(zip(columns, current_photos), start=1):
+    for number, (column, path) in enumerate(zip(columns, current_photos), start=1):
         with column:
-            st.image(photo["data"])
+            st.image(database.listing_photo_url(path))
             label = "Keep (cover)" if number == 1 else "Keep"
-            if st.checkbox(label, value=True, key=f"keep-{photo['id']}"):
-                keep_ids.append(photo["id"])
+            if st.checkbox(label, value=True, key=f"keep-{path}"):
+                keep_paths.append(path)
 
 # --- the form ----------------------------------------------------------------
 with st.form("listing_form"):
@@ -100,10 +110,10 @@ if submitted:
     new_photos = [upload.getvalue() for upload in uploads or []]
     try:
         if editing:
-            listings.update_listing(conn, editing["id"], me["email"], keep_photo_ids=keep_ids,
+            listings.update_listing(database, editing["id"], email, keep_photo_paths=keep_paths,
                                     new_photos=new_photos, **fields)
         else:
-            listings.create_listing(conn, me["email"], me["name"], photos=new_photos, **fields)
+            listings.create_listing(database, email, photos=new_photos, **fields)
     except listings.ListingError as exc:
         for message in exc.errors:  # show every problem at once
             st.error(message)
@@ -112,4 +122,4 @@ if submitted:
     else:
         st.session_state.pop("edit_listing_id", None)
         st.success("Changes saved!" if editing else "Your listing is live! 🎉")
-        st.page_link("pages/2_My_listings.py", label="Go to My listings", icon="📦")
+        st.page_link("views/my_listings.py", label="Go to My listings", icon="📦")

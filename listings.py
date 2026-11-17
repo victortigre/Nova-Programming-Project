@@ -16,24 +16,20 @@ For the browse/search area: feed_listings() returns what buyers may see
 Rules that keep this safe:
 * Only the seller can change or delete their listing. This is checked HERE,
   where the change happens, not only by hiding buttons on the page.
-* The seller must be a Nova address (accounts.nova_email). The pages also
-  require the address to be verified before calling these functions.
+* The seller must be a Nova address with a profile. The pages pass the email
+  from the login (accounts.verified_nova_email), never one typed into a form.
 * All input is checked here, so bad data can't get in by going around a form.
-* SQL always uses ? placeholders, never text built from user input.
 
-Storage: a SQLite file (db.sqlite3 by default, already ignored by git).
-Every function takes the database connection first, so the tests can use a
-throw-away database in memory.
+Storage: this file never talks to Supabase itself. Every function takes `db`
+first: the place where listings are stored. The pages pass the `database`
+module (the real Supabase storage). The tests pass a pretend database that
+lives in memory (tests/fake_database.py), so they run without internet.
 """
 
-import os
-import sqlite3
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounts import nova_email
 from photos import PhotoError, check_photo_count, prepare_photos
-
-DB_PATH = os.environ.get("NOVA_DB_PATH", "db.sqlite3")
 
 CATEGORIES = [
     "Textbooks",
@@ -52,40 +48,6 @@ STATUSES = [ACTIVE, RESERVED, SOLD]
 
 MAX_PRICE_CENTS = 1_000_000  # €10,000
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS listings (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    seller_email TEXT NOT NULL,
-    seller_name  TEXT NOT NULL,
-    title        TEXT NOT NULL,
-    description  TEXT NOT NULL,
-    price_cents  INTEGER NOT NULL CHECK (price_cents >= 0),  -- 0 = free
-    category     TEXT NOT NULL,
-    condition    TEXT NOT NULL,
-    pickup_area  TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'active'
-                 CHECK (status IN ('active', 'reserved', 'sold')),
-    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE TABLE IF NOT EXISTS listing_photos (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
-    position   INTEGER NOT NULL,  -- 0 is the cover photo
-    data       BLOB NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_listings_seller ON listings(seller_email);
-CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status, created_at);
-"""
-
-# Each listing row also gets its first photo, for cards and lists.
-_SELECT = """
-    SELECT l.*,
-           (SELECT p.data FROM listing_photos p
-            WHERE p.listing_id = l.id ORDER BY p.position LIMIT 1) AS cover
-    FROM listings l
-"""
-
 
 class ListingError(ValueError):
     """The input breaks one or more rules. `errors` lists every problem."""
@@ -101,17 +63,6 @@ class NotAllowed(PermissionError):
 
 class NotFound(LookupError):
     """The listing doesn't exist (any more)."""
-
-
-# --- database -----------------------------------------------------------------
-
-def connect(path: str = DB_PATH) -> sqlite3.Connection:
-    """Open the database and create the tables if they don't exist yet."""
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.executescript(SCHEMA)
-    return conn
 
 
 # --- money ----------------------------------------------------------------------
@@ -164,11 +115,28 @@ def check_listing(*, title, description, free, price_cents, category, condition,
     return errors
 
 
-def _seller(email: str) -> str:
+def _fields(*, title, description, free, price_cents, category, condition,
+            pickup_area) -> dict:
+    """The checked fields, tidied, in the shape they are stored in."""
+    return {
+        "title": title.strip(),
+        "description": description.strip(),
+        "price_cents": 0 if free else price_cents,
+        "category": category,
+        "condition": condition,
+        "pickup_area": pickup_area,
+    }
+
+
+def _seller_profile(db, email: str) -> dict:
+    """The profile of the person selling. Every listing belongs to a profile."""
     seller = nova_email({"email": email})
     if seller is None:
         raise NotAllowed("Only @novasbe.pt accounts can sell.")
-    return seller
+    profile = db.get_profile(seller)
+    if profile is None:
+        raise NotAllowed("Fill in your profile before you sell something.")
+    return profile
 
 
 def _photos_or_errors(photos: list[bytes]) -> tuple[list[bytes], list[str]]:
@@ -180,51 +148,40 @@ def _photos_or_errors(photos: list[bytes]) -> tuple[list[bytes], list[str]]:
 
 # --- reading ----------------------------------------------------------------------
 
-def get_listing(conn, listing_id: int) -> dict | None:
-    row = conn.execute(_SELECT + " WHERE l.id = ?", (listing_id,)).fetchone()
-    return dict(row) if row else None
+def get_listing(db, listing_id: int) -> dict | None:
+    return db.get_listing(listing_id)
 
 
-def get_photos(conn, listing_id: int) -> list[dict]:
-    """[{'id': ..., 'data': bytes}, ...] in display order (cover first)."""
-    rows = conn.execute(
-        "SELECT id, data FROM listing_photos WHERE listing_id = ? ORDER BY position",
-        (listing_id,),
-    )
-    return [dict(r) for r in rows]
+def get_photos(db, listing_id: int) -> list[str]:
+    """The stored names of the listing's photos, in display order (cover first)."""
+    listing = db.get_listing(listing_id)
+    return list(listing["photo_paths"]) if listing else []
 
 
-def my_listings(conn, seller_email: str) -> dict[str, list[dict]]:
+def my_listings(db, seller_email: str) -> dict[str, list[dict]]:
     """{'active': [...], 'reserved': [...], 'sold': [...]}, newest first."""
     groups = {status: [] for status in STATUSES}
-    rows = conn.execute(
-        _SELECT + " WHERE l.seller_email = ? ORDER BY l.created_at DESC, l.id DESC",
-        (_seller(seller_email),),
-    )
-    for row in rows:
-        groups[row["status"]].append(dict(row))
+    for listing in db.listings_of_seller(_seller_profile(db, seller_email)["id"]):
+        groups[listing["status"]].append(listing)
     return groups
 
 
-def feed_listings(conn, limit: int = 20, offset: int = 0) -> list[dict]:
+def feed_listings(db, limit: int = 20, offset: int = 0) -> list[dict]:
     """What buyers may see: active and reserved listings, newest first. Never sold ones."""
-    rows = conn.execute(
-        _SELECT + " WHERE l.status != 'sold' ORDER BY l.created_at DESC, l.id DESC LIMIT ? OFFSET ?",
-        (limit, offset),
-    )
-    return [dict(r) for r in rows]
+    return db.feed_listings(limit, offset)
 
 
 # --- changing -------------------------------------------------------------------
 
-def create_listing(conn, seller_email: str, seller_name: str, *, title: str, description: str,
+def create_listing(db, seller_email: str, *, title: str, description: str,
                    free: bool, price_cents: int, category: str, condition: str,
                    pickup_area: str, photos: list[bytes]) -> int:
     """Publish a new listing. Returns its id. Raises ListingError listing every problem."""
-    seller = _seller(seller_email)
-    errors = check_listing(title=title, description=description, free=free,
-                           price_cents=price_cents, category=category,
-                           condition=condition, pickup_area=pickup_area)
+    seller = _seller_profile(db, seller_email)
+    fields = dict(title=title, description=description, free=free,
+                  price_cents=price_cents, category=category,
+                  condition=condition, pickup_area=pickup_area)
+    errors = check_listing(**fields)
     count_errors = check_photo_count(len(photos))
     errors += count_errors
     if not count_errors:
@@ -233,56 +190,50 @@ def create_listing(conn, seller_email: str, seller_name: str, *, title: str, des
     if errors:
         raise ListingError(errors)
 
-    cur = conn.execute(
-        "INSERT INTO listings (seller_email, seller_name, title, description, price_cents, "
-        "category, condition, pickup_area) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (seller, (seller_name or seller).strip(), title.strip(), description.strip(),
-         0 if free else price_cents, category, condition, pickup_area),
-    )
-    _save_photos(conn, cur.lastrowid, photos)
-    conn.commit()
-    return cur.lastrowid
+    paths = [db.upload_listing_photo(data) for data in photos]
+    row = {**_fields(**fields), "seller_id": seller["id"], "photo_paths": paths}
+    try:
+        listing = db.insert_listing(row)
+    except Exception:
+        db.delete_listing_photos(paths)  # don't leave photos without a listing
+        raise
+    return listing["id"]
 
 
-def _save_photos(conn, listing_id: int, photos: list[bytes]) -> None:
-    conn.executemany(
-        "INSERT INTO listing_photos (listing_id, position, data) VALUES (?, ?, ?)",
-        [(listing_id, position, data) for position, data in enumerate(photos)],
-    )
-
-
-def _own_listing(conn, listing_id: int, seller_email: str) -> dict:
-    """The listing, if this person is its seller. Otherwise NotFound / NotAllowed."""
-    listing = get_listing(conn, listing_id)
+def _own_listing(db, listing_id: int, seller_email: str) -> tuple[dict, dict]:
+    """(listing, seller profile), if this person is its seller. Otherwise NotFound / NotAllowed."""
+    seller = _seller_profile(db, seller_email)
+    listing = db.get_listing(listing_id)
     if listing is None:
         raise NotFound("This listing doesn't exist any more.")
-    if listing["seller_email"] != _seller(seller_email):
+    if listing["seller_id"] != seller["id"]:
         raise NotAllowed("Only the seller can change this listing.")
-    return listing
+    return listing, seller
 
 
-def update_listing(conn, listing_id: int, seller_email: str, *, title: str, description: str,
+def update_listing(db, listing_id: int, seller_email: str, *, title: str, description: str,
                    free: bool, price_cents: int, category: str, condition: str,
-                   pickup_area: str, keep_photo_ids: list[int] | None = None,
+                   pickup_area: str, keep_photo_paths: list[str] | None = None,
                    new_photos: list[bytes] = ()) -> None:
     """Edit your own listing.
 
-    keep_photo_ids: ids of the current photos to keep, in the order to show them
-                    (the first one becomes the cover). None = keep all of them.
-    new_photos:     extra photos to add after the kept ones.
+    keep_photo_paths: the current photos to keep, in the order to show them
+                      (the first one becomes the cover). None = keep all of them.
+    new_photos:       extra photos to add after the kept ones.
     """
-    _own_listing(conn, listing_id, seller_email)
-    current = {p["id"]: p["data"] for p in get_photos(conn, listing_id)}
-    if keep_photo_ids is None:
-        keep_photo_ids = list(current)
-    if any(pid not in current for pid in keep_photo_ids):
+    listing, seller = _own_listing(db, listing_id, seller_email)
+    current = list(listing["photo_paths"])
+    if keep_photo_paths is None:
+        keep_photo_paths = current
+    if any(path not in current for path in keep_photo_paths):
         raise NotAllowed("A photo you tried to keep doesn't belong to this listing.")
 
-    errors = check_listing(title=title, description=description, free=free,
-                           price_cents=price_cents, category=category,
-                           condition=condition, pickup_area=pickup_area)
+    fields = dict(title=title, description=description, free=free,
+                  price_cents=price_cents, category=category,
+                  condition=condition, pickup_area=pickup_area)
+    errors = check_listing(**fields)
     new_photos = list(new_photos)
-    count_errors = check_photo_count(len(keep_photo_ids) + len(new_photos))
+    count_errors = check_photo_count(len(keep_photo_paths) + len(new_photos))
     errors += count_errors
     if new_photos and not count_errors:
         new_photos, photo_errors = _photos_or_errors(new_photos)
@@ -290,23 +241,21 @@ def update_listing(conn, listing_id: int, seller_email: str, *, title: str, desc
     if errors:
         raise ListingError(errors)
 
-    conn.execute(
-        "UPDATE listings SET title = ?, description = ?, price_cents = ?, category = ?, "
-        "condition = ?, pickup_area = ?, updated_at = datetime('now') WHERE id = ?",
-        (title.strip(), description.strip(), 0 if free else price_cents, category,
-         condition, pickup_area, listing_id),
-    )
-    final = [current[pid] for pid in keep_photo_ids] + new_photos
-    conn.execute("DELETE FROM listing_photos WHERE listing_id = ?", (listing_id,))
-    _save_photos(conn, listing_id, final)
-    conn.commit()
+    new_paths = [db.upload_listing_photo(data) for data in new_photos]
+    changes = {**_fields(**fields), "photo_paths": list(keep_photo_paths) + new_paths}
+    db.update_listing(listing_id, seller["id"], changes)
+
+    removed = [path for path in current if path not in keep_photo_paths]
+    if removed:
+        db.delete_listing_photos(removed)
 
 
-def delete_listing(conn, listing_id: int, seller_email: str) -> None:
+def delete_listing(db, listing_id: int, seller_email: str) -> None:
     """Remove the listing and its photos for good."""
-    _own_listing(conn, listing_id, seller_email)
-    conn.execute("DELETE FROM listings WHERE id = ?", (listing_id,))
-    conn.commit()
+    listing, seller = _own_listing(db, listing_id, seller_email)
+    db.delete_listing(listing_id, seller["id"])
+    if listing["photo_paths"]:
+        db.delete_listing_photos(listing["photo_paths"])
 
 
 # Which status changes make sense, and what to call them in error messages.
@@ -317,25 +266,21 @@ _ALLOWED_MOVES = {
 }
 
 
-def _move(conn, listing_id: int, seller_email: str, new_status: str) -> None:
-    listing = _own_listing(conn, listing_id, seller_email)
+def _move(db, listing_id: int, seller_email: str, new_status: str) -> None:
+    listing, seller = _own_listing(db, listing_id, seller_email)
     allowed_from, message = _ALLOWED_MOVES[new_status]
     if listing["status"] not in allowed_from:
         raise ListingError([message])
-    conn.execute(
-        "UPDATE listings SET status = ?, updated_at = datetime('now') WHERE id = ?",
-        (new_status, listing_id),
-    )
-    conn.commit()
+    db.update_listing(listing_id, seller["id"], {"status": new_status})
 
 
-def mark_reserved(conn, listing_id: int, seller_email: str) -> None:
-    _move(conn, listing_id, seller_email, RESERVED)
+def mark_reserved(db, listing_id: int, seller_email: str) -> None:
+    _move(db, listing_id, seller_email, RESERVED)
 
 
-def mark_sold(conn, listing_id: int, seller_email: str) -> None:
-    _move(conn, listing_id, seller_email, SOLD)
+def mark_sold(db, listing_id: int, seller_email: str) -> None:
+    _move(db, listing_id, seller_email, SOLD)
 
 
-def relist(conn, listing_id: int, seller_email: str) -> None:
-    _move(conn, listing_id, seller_email, ACTIVE)
+def relist(db, listing_id: int, seller_email: str) -> None:
+    _move(db, listing_id, seller_email, ACTIVE)
