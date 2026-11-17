@@ -14,7 +14,7 @@ import streamlit as st
 
 import database
 from accounts import verified_nova_email
-from listings import format_price
+from listings import format_price, plain_text
 from profiles import profile_id_from_text, public_profile
 
 # Only verified Nova students may look at profiles.
@@ -63,4 +63,4 @@ listings = database.get_active_listings(shown["id"])
 if not listings:
     st.write("No active listings at the moment.")
 for listing in listings:
-    st.write(f"**{listing['title']}** - {format_price(listing['price_cents'])}")
+    st.write(f"**{plain_text(listing['title'])}** - {format_price(listing['price_cents'])}")

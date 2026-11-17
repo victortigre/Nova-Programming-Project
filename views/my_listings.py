@@ -5,8 +5,6 @@ Every button calls a function in listings.py, which checks again that you
 are the seller before changing anything.
 """
 
-import re
-
 import streamlit as st
 
 import database
@@ -31,11 +29,6 @@ if "listing_message" in st.session_state:
     st.success(st.session_state.pop("listing_message"))
 
 
-def plain(text: str) -> str:
-    """Show user-written text literally, so a title can't add links or formatting."""
-    return re.sub(r"([\\`*_{}\[\]()#+\-.!|>~<$:])", r"\\\1", text)
-
-
 def run(action, listing_id: int, done_message: str) -> None:
     """Call a listings.py function, show any error, reload the page on success."""
     try:
@@ -57,7 +50,7 @@ def listing_row(listing: dict) -> None:
         photo_col, info_col = st.columns([1, 3])
         if listing["photo_paths"]:
             photo_col.image(database.listing_photo_url(listing["photo_paths"][0]))
-        info_col.markdown(f"**{plain(listing['title'])}**")
+        info_col.markdown(f"**{listings.plain_text(listing['title'])}**")
         info_col.caption(f"{listings.format_price(listing['price_cents'])} · "
                          f"{listing['category']} · {listing['pickup_area']}")
         if status == listings.RESERVED:
