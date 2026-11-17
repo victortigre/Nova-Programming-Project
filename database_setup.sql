@@ -44,6 +44,15 @@ create table if not exists listings (
     updated_at   timestamptz not null default now()
 );
 
+-- Added later: the text a seller types after choosing "Other" as category or
+-- pickup area (empty otherwise). Safe to run again.
+alter table listings add column if not exists category_other text;
+alter table listings add column if not exists pickup_area_other text;
+
+-- Condition names were renamed ("New" -> "Brand New", "Like new" -> "Like New").
+update listings set condition = 'Brand New' where condition = 'New';
+update listings set condition = 'Like New' where condition = 'Like new';
+
 create index if not exists listings_seller_idx on listings (seller_id);
 create index if not exists listings_feed_idx on listings (status, created_at desc);
 

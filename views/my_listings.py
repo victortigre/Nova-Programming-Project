@@ -52,7 +52,8 @@ def listing_row(listing: dict) -> None:
             photo_col.image(database.listing_photo_url(listing["photo_paths"][0]))
         info_col.markdown(f"**{listings.plain_text(listing['title'])}**")
         info_col.caption(f"{listings.format_price(listing['price_cents'])} · "
-                         f"{listing['category']} · {listing['pickup_area']}")
+                         f"{listings.plain_text(listings.category_label(listing))} · "
+                         f"{listings.plain_text(listings.pickup_label(listing))}")
         if status == listings.RESERVED:
             info_col.markdown(":orange[**🔒 Reserved**]")
 

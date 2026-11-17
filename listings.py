@@ -2,7 +2,8 @@
 
 Features (area 2 of the MVP):
     create_listing   title, description, price or free, category, condition,
-                     pickup area, 1-5 photos
+                     pickup area, 1-5 photos. Every field is required; choosing
+                     "Other" as category or pickup area requires typing what it is.
     update_listing   change any field, keep/remove photos, add new ones
     delete_listing   removes it from the marketplace
     mark_reserved    stays visible with a "Reserved" badge
@@ -41,8 +42,11 @@ CATEGORIES = [
     "Sports",
     "Other",
 ]
-CONDITIONS = ["New", "Like new", "Good", "Fair"]
+CONDITIONS = ["Brand New", "Like New", "Good", "Fair"]
 PICKUP_AREAS = ["Nova SBE campus", "Carcavelos", "Cascais", "Oeiras", "Lisbon centre", "Other"]
+
+OTHER = "Other"  # choosing this in Category or Pickup area means typing what it is
+MAX_OTHER_LENGTH = 40
 
 ACTIVE, RESERVED, SOLD = "active", "reserved", "sold"
 STATUSES = [ACTIVE, RESERVED, SOLD]
@@ -73,6 +77,25 @@ def euros_to_cents(euros) -> int:
     return int((Decimal(str(euros)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def parse_price(text) -> int | None:
+    """What the seller typed in the price box, in cents. None if the box is empty.
+
+    Accepts the ways people write prices: '15', '15,50', '15.50', '€15', '15 €'.
+    Raises ValueError for anything that isn't a price, like 'abc' or '1,2,3'.
+    """
+    cleaned = str(text or "").replace("€", "").replace(" ", "").replace(",", ".")
+    if not cleaned:
+        return None
+    if cleaned.count(".") > 1 or not cleaned.replace(".", "").isdigit():
+        raise ValueError("Price must be a number, like 15 or 15,50.")
+    return euros_to_cents(cleaned)
+
+
+def price_text(cents: int | None) -> str:
+    """1550 -> '15.50', for putting a price back in the price box."""
+    return "" if cents is None else f"{cents / 100:.2f}"
+
+
 def format_price(cents: int) -> str:
     """1250 -> '€12.50', 0 -> 'Free'."""
     return "Free" if cents == 0 else f"€{cents / 100:,.2f}"
@@ -100,10 +123,14 @@ def _text(value, label: str, min_len: int, max_len: int) -> list[str]:
     return []
 
 
-def check_offer(*, free: bool, price_cents: int) -> list[str]:
-    """'Sell for a price' needs a real price; 'Give it away for free' needs none."""
+def check_offer(*, free: bool | None, price_cents: int | None) -> list[str]:
+    """The seller must choose: 'Sell for a price' (needs a real price) or 'Give it away for free'."""
+    if free is None:
+        return ["Choose whether you sell it for a price or give it away for free."]
     if free:
         return []
+    if price_cents is None:
+        return ["Enter a price, or choose “Give it away for free”."]
     if not isinstance(price_cents, int) or isinstance(price_cents, bool):
         return ["Price must be a number."]
     if price_cents <= 0:
@@ -113,31 +140,59 @@ def check_offer(*, free: bool, price_cents: int) -> list[str]:
     return []
 
 
+def _choice_with_other(value, other_text, options, label, other_label) -> list[str]:
+    """A choice from the list; if it is "Other", the typed text is required too."""
+    if value not in options:
+        return [f"Choose a {label} from the list."]
+    if value == OTHER:
+        return _text(other_text, other_label, 2, MAX_OTHER_LENGTH)
+    return []
+
+
 def check_listing(*, title, description, free, price_cents, category, condition,
-                  pickup_area) -> list[str]:
-    """Every problem with the listing's fields (empty list = all good)."""
+                  pickup_area, category_other=None, pickup_area_other=None) -> list[str]:
+    """Every problem with the listing's fields (empty list = all good). All fields are required."""
     errors = _text(title, "Title", 3, 80) + _text(description, "Description", 10, 2000)
     errors += check_offer(free=free, price_cents=price_cents)
-    if category not in CATEGORIES:
-        errors.append("Choose a category from the list.")
+    errors += _choice_with_other(category, category_other, CATEGORIES, "category",
+                                 "Your category (for “Other”)")
     if condition not in CONDITIONS:
         errors.append("Choose a condition from the list.")
-    if pickup_area not in PICKUP_AREAS:
-        errors.append("Choose a pickup area from the list.")
+    errors += _choice_with_other(pickup_area, pickup_area_other, PICKUP_AREAS, "pickup area",
+                                 "Your pickup area (for “Other”)")
     return errors
 
 
+def _other_text(value, other_text):
+    """The typed text is only kept when "Other" was chosen."""
+    return other_text.strip() if value == OTHER else None
+
+
 def _fields(*, title, description, free, price_cents, category, condition,
-            pickup_area) -> dict:
+            pickup_area, category_other=None, pickup_area_other=None) -> dict:
     """The checked fields, tidied, in the shape they are stored in."""
     return {
         "title": title.strip(),
         "description": description.strip(),
         "price_cents": 0 if free else price_cents,
         "category": category,
+        "category_other": _other_text(category, category_other),
         "condition": condition,
         "pickup_area": pickup_area,
+        "pickup_area_other": _other_text(pickup_area, pickup_area_other),
     }
+
+
+def category_label(listing: dict) -> str:
+    """What to show as the category: 'Furniture', or the typed text for 'Other'."""
+    return (listing.get("category_other") if listing.get("category") == OTHER
+            else None) or listing.get("category", "")
+
+
+def pickup_label(listing: dict) -> str:
+    """What to show as the pickup area: 'Carcavelos', or the typed text for 'Other'."""
+    return (listing.get("pickup_area_other") if listing.get("pickup_area") == OTHER
+            else None) or listing.get("pickup_area", "")
 
 
 def _seller_profile(db, email: str) -> dict:
@@ -186,15 +241,18 @@ def feed_listings(db, limit: int = 20, offset: int = 0) -> list[dict]:
 # --- changing -------------------------------------------------------------------
 
 def create_listing(db, seller_email: str, *, title: str, description: str,
-                   free: bool, price_cents: int, category: str, condition: str,
-                   pickup_area: str, photos: list[bytes]) -> int:
+                   free: bool | None, price_cents: int | None, category: str | None,
+                   condition: str | None, pickup_area: str | None, photos: list[bytes],
+                   category_other: str | None = None,
+                   pickup_area_other: str | None = None) -> int:
     """Publish a new listing. Returns its id. Raises ListingError listing every problem."""
     seller = _seller_profile(db, seller_email)
     if seller.get("blocked_at"):  # an admin blocked this student (see admin.py)
         raise NotAllowed("Your account has been blocked, so you cannot sell.")
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
-                  condition=condition, pickup_area=pickup_area)
+                  condition=condition, pickup_area=pickup_area,
+                  category_other=category_other, pickup_area_other=pickup_area_other)
     errors = check_listing(**fields)
     count_errors = check_photo_count(len(photos))
     errors += count_errors
@@ -226,9 +284,11 @@ def _own_listing(db, listing_id: int, seller_email: str) -> tuple[dict, dict]:
 
 
 def update_listing(db, listing_id: int, seller_email: str, *, title: str, description: str,
-                   free: bool, price_cents: int, category: str, condition: str,
-                   pickup_area: str, keep_photo_paths: list[str] | None = None,
-                   new_photos: list[bytes] = ()) -> None:
+                   free: bool | None, price_cents: int | None, category: str | None,
+                   condition: str | None, pickup_area: str | None,
+                   keep_photo_paths: list[str] | None = None, new_photos: list[bytes] = (),
+                   category_other: str | None = None,
+                   pickup_area_other: str | None = None) -> None:
     """Edit your own listing.
 
     keep_photo_paths: the current photos to keep, in the order to show them
@@ -244,7 +304,8 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
 
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
-                  condition=condition, pickup_area=pickup_area)
+                  condition=condition, pickup_area=pickup_area,
+                  category_other=category_other, pickup_area_other=pickup_area_other)
     errors = check_listing(**fields)
     new_photos = list(new_photos)
     count_errors = check_photo_count(len(keep_photo_paths) + len(new_photos))
