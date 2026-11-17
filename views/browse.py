@@ -29,7 +29,15 @@ if me is None:
     st.page_link("views/profile.py", label="Fill in my profile")
     st.stop()
 my_id = me["id"]
-saved = browsing.saved_ids(database, my_id)
+
+# Saving needs the favorites table. If it isn't in the database yet, the rest of
+# Browse still works and saving is quietly turned off with a clear note.
+try:
+    saved = browsing.saved_ids(database, my_id)
+    saving_ready = True
+except Exception:
+    saved = set()
+    saving_ready = False
 
 
 def plain(text: str) -> str:
@@ -58,6 +66,8 @@ def flip_saved(listing_id: int) -> None:
 
 
 def save_button(listing_id: int, *, where: str) -> None:
+    if not saving_ready:
+        return
     is_saved = listing_id in saved
     if where == "detail":
         label = "💔 Remove from saved" if is_saved else "🤍 Save"
@@ -145,8 +155,12 @@ with browse_tab:
         listing_card(item)
 
 with saved_tab:
-    saved_items = browsing.saved_listings(database, my_id)
-    if not saved_items:
-        st.info("You haven't saved anything yet. Tap 🤍 on a listing to keep it here.")
-    for item in saved_items:
-        listing_card(item)
+    if not saving_ready:
+        st.info("Saving isn't set up in the database yet. Whoever manages the database "
+                "needs to run `database_setup.sql` (it adds the favorites table).")
+    else:
+        saved_items = browsing.saved_listings(database, my_id)
+        if not saved_items:
+            st.info("You haven't saved anything yet. Tap 🤍 on a listing to keep it here.")
+        for item in saved_items:
+            listing_card(item)
