@@ -73,6 +73,7 @@ with st.sidebar:
 
 # Every page of the app is listed here. The files live in the views folder.
 pages = [
+    st.Page("views/browse.py", title="Browse", default=True),
     st.Page("views/profile.py", title="My profile"),
     # Opened through links to one student, so it is not shown in the menu.
     st.Page(

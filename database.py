@@ -73,14 +73,100 @@ def save_profile(
 # --- Listings -----------------------------------------------------------------
 
 
-def get_active_listings(profile_id: int) -> list[dict]:
-    """Return the active listings of one student.
+def _attach_seller_names(rows: list[dict]) -> list[dict]:
+    """Add a 'seller_name' to each listing by looking the sellers up in profiles.
+    One extra query for the whole batch, so cards can show who is selling."""
+    seller_ids = sorted({row["seller_id"] for row in rows})
+    names = {}
+    if seller_ids:
+        people = _client().table("profiles").select("id, name").in_("id", seller_ids).execute().data
+        names = {person["id"]: person["name"] for person in people}
+    for row in rows:
+        row["seller_name"] = names.get(row["seller_id"], "A student")
+    return rows
 
-    Not built yet: there is no listings table. Until the listings part of
-    the project fills this in, every student has no listings. The public
-    profile page shows a "title" and a "price" for each listing returned.
-    """
-    return []
+
+def get_active_listings(profile_id: int) -> list[dict]:
+    """The available listings of one student (used by their public profile)."""
+    return (
+        _client().table("listings").select("*")
+        .eq("seller_id", profile_id).eq("status", "available")
+        .order("created_at", desc=True).execute().data
+    )
+
+
+def list_listings(include_sold: bool = False) -> list[dict]:
+    """Every listing, newest first, each with the seller's name. Searching,
+    filtering and sorting are done in listings.py so they can be tested without
+    the database."""
+    query = _client().table("listings").select("*")
+    if not include_sold:
+        query = query.eq("status", "available")
+    rows = query.order("created_at", desc=True).execute().data
+    return _attach_seller_names(rows)
+
+
+def get_listing(listing_id: int) -> dict | None:
+    """One listing with its seller's name, or None if it does not exist."""
+    rows = _client().table("listings").select("*").eq("id", listing_id).execute().data
+    return _attach_seller_names(rows)[0] if rows else None
+
+
+def create_listing(seller_id: int, title: str, description: str,
+                   price: float, category: str) -> dict:
+    """Post a new item for sale and return the stored row."""
+    row = {
+        "seller_id": seller_id,
+        "title": title,
+        "description": description,
+        "price": float(price),
+        "category": category,
+    }
+    return _client().table("listings").insert(row).execute().data[0]
+
+
+def mark_listing_sold(listing_id: int) -> None:
+    _client().table("listings").update({"status": "sold"}).eq("id", listing_id).execute()
+
+
+def delete_listing(listing_id: int) -> None:
+    _client().table("listings").delete().eq("id", listing_id).execute()
+
+
+# --- Favourites (a buyer's saved listings) ------------------------------------
+
+
+def add_favorite(profile_id: int, listing_id: int) -> None:
+    """Save a listing for a student. Saving twice keeps a single row."""
+    _client().table("favorites").upsert(
+        {"profile_id": profile_id, "listing_id": listing_id},
+        on_conflict="profile_id,listing_id",
+    ).execute()
+
+
+def remove_favorite(profile_id: int, listing_id: int) -> None:
+    (
+        _client().table("favorites").delete()
+        .eq("profile_id", profile_id).eq("listing_id", listing_id).execute()
+    )
+
+
+def favorite_listing_ids(profile_id: int) -> set[int]:
+    """The ids of the listings this student has saved."""
+    rows = (
+        _client().table("favorites").select("listing_id")
+        .eq("profile_id", profile_id).execute().data
+    )
+    return {row["listing_id"] for row in rows}
+
+
+def list_favorite_listings(profile_id: int) -> list[dict]:
+    """The full saved listings for this student, each with the seller's name."""
+    ids = favorite_listing_ids(profile_id)
+    if not ids:
+        return []
+    rows = _client().table("listings").select("*").in_("id", list(ids)).execute().data
+    return _attach_seller_names(rows)
 
 
 # --- Profile photos -----------------------------------------------------------
