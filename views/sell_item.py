@@ -74,6 +74,8 @@ if editing:
                 keep_paths.append(path)
 
 # --- the form ----------------------------------------------------------------
+st.page_link("views/house_rules.py", label="Before you post, read the house rules")
+
 with st.form("listing_form"):
     title = st.text_input("Title", value=start_value("title", ""), max_chars=80,
                           placeholder="e.g. Texas Instruments BA II Plus calculator")

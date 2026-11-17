@@ -76,6 +76,7 @@ pages = [
     st.Page("views/profile.py", title="My profile"),
     st.Page("views/sell_item.py", title="Sell an item"),
     st.Page("views/my_listings.py", title="My listings"),
+    st.Page("views/house_rules.py", title="House rules"),
     # Opened through links to one student, so it is not shown in the menu.
     st.Page(
         "views/public_profile.py",
