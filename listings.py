@@ -190,6 +190,8 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
                    pickup_area: str, photos: list[bytes]) -> int:
     """Publish a new listing. Returns its id. Raises ListingError listing every problem."""
     seller = _seller_profile(db, seller_email)
+    if seller.get("blocked_at"):  # an admin blocked this student (see admin.py)
+        raise NotAllowed("Your account has been blocked, so you cannot sell.")
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
                   condition=condition, pickup_area=pickup_area)

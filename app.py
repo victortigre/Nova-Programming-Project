@@ -9,7 +9,7 @@ verified Nova student gets through to the pages listed at the bottom.
 import streamlit as st
 
 import database
-from accounts import email_is_verified, logged_in_user, nova_email
+from accounts import admin_emails, email_is_verified, is_admin, logged_in_user, nova_email
 
 
 def login_is_set_up() -> bool:
@@ -74,7 +74,14 @@ if not email_is_verified(user_info):
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
-# 5. A verified Nova student is logged in: show the pages.
+# 5. An admin blocked this student: no entry.
+profile = database.get_profile(email)
+if profile is not None and profile.get("blocked_at"):
+    st.error("Your account has been blocked because it broke the house rules.")
+    st.button("Sign out", on_click=st.logout)
+    st.stop()
+
+# 6. A verified Nova student is logged in: show the pages.
 with st.sidebar:
     st.write(f"Signed in as {email}")
     st.button("Sign out", on_click=st.logout)
@@ -100,4 +107,7 @@ pages = [
         visibility="hidden",
     ),
 ]
+# Only admins get the Admin page. The admin.py functions check it again.
+if is_admin(email, admin_emails()):
+    pages.append(st.Page("views/admin.py", title="Admin"))
 st.navigation(pages).run()

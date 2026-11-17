@@ -17,7 +17,7 @@ class FakeDatabase:
         self._numbers = itertools.count(1)
 
     def add_profile(self, email: str, name: str = "Test Student") -> dict:
-        profile = {"id": next(self._numbers), "email": email, "name": name}
+        profile = {"id": next(self._numbers), "email": email, "name": name, "blocked_at": None}
         self.profiles[email] = profile
         return profile
 
@@ -52,9 +52,19 @@ class FakeDatabase:
     def listings_of_seller(self, seller_id):
         return self._newest_first(r for r in self.listings.values() if r["seller_id"] == seller_id)
 
+    def _seller_is_blocked(self, listing):
+        seller = self.get_profile_by_id(listing["seller_id"])
+        return seller is not None and seller["blocked_at"] is not None
+
     def feed_listings(self, limit, offset):
-        shown = self._newest_first(r for r in self.listings.values() if r["status"] != "sold")
+        shown = self._newest_first(r for r in self.listings.values()
+                                   if r["status"] != "sold" and not self._seller_is_blocked(r))
         return shown[offset:offset + limit]
+
+    def get_active_listings(self, profile_id):
+        return self._newest_first(r for r in self.listings.values()
+                                  if r["seller_id"] == profile_id and r["status"] == "active"
+                                  and not self._seller_is_blocked(r))
 
     def update_listing(self, listing_id, seller_id, changes):
         listing = self.listings.get(listing_id)
@@ -76,7 +86,8 @@ class FakeDatabase:
             self.photos.pop(path, None)
 
     def insert_report(self, row):
-        report = {**row, "id": next(self._numbers), "status": "open"}
+        report = {**row, "id": next(self._numbers), "status": "open", "handled_at": None}
+        report["created_at"] = report["id"]  # a higher number means newer
         self.reports[report["id"]] = report
         return dict(report)
 
@@ -87,3 +98,30 @@ class FakeDatabase:
                     and report["reported_profile_id"] == reported_profile_id):
                 return dict(report)
         return None
+
+    # --- admin ----------------------------------------------------------------
+
+    def get_report(self, report_id):
+        report = self.reports.get(report_id)
+        return dict(report) if report else None
+
+    def open_reports(self):
+        rows = [r for r in self.reports.values() if r["status"] == "open"]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"])]
+
+    def close_reports(self, report_ids, status):
+        for report_id in report_ids:
+            report = self.reports.get(report_id)
+            if report and report["status"] == "open":
+                report["status"] = status
+                report["handled_at"] = "now"
+
+    def block_profile(self, profile_id):
+        for profile in self.profiles.values():
+            if profile["id"] == profile_id:
+                profile["blocked_at"] = "now"
+
+    def admin_delete_listing(self, listing_id):
+        self.listings.pop(listing_id, None)
+        # Like "on delete cascade" in the real database: its reports go too.
+        self.reports = {i: r for i, r in self.reports.items() if r["listing_id"] != listing_id}

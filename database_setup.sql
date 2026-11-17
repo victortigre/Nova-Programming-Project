@@ -90,3 +90,8 @@ create unique index if not exists reports_one_open_per_listing
     on reports (reporter_id, listing_id) where status = 'open' and listing_id is not null;
 create unique index if not exists reports_one_open_per_student
     on reports (reporter_id, reported_profile_id) where status = 'open' and reported_profile_id is not null;
+
+-- When an admin blocks a student, the time is stored here. Empty (null)
+-- means the student is not blocked. A blocked student cannot use the app,
+-- and their listings are no longer shown to others.
+alter table profiles add column if not exists blocked_at timestamptz;

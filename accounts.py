@@ -109,3 +109,31 @@ def logged_in_user() -> dict:
     if email_is_verified(user_info):
         st.session_state["email_confirmed_for"] = user_info.get("sub")
     return user_info
+
+
+# --- Admins -------------------------------------------------------------------
+#
+# Admins handle the reports students send. Who is an admin is written in
+# .streamlit/secrets.toml, not in the code:
+#
+#     [admin]
+#     emails = ["someone@novasbe.pt"]
+
+
+def is_admin(email: str | None, admin_emails: list[str] | None) -> bool:
+    """True if `email` is on the list of admin emails (upper/lower case does not matter)."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    admins = [(admin or "").strip().lower() for admin in (admin_emails or [])]
+    return email in admins
+
+
+def admin_emails() -> list[str]:
+    """The admin emails from .streamlit/secrets.toml. No [admin] section = no admins."""
+    import streamlit as st
+
+    try:
+        return list(st.secrets["admin"]["emails"])
+    except (KeyError, FileNotFoundError, st.errors.StreamlitSecretNotFoundError):
+        return []

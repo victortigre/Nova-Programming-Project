@@ -11,6 +11,7 @@ Rules that keep this safe:
 * A report is about exactly one thing: a listing or a student, and that
   thing must exist.
 * You cannot report yourself or your own listing.
+* A student blocked by an admin cannot send reports.
 * The same student cannot send a second report about the same thing while
   the first one is still open. Different students can each report it.
 
@@ -67,6 +68,8 @@ def _reporter_profile(db, email: str) -> dict:
     profile = db.get_profile(reporter)
     if profile is None:
         raise NotAllowed("Fill in your profile before you send a report.")
+    if profile.get("blocked_at"):  # an admin blocked this student (see admin.py)
+        raise NotAllowed("Your account has been blocked, so you cannot send reports.")
     return profile
 
 
