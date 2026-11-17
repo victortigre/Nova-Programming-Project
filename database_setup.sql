@@ -54,3 +54,19 @@ alter table listings enable row level security;
 insert into storage.buckets (id, name, public)
 values ('listing-photos', 'listing-photos', false)
 on conflict (id) do nothing;
+
+-- One row each time a buyer saves a listing (their wishlist). The pair is
+-- unique, so saving the same listing twice keeps a single row. If either the
+-- buyer's profile or the listing is deleted, the saved row goes with it.
+create table if not exists favorites (
+    id         bigint generated always as identity primary key,
+    profile_id bigint not null references profiles(id) on delete cascade,
+    listing_id bigint not null references listings(id) on delete cascade,
+    created_at timestamptz not null default now(),
+    unique (profile_id, listing_id)
+);
+
+create index if not exists favorites_profile_idx on favorites (profile_id);
+
+-- Locked the same way as the other tables: only our app can read or change rows.
+alter table favorites enable row level security;

@@ -73,6 +73,7 @@ with st.sidebar:
 
 # Every page of the app is listed here. The files live in the views folder.
 pages = [
+    st.Page("views/browse.py", title="Browse", default=True),
     st.Page("views/profile.py", title="My profile"),
     st.Page("views/sell_item.py", title="Sell an item"),
     st.Page("views/my_listings.py", title="My listings"),

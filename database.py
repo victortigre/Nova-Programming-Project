@@ -133,6 +133,51 @@ def delete_listing(listing_id: int, seller_id: int) -> None:
     _client().table("listings").delete().eq("id", listing_id).eq("seller_id", seller_id).execute()
 
 
+# --- Favourites ----------------------------------------------------------------
+#
+# A buyer's saved listings (their wishlist). Which rows a buyer may touch is
+# decided by the page (it passes the profile from the login); here we just store.
+
+
+def add_favorite(profile_id: int, listing_id: int) -> None:
+    """Save a listing for a buyer. Saving the same one twice keeps a single row."""
+    (
+        _client().table("favorites")
+        .upsert({"profile_id": profile_id, "listing_id": listing_id},
+                on_conflict="profile_id,listing_id")
+        .execute()
+    )
+
+
+def remove_favorite(profile_id: int, listing_id: int) -> None:
+    """Remove a saved listing."""
+    (
+        _client().table("favorites").delete()
+        .eq("profile_id", profile_id).eq("listing_id", listing_id)
+        .execute()
+    )
+
+
+def favorite_ids(profile_id: int) -> list[int]:
+    """The ids of the listings this buyer saved, newest-saved first."""
+    rows = (
+        _client().table("favorites").select("listing_id")
+        .eq("profile_id", profile_id).order("id", desc=True)
+        .execute().data
+    )
+    return [row["listing_id"] for row in rows]
+
+
+def favorite_listings(profile_id: int) -> list[dict]:
+    """The buyer's saved listings in full, newest-saved first."""
+    ids = favorite_ids(profile_id)
+    if not ids:
+        return []
+    rows = _client().table("listings").select("*").in_("id", ids).execute().data
+    order = {listing_id: position for position, listing_id in enumerate(ids)}
+    return sorted(rows, key=lambda row: order.get(row["id"], len(ids)))
+
+
 # --- Photos -------------------------------------------------------------------
 
 
