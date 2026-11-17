@@ -1,12 +1,14 @@
-"""Nova Marketplace - start page.
+"""Nova Marketplace - the file that starts the app.
 
 Run it with:  streamlit run app.py
 
-Right now this page only tests the login.
+Every visit starts here. First it checks who is at the door. Only a
+verified Nova student gets through to the pages listed at the bottom.
 """
 
 import streamlit as st
 
+import database
 from accounts import email_is_verified, nova_email
 
 
@@ -22,12 +24,20 @@ def login_is_set_up() -> bool:
 
 st.title("Nova Marketplace")
 
-# 1. The login has to be configured on this computer first.
+# 1. The login and the database have to be configured on this computer first.
 if not login_is_set_up():
     st.warning(
         "The login is not set up on this computer yet. "
         "Copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml` "
         "and fill in the three values from Auth0."
+    )
+    st.stop()
+
+if not database.database_is_set_up():
+    st.warning(
+        "The database is not set up on this computer yet. "
+        "Add the two `[supabase]` values to `.streamlit/secrets.toml` "
+        "(see `.streamlit/secrets.toml.example`)."
     )
     st.stop()
 
@@ -56,10 +66,20 @@ if not email_is_verified(user_info):
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
-# 5. A verified Nova student is logged in.
-st.success(f"Signed in as {email}")
-st.button("Sign out", on_click=st.logout)
+# 5. A verified Nova student is logged in: show the pages.
+with st.sidebar:
+    st.write(f"Signed in as {email}")
+    st.button("Sign out", on_click=st.logout)
 
-# Test only - remove before the real app goes live.
-with st.expander("What Auth0 told the app about you (test only)"):
-    st.json(user_info)
+# Every page of the app is listed here. The files live in the views folder.
+pages = [
+    st.Page("views/profile.py", title="My profile"),
+    # Opened through links to one student, so it is not shown in the menu.
+    st.Page(
+        "views/public_profile.py",
+        title="Student profile",
+        url_path="student",
+        visibility="hidden",
+    ),
+]
+st.navigation(pages).run()
