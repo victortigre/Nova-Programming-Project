@@ -13,12 +13,12 @@ from datetime import date
 import streamlit as st
 
 import database
-from accounts import verified_nova_email
-from listings import format_price
+from accounts import logged_in_user, verified_nova_email
+from listings import format_price, plain_text
 from profiles import profile_id_from_text, public_profile
 
 # Only verified Nova students may look at profiles.
-email = verified_nova_email(st.user.to_dict())
+email = verified_nova_email(logged_in_user())
 if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
@@ -58,9 +58,20 @@ with text_column:
         st.write(f"Leaving Lisbon on {shown['leaving_lisbon_on']:%d %B %Y}")
     st.caption(f"Member since {shown['member_since']:%B %Y}")
 
+# Nobody reports themselves, so the Report links only show on other profiles.
+is_own_profile = profile["email"] == email
+if not is_own_profile:
+    st.page_link("views/report.py", label="Report this student",
+                 query_params={"student": shown["id"]})
+
 st.subheader("Active listings")
 listings = database.get_active_listings(shown["id"])
 if not listings:
     st.write("No active listings at the moment.")
 for listing in listings:
-    st.write(f"**{listing['title']}** - {format_price(listing['price_cents'])}")
+    title_column, link_column = st.columns([4, 1])
+    # plain_text shows the title as typed, so it can't add links or formatting.
+    title_column.write(f"**{plain_text(listing['title'])}** - {format_price(listing['price_cents'])}")
+    if not is_own_profile:
+        link_column.page_link("views/report.py", label="Report",
+                              query_params={"listing": listing["id"]})

@@ -5,16 +5,14 @@ Every button calls a function in listings.py, which checks again that you
 are the seller before changing anything.
 """
 
-import re
-
 import streamlit as st
 
 import database
 import listings
-from accounts import verified_nova_email
+from accounts import logged_in_user, verified_nova_email
 
 # Who is using this page? The email always comes from the login, never from a form.
-email = verified_nova_email(st.user.to_dict())
+email = verified_nova_email(logged_in_user())
 if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
@@ -29,11 +27,6 @@ if database.get_profile(email) is None:
 # A message from the last button press survives the page reload.
 if "listing_message" in st.session_state:
     st.success(st.session_state.pop("listing_message"))
-
-
-def plain(text: str) -> str:
-    """Show user-written text literally, so a title can't add links or formatting."""
-    return re.sub(r"([\\`*_{}\[\]()#+\-.!|>~<$:])", r"\\\1", text)
 
 
 def run(action, listing_id: int, done_message: str) -> None:
@@ -57,9 +50,10 @@ def listing_row(listing: dict) -> None:
         photo_col, info_col = st.columns([1, 3])
         if listing["photo_paths"]:
             photo_col.image(database.listing_photo_url(listing["photo_paths"][0]))
-        info_col.markdown(f"**{plain(listing['title'])}**")
+        info_col.markdown(f"**{listings.plain_text(listing['title'])}**")
         info_col.caption(f"{listings.format_price(listing['price_cents'])} · "
-                         f"{listing['category']} · {listing['pickup_area']}")
+                         f"{listings.plain_text(listings.category_label(listing))} · "
+                         f"{listings.plain_text(listings.pickup_label(listing))}")
         if status == listings.RESERVED:
             info_col.markdown(":orange[**🔒 Reserved**]")
 

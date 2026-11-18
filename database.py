@@ -98,10 +98,17 @@ def listings_of_seller(seller_id: int) -> list[dict]:
     )
 
 
+# Listings of a blocked seller are never shown to others. "profiles!inner"
+# joins each listing to its seller's profile and drops listings whose seller
+# does not match the filter "blocked_at is null" (= not blocked).
+NOT_BLOCKED_SELLER = "*, profiles!inner(blocked_at)"
+
+
 def feed_listings(limit: int, offset: int) -> list[dict]:
-    """Return the listings buyers may see (not sold ones), newest first."""
+    """Return the listings buyers may see (not sold, seller not blocked), newest first."""
     return (
-        _client().table("listings").select("*").neq("status", "sold")
+        _client().table("listings").select(NOT_BLOCKED_SELLER)
+        .is_("profiles.blocked_at", "null").neq("status", "sold")
         .order("created_at", desc=True).order("id", desc=True)
         .range(offset, offset + limit - 1)
         .execute().data
@@ -109,9 +116,10 @@ def feed_listings(limit: int, offset: int) -> list[dict]:
 
 
 def get_active_listings(profile_id: int) -> list[dict]:
-    """Return the active listings of one student, newest first."""
+    """Return the active listings of one student (none if blocked), newest first."""
     return (
-        _client().table("listings").select("*")
+        _client().table("listings").select(NOT_BLOCKED_SELLER)
+        .is_("profiles.blocked_at", "null")
         .eq("seller_id", profile_id).eq("status", "active")
         .order("created_at", desc=True)
         .execute().data
@@ -176,6 +184,77 @@ def favorite_listings(profile_id: int) -> list[dict]:
     rows = _client().table("listings").select("*").in_("id", ids).execute().data
     order = {listing_id: position for position, listing_id in enumerate(ids)}
     return sorted(rows, key=lambda row: order.get(row["id"], len(ids)))
+# --- Reports ------------------------------------------------------------------
+#
+# The rules (who may report what) are in reports.py. A report points to a
+# listing OR to a student, never both.
+
+
+def insert_report(row: dict) -> dict:
+    """Store a new report and return it, with its new id."""
+    return _client().table("reports").insert(row).execute().data[0]
+
+
+def open_report(
+    reporter_id: int, listing_id: int | None, reported_profile_id: int | None
+) -> dict | None:
+    """Return this student's open report about this listing or student, or None."""
+    query = (
+        _client().table("reports").select("*")
+        .eq("reporter_id", reporter_id).eq("status", "open")
+    )
+    if listing_id is not None:
+        query = query.eq("listing_id", listing_id)
+    else:
+        query = query.eq("reported_profile_id", reported_profile_id)
+    rows = query.limit(1).execute().data
+    return rows[0] if rows else None
+
+
+# --- Admin --------------------------------------------------------------------
+#
+# The rules (only admins, what each button does) are in admin.py. These
+# functions do not check who is asking, so only admin.py calls them.
+
+
+def _now() -> str:
+    """The current time, in the form Supabase stores it."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def get_report(report_id: int) -> dict | None:
+    """Return the report with this number, or None if there is none."""
+    rows = _client().table("reports").select("*").eq("id", report_id).execute().data
+    return rows[0] if rows else None
+
+
+def open_reports() -> list[dict]:
+    """Return every report no admin has handled yet, oldest first."""
+    return (
+        _client().table("reports").select("*").eq("status", "open")
+        .order("created_at").order("id")
+        .execute().data
+    )
+
+
+def close_reports(report_ids: list[int], status: str) -> None:
+    """Give these open reports a new status ("blocked" or "dismissed") and the time."""
+    if report_ids:
+        (
+            _client().table("reports").update({"status": status, "handled_at": _now()})
+            .in_("id", list(report_ids)).eq("status", "open")
+            .execute()
+        )
+
+
+def block_profile(profile_id: int) -> None:
+    """Mark a student as blocked, from now on."""
+    _client().table("profiles").update({"blocked_at": _now()}).eq("id", profile_id).execute()
+
+
+def admin_delete_listing(listing_id: int) -> None:
+    """Remove any listing, whoever the seller is. Its reports go with it."""
+    _client().table("listings").delete().eq("id", listing_id).execute()
 
 
 # --- Photos -------------------------------------------------------------------

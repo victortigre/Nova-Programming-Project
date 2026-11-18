@@ -14,17 +14,28 @@ class FakeDatabase:
         self.listings = {}  # id -> listing
         self.photos = {}  # stored name -> picture bytes
         self.favorites = []  # (profile_id, listing_id), in the order they were saved
+        self.reports = {}  # id -> report
         self._numbers = itertools.count(1)
 
-    def add_profile(self, email: str) -> dict:
-        profile = {"id": next(self._numbers), "email": email}
+    def add_profile(self, email: str, name: str = "Test Student") -> dict:
+        profile = {"id": next(self._numbers), "email": email, "name": name, "blocked_at": None}
         self.profiles[email] = profile
         return profile
+
+    def add_listing(self, seller_id: int, title: str = "Desk lamp") -> dict:
+        """Put a listing straight in, without the checks of listings.py."""
+        return self.insert_listing({"seller_id": seller_id, "title": title, "photo_paths": []})
 
     # --- the same functions as database.py ------------------------------------
 
     def get_profile(self, email):
         return self.profiles.get(email)
+
+    def get_profile_by_id(self, profile_id):
+        for profile in self.profiles.values():
+            if profile["id"] == profile_id:
+                return dict(profile)
+        return None
 
     def insert_listing(self, row):
         listing = {**row, "id": next(self._numbers), "status": "active"}
@@ -42,9 +53,19 @@ class FakeDatabase:
     def listings_of_seller(self, seller_id):
         return self._newest_first(r for r in self.listings.values() if r["seller_id"] == seller_id)
 
+    def _seller_is_blocked(self, listing):
+        seller = self.get_profile_by_id(listing["seller_id"])
+        return seller is not None and seller["blocked_at"] is not None
+
     def feed_listings(self, limit, offset):
-        shown = self._newest_first(r for r in self.listings.values() if r["status"] != "sold")
+        shown = self._newest_first(r for r in self.listings.values()
+                                   if r["status"] != "sold" and not self._seller_is_blocked(r))
         return shown[offset:offset + limit]
+
+    def get_active_listings(self, profile_id):
+        return self._newest_first(r for r in self.listings.values()
+                                  if r["seller_id"] == profile_id and r["status"] == "active"
+                                  and not self._seller_is_blocked(r))
 
     def update_listing(self, listing_id, seller_id, changes):
         listing = self.listings.get(listing_id)
@@ -80,3 +101,43 @@ class FakeDatabase:
     def favorite_listings(self, profile_id):
         return [dict(self.listings[lid]) for lid in self.favorite_ids(profile_id)
                 if lid in self.listings]
+    def insert_report(self, row):
+        report = {**row, "id": next(self._numbers), "status": "open", "handled_at": None}
+        report["created_at"] = report["id"]  # a higher number means newer
+        self.reports[report["id"]] = report
+        return dict(report)
+
+    def open_report(self, reporter_id, listing_id, reported_profile_id):
+        for report in self.reports.values():
+            if (report["reporter_id"] == reporter_id and report["status"] == "open"
+                    and report["listing_id"] == listing_id
+                    and report["reported_profile_id"] == reported_profile_id):
+                return dict(report)
+        return None
+
+    # --- admin ----------------------------------------------------------------
+
+    def get_report(self, report_id):
+        report = self.reports.get(report_id)
+        return dict(report) if report else None
+
+    def open_reports(self):
+        rows = [r for r in self.reports.values() if r["status"] == "open"]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"])]
+
+    def close_reports(self, report_ids, status):
+        for report_id in report_ids:
+            report = self.reports.get(report_id)
+            if report and report["status"] == "open":
+                report["status"] = status
+                report["handled_at"] = "now"
+
+    def block_profile(self, profile_id):
+        for profile in self.profiles.values():
+            if profile["id"] == profile_id:
+                profile["blocked_at"] = "now"
+
+    def admin_delete_listing(self, listing_id):
+        self.listings.pop(listing_id, None)
+        # Like "on delete cascade" in the real database: its reports go too.
+        self.reports = {i: r for i, r in self.reports.items() if r["listing_id"] != listing_id}

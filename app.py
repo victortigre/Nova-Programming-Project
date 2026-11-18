@@ -9,7 +9,7 @@ verified Nova student gets through to the pages listed at the bottom.
 import streamlit as st
 
 import database
-from accounts import email_is_verified, nova_email
+from accounts import admin_emails, email_is_verified, is_admin, logged_in_user, nova_email
 
 
 def login_is_set_up() -> bool:
@@ -48,7 +48,7 @@ if not st.user.is_logged_in:
         st.login("auth0")
     st.stop()
 
-user_info = st.user.to_dict()
+user_info = logged_in_user()
 email = nova_email(user_info)
 
 # 3. Logged in, but not with a Nova address: no entry.
@@ -61,12 +61,27 @@ if email is None:
 if not email_is_verified(user_info):
     st.info(
         f"We sent a confirmation link to {email}. "
-        "Click it, then sign out here and sign in again."
+        "Click it, then come back here and press the button below."
     )
+    # Pressing the button runs this file again, and logged_in_user() then
+    # asks Auth0 whether the email is confirmed now.
+    if st.button("I clicked the link", type="primary"):
+        st.caption(
+            "Your email is not confirmed yet. If you did click the link, "
+            "sign in again to finish."
+        )
+        st.button("Sign in again", on_click=st.login, args=("auth0",))
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
-# 5. A verified Nova student is logged in: show the pages.
+# 5. An admin blocked this student: no entry.
+profile = database.get_profile(email)
+if profile is not None and profile.get("blocked_at"):
+    st.error("Your account has been blocked because it broke the house rules.")
+    st.button("Sign out", on_click=st.logout)
+    st.stop()
+
+# 6. A verified Nova student is logged in: show the pages.
 with st.sidebar:
     st.write(f"Signed in as {email}")
     st.button("Sign out", on_click=st.logout)
@@ -77,6 +92,7 @@ pages = [
     st.Page("views/profile.py", title="My profile"),
     st.Page("views/sell_item.py", title="Sell an item"),
     st.Page("views/my_listings.py", title="My listings"),
+    st.Page("views/house_rules.py", title="House rules"),
     # Opened through links to one student, so it is not shown in the menu.
     st.Page(
         "views/public_profile.py",
@@ -84,5 +100,15 @@ pages = [
         url_path="student",
         visibility="hidden",
     ),
+    # Opened through the "Report" links on a listing or a profile.
+    st.Page(
+        "views/report.py",
+        title="Report",
+        url_path="report",
+        visibility="hidden",
+    ),
 ]
+# Only admins get the Admin page. The admin.py functions check it again.
+if is_admin(email, admin_emails()):
+    pages.append(st.Page("views/admin.py", title="Admin"))
 st.navigation(pages).run()

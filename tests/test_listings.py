@@ -99,6 +99,96 @@ def test_every_problem_is_reported_at_once(db):
     assert len(exc.value.errors) == 7
 
 
+# --- every question is required -------------------------------------------------
+
+def test_nothing_chosen_is_rejected_with_one_message_per_question(db):
+    with pytest.raises(ListingError) as exc:
+        listings.create_listing(db, ANA, title="", description="", free=None,
+                                price_cents=None, category=None, condition=None,
+                                pickup_area=None, photos=[])
+    assert exc.value.errors == [
+        "Title must be at least 3 characters.",
+        "Description must be at least 10 characters.",
+        "Choose whether you sell it for a price or give it away for free.",
+        "Choose a category from the list.",
+        "Choose a condition from the list.",
+        "Choose a pickup area from the list.",
+        "Add at least one photo.",
+    ]
+
+
+def test_free_items_need_every_question_too(db):
+    with pytest.raises(ListingError) as exc:
+        new_listing(db, free=True, price_cents=None, condition=None, pickup_area=None)
+    assert exc.value.errors == ["Choose a condition from the list.",
+                                "Choose a pickup area from the list."]
+
+
+def test_selling_without_typing_a_price(db):
+    with pytest.raises(ListingError, match="Enter a price"):
+        new_listing(db, free=False, price_cents=None)
+
+
+@pytest.mark.parametrize("condition", ["Brand New", "Like New", "Good", "Fair"])
+def test_the_four_conditions_are_accepted(db, condition):
+    assert listings.get_listing(db, new_listing(db, condition=condition))["condition"] == condition
+
+
+def test_old_condition_names_are_no_longer_accepted(db):
+    with pytest.raises(ListingError, match="condition"):
+        new_listing(db, condition="New")
+
+
+# --- "Other" needs a typed answer -----------------------------------------------
+
+@pytest.mark.parametrize("typed", [None, "", "   ", "x"])
+def test_other_category_needs_a_typed_category(db, typed):
+    with pytest.raises(ListingError, match="Your category"):
+        new_listing(db, category="Other", category_other=typed)
+
+
+@pytest.mark.parametrize("typed", [None, "", "   ", "x"])
+def test_other_pickup_area_needs_a_typed_place(db, typed):
+    with pytest.raises(ListingError, match="Your pickup area"):
+        new_listing(db, pickup_area="Other", pickup_area_other=typed)
+
+
+def test_typed_answers_are_too_long(db):
+    with pytest.raises(ListingError) as exc:
+        new_listing(db, category="Other", category_other="x" * 41,
+                    pickup_area="Other", pickup_area_other="y" * 41)
+    assert len(exc.value.errors) == 2
+
+
+def test_other_answers_are_stored_and_shown(db):
+    listing_id = new_listing(db, category="Other", category_other="  Bike accessories ",
+                             pickup_area="Other", pickup_area_other="Saldanha metro")
+    listing = listings.get_listing(db, listing_id)
+    assert (listing["category"], listing["category_other"]) == ("Other", "Bike accessories")
+    assert listings.category_label(listing) == "Bike accessories"
+    assert listings.pickup_label(listing) == "Saldanha metro"
+
+
+def test_typed_text_is_ignored_when_other_is_not_chosen(db):
+    listing = listings.get_listing(db, new_listing(db, category_other="leftover text",
+                                                   pickup_area_other="leftover text"))
+    assert listing["category_other"] is None and listing["pickup_area_other"] is None
+    assert listings.category_label(listing) == "Calculators & electronics"
+    assert listings.pickup_label(listing) == "Nova SBE campus"
+
+
+def test_editing_away_from_other_clears_the_typed_text(db):
+    listing_id = new_listing(db, category="Other", category_other="Bike accessories")
+    edit(db, listing_id, category="Sports")
+    assert listings.get_listing(db, listing_id)["category_other"] is None
+
+
+def test_editing_to_other_needs_the_typed_text(db):
+    listing_id = new_listing(db)
+    with pytest.raises(ListingError, match="Your pickup area"):
+        edit(db, listing_id, pickup_area="Other")
+
+
 def test_only_nova_accounts_can_sell(db):
     with pytest.raises(NotAllowed):
         new_listing(db, seller="someone@gmail.com")
@@ -304,8 +394,41 @@ def test_my_listings_empty(db):
 
 # --- money ----------------------------------------------------------------------
 
+@pytest.mark.parametrize("typed, cents", [
+    ("15", 1500), ("15,50", 1550), ("15.5", 1550), ("€15", 1500), ("15 €", 1500),
+    (" 0,99 ", 99), ("", None), (None, None),
+])
+def test_typed_prices_are_understood(typed, cents):
+    assert listings.parse_price(typed) == cents
+
+
+@pytest.mark.parametrize("typed", ["abc", "1,2,3", "-5", "15€50x"])
+def test_typed_nonsense_is_not_a_price(typed):
+    with pytest.raises(ValueError, match="Price must be a number"):
+        listings.parse_price(typed)
+
+
+def test_price_goes_back_into_the_box():
+    assert listings.price_text(1550) == "15.50"
+    assert listings.price_text(None) == ""
+
+
 def test_money_conversion():
     assert listings.euros_to_cents(12.5) == 1250
     assert listings.euros_to_cents(0.1 + 0.2) == 30
     assert listings.format_price(1250) == "€12.50"
     assert listings.format_price(123456) == "€1,234.56"
+
+
+# --- showing titles as plain text -----------------------------------------------
+
+def test_plain_text_escapes_a_link():
+    assert listings.plain_text("[click](http://x)") == r"\[click\]\(http\://x\)"
+
+
+def test_plain_text_escapes_bold():
+    assert listings.plain_text("**bold**") == r"\*\*bold\*\*"
+
+
+def test_plain_text_leaves_normal_text_alone():
+    assert listings.plain_text("Desk lamp 2024") == "Desk lamp 2024"
