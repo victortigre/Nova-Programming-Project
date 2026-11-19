@@ -96,8 +96,8 @@ if viewing is not None:
     with ui.card("detail"):
         photo_col, info_col = st.columns([1, 1], gap="large")
         with photo_col:
-            urls = [database.listing_photo_url(path) for path in item["photo_paths"]]
-            urls = [url for url in urls if url]
+            links = database.listing_photo_urls(item["photo_paths"])
+            urls = [links[path] for path in item["photo_paths"] if path in links]
             if urls:
                 st.image(urls[0], width="stretch")
                 if len(urls) > 1:
@@ -130,6 +130,9 @@ if viewing is not None:
 # A saved listing shows up in both tabs, so "tab" goes into each key:
 # Streamlit refuses two buttons with the same key on one page.
 def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
+    # One request for all cover photo links, instead of one per card.
+    links = database.listing_photo_urls(
+        [item["photo_paths"][0] for item in items if item["photo_paths"]])
     for start in range(0, len(items), columns):
         row = st.columns(columns, gap="medium")
         for column, item in zip(row, items[start:start + columns]):
@@ -138,7 +141,7 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                 own = my_id == item["seller_id"]
                 clicked = ui.listing_card(
                     item,
-                    database.listing_photo_url(cover) if cover else None,
+                    links.get(cover),
                     key=f"{tab}-{item['id']}",
                     saved=None if (own or not saving_ready) else item["id"] in saved,
                     on_heart=partial(flip_saved, item["id"]),

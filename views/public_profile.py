@@ -75,13 +75,16 @@ st.subheader("Active listings")
 if not listings:
     st.write("No active listings at the moment.")
 columns_per_row = 4
+# One request for all cover photo links, instead of one per card.
+links = database.listing_photo_urls(
+    [listing["photo_paths"][0] for listing in listings if listing.get("photo_paths")])
 for start in range(0, len(listings), columns_per_row):
     row = st.columns(columns_per_row, gap="medium")
     for column, listing in zip(row, listings[start:start + columns_per_row]):
         cover = listing["photo_paths"][0] if listing.get("photo_paths") else None
         with column:
             clicked = ui.listing_card(
-                listing, database.listing_photo_url(cover) if cover else None,
+                listing, links.get(cover),
                 key=f"profile-{listing['id']}",
             )
         # The price button opens the listing on Browse, where it can be saved or reported.

@@ -9,6 +9,8 @@ who may do what before they call a function from here: a page always
 passes the email it got from the login, never one typed into a form.
 """
 
+import threading
+import time
 import uuid
 from datetime import date, datetime, timezone
 
@@ -18,6 +20,21 @@ from supabase import Client, create_client
 PHOTO_BUCKET = "profile-photos"
 LISTING_PHOTO_BUCKET = "listing-photos"
 PHOTO_LINK_SECONDS = 3600  # a photo link works for one hour
+# A photo link is reused for 50 minutes, so a link we hand out still has
+# at least 10 minutes left before it stops working.
+PHOTO_LINK_REUSE_SECONDS = 50 * 60
+
+# --- Speed --------------------------------------------------------------------
+#
+# Streamlit runs the whole page again on every click. Without help, every click
+# would ask Supabase again for the same profile, the same listings and a new
+# link for every photo, one request after another. So a few answers are kept
+# for a short time (st.cache_data with "ttl", time to live, in seconds).
+# Every function below that changes those rows empties the matching memory
+# right away, so a change is never hidden behind an old answer.
+PROFILE_MEMORY_SECONDS = 60
+FEED_MEMORY_SECONDS = 30
+FAVORITES_MEMORY_SECONDS = 60
 
 
 def database_is_set_up() -> bool:
@@ -40,6 +57,7 @@ def _client() -> Client:
 # --- Profiles -----------------------------------------------------------------
 
 
+@st.cache_data(ttl=PROFILE_MEMORY_SECONDS, show_spinner=False)
 def get_profile(email: str) -> dict | None:
     """Return the profile that belongs to this email, or None if there is none."""
     rows = _client().table("profiles").select("*").eq("email", email).execute().data
@@ -68,6 +86,7 @@ def save_profile(
         "photo_path": photo_path,
     }
     saved = _client().table("profiles").upsert(row, on_conflict="email").execute().data
+    get_profile.clear()
     return saved[0]
 
 
@@ -75,6 +94,7 @@ def accept_house_rules(email: str) -> None:
     """Remember that the student with this email agreed to the house rules (now)."""
     now = datetime.now(timezone.utc).isoformat()
     _client().table("profiles").update({"rules_accepted_at": now}).eq("email", email).execute()
+    get_profile.clear()
 
 
 # --- Listings -----------------------------------------------------------------
@@ -86,7 +106,9 @@ def accept_house_rules(email: str) -> None:
 
 def insert_listing(row: dict) -> dict:
     """Store a new listing and return it, with its new id."""
-    return _client().table("listings").insert(row).execute().data[0]
+    stored = _client().table("listings").insert(row).execute().data[0]
+    feed_listings.clear()
+    return stored
 
 
 def get_listing(listing_id: int) -> dict | None:
@@ -110,6 +132,7 @@ def listings_of_seller(seller_id: int) -> list[dict]:
 NOT_BLOCKED_SELLER = "*, profiles!inner(blocked_at)"
 
 
+@st.cache_data(ttl=FEED_MEMORY_SECONDS, show_spinner=False)
 def feed_listings(limit: int, offset: int) -> list[dict]:
     """Return the listings buyers may see (not sold, seller not blocked), newest first."""
     return (
@@ -140,11 +163,19 @@ def update_listing(listing_id: int, seller_id: int, changes: dict) -> None:
         .eq("id", listing_id).eq("seller_id", seller_id)
         .execute()
     )
+    _listings_changed()
 
 
 def delete_listing(listing_id: int, seller_id: int) -> None:
     """Remove a listing. Nothing happens if the listing belongs to someone else."""
     _client().table("listings").delete().eq("id", listing_id).eq("seller_id", seller_id).execute()
+    _listings_changed()
+
+
+def _listings_changed() -> None:
+    """Forget the remembered feed and saved lists, so the change shows at once."""
+    feed_listings.clear()
+    favorite_listings.clear()
 
 
 # --- Favourites ----------------------------------------------------------------
@@ -161,6 +192,7 @@ def add_favorite(profile_id: int, listing_id: int) -> None:
                 on_conflict="profile_id,listing_id")
         .execute()
     )
+    _favorites_changed()
 
 
 def remove_favorite(profile_id: int, listing_id: int) -> None:
@@ -170,8 +202,16 @@ def remove_favorite(profile_id: int, listing_id: int) -> None:
         .eq("profile_id", profile_id).eq("listing_id", listing_id)
         .execute()
     )
+    _favorites_changed()
 
 
+def _favorites_changed() -> None:
+    """Forget the remembered saved lists, so a save or unsave shows at once."""
+    favorite_ids.clear()
+    favorite_listings.clear()
+
+
+@st.cache_data(ttl=FAVORITES_MEMORY_SECONDS, show_spinner=False)
 def favorite_ids(profile_id: int) -> list[int]:
     """The ids of the listings this buyer saved, newest-saved first."""
     rows = (
@@ -182,6 +222,7 @@ def favorite_ids(profile_id: int) -> list[int]:
     return [row["listing_id"] for row in rows]
 
 
+@st.cache_data(ttl=FAVORITES_MEMORY_SECONDS, show_spinner=False)
 def favorite_listings(profile_id: int) -> list[dict]:
     """The buyer's saved listings in full, newest-saved first."""
     ids = favorite_ids(profile_id)
@@ -256,11 +297,14 @@ def close_reports(report_ids: list[int], status: str) -> None:
 def block_profile(profile_id: int) -> None:
     """Mark a student as blocked, from now on."""
     _client().table("profiles").update({"blocked_at": _now()}).eq("id", profile_id).execute()
+    get_profile.clear()
+    _listings_changed()  # the blocked student's listings leave the feed
 
 
 def admin_delete_listing(listing_id: int) -> None:
     """Remove any listing, whoever the seller is. Its reports go with it."""
     _client().table("listings").delete().eq("id", listing_id).execute()
+    _listings_changed()
 
 
 # --- Photos -------------------------------------------------------------------
@@ -275,15 +319,44 @@ def _upload(bucket: str, picture: bytes) -> str:
     return path
 
 
-def _signed_url(bucket: str, path: str | None) -> str | None:
-    """Return a link that shows the photo for one hour, or None without a photo.
+@st.cache_resource
+def _photo_links() -> dict:
+    """Photo links made earlier, shared by everyone using the app.
+
+    Maps (bucket, photo name) to (link, time until which we reuse it).
+    """
+    return {}
+
+
+_photo_links_lock = threading.Lock()
+
+
+def _signed_urls(bucket: str, paths: list[str]) -> dict[str, str]:
+    """Return {photo name: link} for these photos, asking Supabase at most once.
 
     The photos are private. Only a link made here can show one, and it
-    stops working after an hour.
+    stops working after an hour. Links made in the last 50 minutes are
+    reused; all missing links are made together in a single request.
     """
-    if not path:
-        return None
-    return _client().storage.from_(bucket).create_signed_url(path, PHOTO_LINK_SECONDS)["signedUrl"]
+    links = _photo_links()
+    now = time.time()
+    wanted = {path for path in paths if path}
+    with _photo_links_lock:
+        missing = [path for path in wanted if links.get((bucket, path), (None, 0))[1] < now]
+    if missing:
+        made = _client().storage.from_(bucket).create_signed_urls(missing, PHOTO_LINK_SECONDS)
+        with _photo_links_lock:
+            for item in made:
+                if item.get("signedURL") and not item.get("error"):
+                    links[(bucket, item["path"])] = (item["signedURL"],
+                                                     now + PHOTO_LINK_REUSE_SECONDS)
+    with _photo_links_lock:
+        return {path: links[(bucket, path)][0] for path in wanted if (bucket, path) in links}
+
+
+def _signed_url(bucket: str, path: str | None) -> str | None:
+    """Return a link that shows one photo for up to an hour, or None without a photo."""
+    return _signed_urls(bucket, [path]).get(path) if path else None
 
 
 def upload_photo(jpeg_bytes: bytes) -> str:
@@ -315,3 +388,8 @@ def delete_listing_photos(paths: list[str]) -> None:
 def listing_photo_url(path: str | None) -> str | None:
     """Return a one-hour link to a listing photo, or None without a photo."""
     return _signed_url(LISTING_PHOTO_BUCKET, path)
+
+
+def listing_photo_urls(paths: list[str]) -> dict[str, str]:
+    """Return {photo name: link} for many listing photos, in one request at most."""
+    return _signed_urls(LISTING_PHOTO_BUCKET, paths)
