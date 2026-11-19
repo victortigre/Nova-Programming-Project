@@ -88,7 +88,10 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 .nm-meta {{
     text-align: center; color: {GREY_TEXT}; font-size: 0.8rem;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    /* Wrap onto a second line instead of cutting words off with "..." */
+    white-space: normal;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    overflow: hidden;
 }}
 
 /* The round heart button in the top right corner of a listing photo. */
