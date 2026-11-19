@@ -147,7 +147,9 @@ pages = [
     st.Page("views/purchases.py", title="My purchases", icon=":material/shopping_bag:"),
     st.Page("views/sales.py", title="Sales", icon=":material/sell:"),
     st.Page("views/profile.py", title="My profile", icon=":material/person:"),
-    st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:"),
+    # Linked from "My profile" and "Sell an item", so it is not shown in the menu.
+    st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:",
+            visibility="hidden"),
     # Opened through links to one student, so it is not shown in the menu.
     st.Page("views/public_profile.py", title="Student profile", url_path="student",
             visibility="hidden"),

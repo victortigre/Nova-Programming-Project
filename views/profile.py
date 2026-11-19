@@ -80,4 +80,5 @@ if profile is not None:
 with ui.card("account"):
     st.markdown("**Account**")
     st.caption(f"Signed in as {email}")
+    st.page_link("views/house_rules.py", label="House rules", icon=":material/gavel:")
     st.button("Sign out", icon=":material/logout:", on_click=st.logout)
