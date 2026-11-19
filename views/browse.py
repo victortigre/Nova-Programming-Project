@@ -106,7 +106,9 @@ if viewing is not None:
 
 
 # --- a card in the results ----------------------------------------------------
-def listing_card(item: dict) -> None:
+# A saved listing shows up in both tabs, so "tab" goes into each button key:
+# Streamlit refuses two buttons with the same key on one page.
+def listing_card(item: dict, tab: str) -> None:
     with st.container(border=True):
         photo_col, info_col = st.columns([1, 3])
         cover = item["photo_paths"][0] if item["photo_paths"] else None
@@ -119,11 +121,11 @@ def listing_card(item: dict) -> None:
                           f"{listings.format_price(item['price_cents'])}{status_note(item['status'])}")
         info_col.caption(f"{item['category']} · {item['pickup_area']}")
         actions = info_col.columns([1, 1, 4])
-        actions[0].button("View", key=f"view-{item['id']}",
+        actions[0].button("View", key=f"view-{tab}-{item['id']}",
                           on_click=open_listing, args=(item["id"],))
         if my_id != item["seller_id"]:
             with actions[1]:
-                save_button(item["id"], where="card")
+                save_button(item["id"], where=f"card-{tab}")
 
 
 # --- Browse and Saved tabs ----------------------------------------------------
@@ -152,7 +154,7 @@ with browse_tab:
     if not results:
         st.info("No listings match your filters — try clearing the search, category or price range.")
     for item in results:
-        listing_card(item)
+        listing_card(item, tab="browse")
 
 with saved_tab:
     if not saving_ready:
@@ -163,4 +165,4 @@ with saved_tab:
         if not saved_items:
             st.info("You haven't saved anything yet. Tap 🤍 on a listing to keep it here.")
         for item in saved_items:
-            listing_card(item)
+            listing_card(item, tab="saved")
