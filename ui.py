@@ -156,7 +156,9 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
         else:
             picture = '<span class="nm-empty">🛍️</span>'
         place = listings.pickup_label(item) if item.get("pickup_area") else ""
-        details = " · ".join(part for part in [listings.category_label(item), place] if part)
+        condition = item.get("condition", "")
+        details = " · ".join(part for part in
+                             [listings.category_label(item), condition, place] if part)
         st.html(
             f'<div class="nm-photo">{picture}{_badge(item)}</div>'
             f'<div class="nm-title" title="{html.escape(item["title"])}">{html.escape(item["title"])}</div>'

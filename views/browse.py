@@ -74,9 +74,9 @@ def save_button(listing_id: int, *, where: str) -> None:
         return
     is_saved = listing_id in saved
     if where == "detail":
-        label = "💔 Remove from saved" if is_saved else "🤍 Save"
+        label = "♥ Saved" if is_saved else "♡ Save"
     else:
-        label = "💔" if is_saved else "🤍"
+        label = "♥" if is_saved else "♡"
     st.button(label, key=f"save-{where}-{listing_id}",
               help="Remove from saved" if is_saved else "Save for later",
               on_click=flip_saved, args=(listing_id,))
