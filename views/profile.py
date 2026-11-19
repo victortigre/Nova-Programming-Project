@@ -1,7 +1,11 @@
-"""My profile: a student fills in or changes their own profile."""
+"""My profile: a student fills in or changes their own profile, and sees the
+listings they saved (tapped ♡ on)."""
+
+from functools import partial
 
 import streamlit as st
 
+import browsing
 import database
 import ui
 from accounts import logged_in_user, verified_nova_email
@@ -32,6 +36,45 @@ if profile is not None:
 
 with ui.card("profile-form"):
     show_profile_form(email, profile)
+
+# --- Saved items ---------------------------------------------------------------
+# The listings this student liked. Tapping ♥ removes one; tapping the price
+# opens it on Browse, the same way a student's public profile does.
+SAVED_COLUMNS = 3
+
+
+def unsave(listing_id: int) -> None:
+    browsing.toggle_saved(database, profile["id"], listing_id)
+
+
+if profile is not None:
+    with ui.card("saved-items"):
+        try:
+            saved_items = browsing.saved_listings(database, profile["id"])
+        except Exception:
+            saved_items = None
+        st.markdown(f"**♥ Saved items ({len(saved_items or [])})**")
+        if saved_items is None:
+            st.caption("Saving isn't set up in the database yet. Whoever manages the "
+                       "database needs to run `database_setup.sql`.")
+        elif not saved_items:
+            st.caption("You haven't saved anything yet. Tap ♡ on a listing to keep it here.")
+            st.page_link("views/browse.py", label="Browse items", icon=":material/search:")
+        else:
+            # One request for all cover photo links, instead of one per card.
+            links = database.listing_photo_urls(
+                [item["photo_paths"][0] for item in saved_items if item["photo_paths"]])
+            for start in range(0, len(saved_items), SAVED_COLUMNS):
+                row = st.columns(SAVED_COLUMNS, gap="medium")
+                for column, item in zip(row, saved_items[start:start + SAVED_COLUMNS]):
+                    cover = item["photo_paths"][0] if item["photo_paths"] else None
+                    with column:
+                        clicked = ui.listing_card(
+                            item, links.get(cover), key=f"saved-{item['id']}",
+                            saved=True, on_heart=partial(unsave, item["id"]))
+                    if clicked:
+                        st.session_state["open_listing"] = item["id"]
+                        st.switch_page("views/browse.py")
 
 # The menu bar has no room for the account, so signing out is here.
 with ui.card("account"):
