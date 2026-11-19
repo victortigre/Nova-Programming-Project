@@ -31,11 +31,6 @@ if profile is None:
     st.page_link("views/profile.py", label="Fill in my profile")
     st.stop()
 
-# A message from the last publish survives the page reload.
-if "sell_message" in st.session_state:
-    st.success(st.session_state.pop("sell_message"))
-    st.page_link("views/my_listings.py", label="Go to My listings", icon="📦")
-
 # --- new listing, or editing one? --------------------------------------------
 editing = None
 edit_id = st.session_state.get("edit_listing_id")
@@ -188,6 +183,7 @@ if st.button("Save changes" if editing else "Publish listing", type="primary"):
     else:
         st.session_state.pop("edit_listing_id", None)
         st.session_state["sell_form_round"] = form_round + 1  # empty page for the next item
-        st.session_state["sell_message"] = ("Changes saved!" if editing
-                                            else "Your listing is live! 🎉")
-        st.rerun()
+        # Show the message on "My listings", where the new or edited listing now is.
+        st.session_state["listing_message"] = ("Changes saved!" if editing
+                                               else "Your listing is live! 🎉")
+        st.switch_page("views/my_listings.py")
