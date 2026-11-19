@@ -12,6 +12,7 @@ import streamlit as st
 
 import browsing
 import database
+import deals
 import listings
 import ui
 from accounts import verified_nova_email
@@ -73,9 +74,9 @@ def save_button(listing_id: int, *, where: str) -> None:
         return
     is_saved = listing_id in saved
     if where == "detail":
-        label = "💔 Remove from saved" if is_saved else "🤍 Save"
+        label = "♥ Saved" if is_saved else "♡ Save"
     else:
-        label = "💔" if is_saved else "🤍"
+        label = "♥" if is_saved else "♡"
     st.button(label, key=f"save-{where}-{listing_id}",
               help="Remove from saved" if is_saved else "Save for later",
               on_click=flip_saved, args=(listing_id,))
@@ -112,8 +113,31 @@ if viewing is not None:
                 st.markdown(status_note(item["status"]).lstrip(" ·"))
             st.html(ui.chip(listings.category_label(item)) + ui.chip(item["condition"])
                     + ui.chip(listings.pickup_label(item), warm=True))
+            seller = database.get_profile_by_id(item["seller_id"])
+            if seller and my_id != item["seller_id"]:
+                st.markdown(f"Sold by **{plain(seller['name'])}**")
             st.write(plain(item["description"]))
+            if message := st.session_state.pop("deal_message", None):
+                st.success(message)
+            if error := st.session_state.pop("deal_error", None):
+                st.error(error)
             if my_id != item["seller_id"]:
+                if item["status"] == listings.ACTIVE:
+                    if st.button("Request to buy", key=f"buy-{item['id']}",
+                                 type="primary", icon=":material/shopping_bag:"):
+                        try:
+                            deals.request_to_buy(database, item["id"], email)
+                            st.session_state["deal_message"] = (
+                                "Request sent! Track it in My purchases.")
+                        except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
+                            st.session_state["deal_error"] = (
+                                exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
+                        except Exception:
+                            st.session_state["deal_error"] = (
+                                "Buying isn't set up yet. Please try again later.")
+                        st.rerun()
+                elif item["status"] == listings.RESERVED:
+                    st.caption("This item is reserved for another buyer.")
                 save_button(item["id"], where="detail")
                 st.page_link("views/public_profile.py",
                              label="View the seller's profile to get in touch",

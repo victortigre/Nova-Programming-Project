@@ -15,6 +15,7 @@ class FakeDatabase:
         self.photos = {}  # stored name -> picture bytes
         self.favorites = []  # (profile_id, listing_id), in the order they were saved
         self.reports = {}  # id -> report
+        self.requests = {}  # id -> purchase request
         self._numbers = itertools.count(1)
 
     def add_profile(self, email: str, name: str = "Test Student") -> dict:
@@ -141,3 +142,39 @@ class FakeDatabase:
         self.listings.pop(listing_id, None)
         # Like "on delete cascade" in the real database: its reports go too.
         self.reports = {i: r for i, r in self.reports.items() if r["listing_id"] != listing_id}
+
+    # --- buying (purchase requests) -------------------------------------------
+
+    def insert_request(self, row):
+        request = {**row, "id": next(self._numbers),
+                   "status": row.get("status", "requested"),
+                   "seller_confirmed_at": None, "buyer_confirmed_at": None}
+        request["created_at"] = request["id"]  # a higher number means newer
+        self.requests[request["id"]] = request
+        return dict(request)
+
+    def get_request(self, request_id):
+        request = self.requests.get(request_id)
+        return dict(request) if request else None
+
+    def live_request(self, buyer_id, listing_id):
+        for request in self.requests.values():
+            if (request["buyer_id"] == buyer_id and request["listing_id"] == listing_id
+                    and request["status"] in ("requested", "accepted")):
+                return dict(request)
+        return None
+
+    def requests_for_listing(self, listing_id, statuses):
+        rows = [r for r in self.requests.values()
+                if r["listing_id"] == listing_id and r["status"] in statuses]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"])]
+
+    def requests_by_buyer(self, buyer_id, statuses):
+        rows = [r for r in self.requests.values()
+                if r["buyer_id"] == buyer_id and r["status"] in statuses]
+        return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"], reverse=True)]
+
+    def update_request(self, request_id, changes):
+        request = self.requests.get(request_id)
+        if request:
+            request.update(changes)

@@ -124,3 +124,30 @@ alter table profiles add column if not exists blocked_at timestamptz;
 -- stored here. Empty (null) means they have not agreed yet; app.py then
 -- shows only the Welcome steps until they do.
 alter table profiles add column if not exists rules_accepted_at timestamptz;
+
+-- One row per request a buyer sends to buy a listing. The seller accepts one,
+-- which reserves the item; then BOTH sides confirm the hand-over before it
+-- counts as sold (seller_confirmed_at AND buyer_confirmed_at).
+create table if not exists purchase_requests (
+    id                  bigint generated always as identity primary key,
+    listing_id          bigint not null references listings(id) on delete cascade,
+    buyer_id            bigint not null references profiles(id) on delete cascade,
+    status              text not null default 'requested'
+                        check (status in ('requested', 'accepted', 'declined',
+                                          'cancelled', 'completed')),
+    seller_confirmed_at timestamptz,
+    buyer_confirmed_at  timestamptz,
+    created_at          timestamptz not null default now()
+);
+
+create index if not exists purchase_requests_listing_idx on purchase_requests (listing_id, status);
+create index if not exists purchase_requests_buyer_idx on purchase_requests (buyer_id, status);
+
+-- The database itself refuses a second live (requested or accepted) request by
+-- the same buyer on the same listing, even on a double-click.
+create unique index if not exists purchase_requests_one_live
+    on purchase_requests (buyer_id, listing_id)
+    where status in ('requested', 'accepted');
+
+-- Locked the same way as the other tables: only our app can read or change rows.
+alter table purchase_requests enable row level security;
