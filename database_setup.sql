@@ -151,3 +151,29 @@ create unique index if not exists purchase_requests_one_live
 
 -- Locked the same way as the other tables: only our app can read or change rows.
 alter table purchase_requests enable row level security;
+
+-- Only ONE accepted buyer per listing, refused by the database itself, even if
+-- the seller accepts two buyers in two browser tabs at the same moment.
+create unique index if not exists purchase_requests_one_accepted
+    on purchase_requests (listing_id) where status = 'accepted';
+
+-- One row per rating after a completed deal: the buyer rates the seller and
+-- the seller rates the buyer, once each, with a thumbs up (positive = true)
+-- or a thumbs down. If the listing (and with it the deal) is deleted later,
+-- the rating stays, so a seller can't erase a bad rating by deleting the item.
+create table if not exists reviews (
+    id          bigint generated always as identity primary key,
+    request_id  bigint references purchase_requests(id) on delete set null,
+    reviewer_id bigint not null references profiles(id) on delete cascade,
+    reviewee_id bigint not null references profiles(id) on delete cascade,
+    positive    boolean not null,
+    created_at  timestamptz not null default now(),
+    check (reviewer_id <> reviewee_id)
+);
+
+-- One rating per person per deal, even on a double-click.
+create unique index if not exists reviews_one_per_deal on reviews (request_id, reviewer_id);
+create index if not exists reviews_reviewee_idx on reviews (reviewee_id);
+
+-- Locked the same way as the other tables: only our app can read or change rows.
+alter table reviews enable row level security;

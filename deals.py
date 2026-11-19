@@ -12,6 +12,13 @@ A deal (purchase request) moves through these states:
     declined   the seller said no (or another request was accepted)
     cancelled  either side called it off; the listing goes back to Active
     completed  both sides confirmed the hand-over; the listing is Sold
+
+Changing a status safely: two clicks can arrive at the same moment (a double
+click, two browser tabs, the buyer cancelling while the seller accepts). So a
+status is never just overwritten. Every change says what the status must still
+be, "change this request to accepted, ONLY IF it is still requested", and the
+database checks that in the same step as the change. If someone else got there
+first, nothing changes and the student sees a message instead.
 """
 
 from datetime import datetime, timezone
@@ -35,6 +42,8 @@ def _profile(db, email: str) -> dict:
     profile = db.get_profile(who)
     if profile is None:
         raise NotAllowed("Fill in your profile first.")
+    if profile.get("blocked_at"):  # an admin blocked this student (see admin.py)
+        raise NotAllowed("Your account has been blocked.")
     return profile
 
 
@@ -72,6 +81,8 @@ def request_to_buy(db, listing_id: int, buyer_email: str) -> dict:
         raise NotAllowed("You can't buy your own listing.")
     if listing["status"] == SOLD:
         raise ListingError(["This item is already sold."])
+    if listing["status"] != ACTIVE:
+        raise ListingError(["This item is reserved for someone else."])
     if db.live_request(buyer["id"], listing_id) is not None:
         raise ListingError(["You already have a request on this item."])
     return db.insert_request({"listing_id": listing_id, "buyer_id": buyer["id"]})
@@ -97,11 +108,21 @@ def accept_request(db, request_id: int, seller_email: str) -> None:
         raise ListingError(["This request can't be accepted any more."])
     if listing["status"] != ACTIVE:
         raise ListingError(["This item isn't available any more."])
-    db.update_request(request_id, {"status": ACCEPTED})
-    db.update_listing(listing["id"], seller["id"], {"status": RESERVED})
+    # 1. Reserve the listing, only if it is still active. Of two buyers accepted
+    #    at the same moment, only the first one gets this far.
+    if not db.update_listing(listing["id"], seller["id"], {"status": RESERVED},
+                             only_if_status=ACTIVE):
+        raise ListingError(["This item isn't available any more."])
+    # 2. Accept the request, only if the buyer hasn't cancelled it meanwhile.
+    #    If they have, the listing goes back to active.
+    if not db.update_request(request_id, {"status": ACCEPTED}, only_if_status=REQUESTED):
+        db.update_listing(listing["id"], seller["id"], {"status": ACTIVE},
+                          only_if_status=RESERVED)
+        raise ListingError(["This request can't be accepted any more. "
+                            "The buyer may have cancelled it."])
+    # 3. Everyone else who was waiting gets a "no".
     for other in db.requests_for_listing(listing["id"], [REQUESTED]):
-        if other["id"] != request_id:
-            db.update_request(other["id"], {"status": DECLINED})
+        db.update_request(other["id"], {"status": DECLINED}, only_if_status=REQUESTED)
 
 
 def decline_request(db, request_id: int, seller_email: str) -> None:
@@ -109,9 +130,12 @@ def decline_request(db, request_id: int, seller_email: str) -> None:
     request, listing, seller = _my_request(db, request_id, seller_email)
     if request["status"] not in LIVE:
         raise ListingError(["This request can't be declined any more."])
-    db.update_request(request_id, {"status": DECLINED})
-    if request["status"] == ACCEPTED and listing["status"] == RESERVED:
-        db.update_listing(listing["id"], seller["id"], {"status": ACTIVE})
+    if not db.update_request(request_id, {"status": DECLINED},
+                             only_if_status=request["status"]):
+        raise ListingError(["This request just changed. Please look again."])
+    if request["status"] == ACCEPTED:
+        db.update_listing(listing["id"], seller["id"], {"status": ACTIVE},
+                          only_if_status=RESERVED)
 
 
 # --- the two confirmations ----------------------------------------------------
@@ -121,7 +145,9 @@ def confirm_sold(db, request_id: int, seller_email: str) -> None:
     request, listing, seller = _my_request(db, request_id, seller_email)
     if request["status"] != ACCEPTED:
         raise ListingError(["There's no accepted buyer to confirm with."])
-    db.update_request(request_id, {"seller_confirmed_at": _now()})
+    if not db.update_request(request_id, {"seller_confirmed_at": _now()},
+                             only_if_status=ACCEPTED):
+        raise ListingError(["This deal isn't active any more."])
     _complete_if_both(db, request_id)
 
 
@@ -135,18 +161,22 @@ def confirm_received(db, request_id: int, buyer_email: str) -> None:
         raise NotAllowed("Only the buyer can confirm this.")
     if request["status"] != ACCEPTED:
         raise ListingError(["This deal isn't active any more."])
-    db.update_request(request_id, {"buyer_confirmed_at": _now()})
+    if not db.update_request(request_id, {"buyer_confirmed_at": _now()},
+                             only_if_status=ACCEPTED):
+        raise ListingError(["This deal isn't active any more."])
     _complete_if_both(db, request_id)
 
 
 def _complete_if_both(db, request_id: int) -> None:
-    """Once BOTH sides have confirmed, mark the listing Sold and the deal completed."""
+    """Once BOTH sides have confirmed, mark the deal completed and the listing Sold."""
     request = db.get_request(request_id)
-    if request["seller_confirmed_at"] and request["buyer_confirmed_at"]:
+    if not (request["seller_confirmed_at"] and request["buyer_confirmed_at"]):
+        return
+    # If both confirm at the same moment, only one of them completes the deal.
+    if db.update_request(request_id, {"status": COMPLETED}, only_if_status=ACCEPTED):
         listing = db.get_listing(request["listing_id"])
         if listing is not None:
             db.update_listing(listing["id"], listing["seller_id"], {"status": SOLD})
-        db.update_request(request_id, {"status": COMPLETED})
 
 
 # --- either side: cancel a live deal ------------------------------------------
@@ -164,18 +194,93 @@ def cancel_deal(db, request_id: int, email: str) -> None:
     is_seller = listing is not None and listing["seller_id"] == person["id"]
     if not (is_buyer or is_seller):
         raise NotAllowed("Only the buyer or the seller can cancel this deal.")
-    db.update_request(request_id, {"status": CANCELLED})
-    if request["status"] == ACCEPTED and listing is not None and listing["status"] == RESERVED:
-        db.update_listing(listing["id"], listing["seller_id"], {"status": ACTIVE})
+    if not _call_off(db, request, listing):
+        raise ListingError(["This deal just changed. Please look again."])
+
+
+def _call_off(db, request: dict, listing: dict | None) -> bool:
+    """Cancel a live request; if it was the accepted one, the listing is free again."""
+    if not db.update_request(request["id"], {"status": CANCELLED},
+                             only_if_status=request["status"]):
+        return False
+    if request["status"] == ACCEPTED and listing is not None:
+        db.update_listing(listing["id"], listing["seller_id"], {"status": ACTIVE},
+                          only_if_status=RESERVED)
+    return True
+
+
+def cancel_deals_of(db, profile_id: int) -> None:
+    """Call off every live deal of a student an admin just blocked.
+
+    Their own requests are cancelled (an item reserved for them is free again),
+    and so are the requests on their listings, so nobody keeps waiting for them.
+    Only admin.py calls this, after it checked that an admin is asking.
+    """
+    for request in db.requests_by_buyer(profile_id, list(LIVE)):
+        _call_off(db, request, db.get_listing(request["listing_id"]))
+    for request in db.requests_for_seller(profile_id, list(LIVE)):
+        _call_off(db, request, db.get_listing(request["listing_id"]))
 
 
 # --- buyer: my purchases ------------------------------------------------------
 
 def my_purchases(db, buyer_email: str,
-                 statuses=(REQUESTED, ACCEPTED, COMPLETED)) -> list[dict]:
+                 statuses=(REQUESTED, ACCEPTED, COMPLETED, DECLINED, CANCELLED)) -> list[dict]:
     """The buyer's deals, each with its listing attached, newest first."""
     buyer = _profile(db, buyer_email)
     out = []
     for request in db.requests_by_buyer(buyer["id"], list(statuses)):
         out.append({**request, "listing": db.get_listing(request["listing_id"])})
     return out
+
+
+# --- seller: my sales -----------------------------------------------------------
+
+def my_sales(db, seller_email: str, statuses=(COMPLETED,)) -> list[dict]:
+    """Requests on the seller's listings with these statuses, newest first.
+
+    Each has "title", "price_cents" and "buyer_name" added. Two requests to the
+    database in total, however many sales there are.
+    """
+    seller = _profile(db, seller_email)
+    rows = db.requests_for_seller(seller["id"], list(statuses))
+    names = db.names_of([row["buyer_id"] for row in rows])
+    out = []
+    for row in reversed(rows):
+        listing = row.get("listings") or {}
+        out.append({**row, "title": listing.get("title", ""),
+                    "price_cents": listing.get("price_cents", 0),
+                    "buyer_name": names.get(row["buyer_id"], "A student")})
+    return out
+
+
+def live_requests_by_listing(db, seller_email: str) -> dict[int, list[dict]]:
+    """{listing id: its live requests}, for all of the seller's listings at once."""
+    seller = _profile(db, seller_email)
+    out = {}
+    for row in db.requests_for_seller(seller["id"], list(LIVE)):
+        out.setdefault(row["listing_id"], []).append(row)
+    return out
+
+
+# --- what needs your attention (the counts in the menu) -----------------------
+
+def to_do(db, email: str) -> dict[str, int]:
+    """How many deals are waiting for this student to do something.
+
+        answer            buyers asked for your item; accept or decline
+        confirm_sale      the buyer confirmed they got it; now you confirm
+        confirm_received  a seller accepted you; meet them, then confirm
+        sales, purchases  the totals for the "Sales" and "My purchases" pages
+    """
+    me = _profile(db, email)
+    live = db.live_deals_of(me["id"])
+    answer = sum(1 for r in live["selling"] if r["status"] == REQUESTED)
+    confirm_sale = sum(1 for r in live["selling"]
+                       if r["status"] == ACCEPTED and r["buyer_confirmed_at"]
+                       and not r["seller_confirmed_at"])
+    confirm_received = sum(1 for r in live["buying"]
+                           if r["status"] == ACCEPTED and not r["buyer_confirmed_at"])
+    return {"answer": answer, "confirm_sale": confirm_sale,
+            "confirm_received": confirm_received,
+            "sales": answer + confirm_sale, "purchases": confirm_received}

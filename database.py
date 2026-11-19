@@ -35,6 +35,9 @@ PHOTO_LINK_REUSE_SECONDS = 50 * 60
 PROFILE_MEMORY_SECONDS = 60
 FEED_MEMORY_SECONDS = 30
 FAVORITES_MEMORY_SECONDS = 60
+# Only for the counts in the menu ("Sales (2)"). A request another student
+# sends shows up in the count at most this many seconds later.
+TO_DO_MEMORY_SECONDS = 20
 
 
 def database_is_set_up() -> bool:
@@ -155,21 +158,31 @@ def get_active_listings(profile_id: int) -> list[dict]:
     )
 
 
-def update_listing(listing_id: int, seller_id: int, changes: dict) -> None:
-    """Change a listing. Nothing happens if the listing belongs to someone else."""
+def update_listing(listing_id: int, seller_id: int, changes: dict,
+                   only_if_status: str | None = None) -> bool:
+    """Change a listing. Nothing happens if the listing belongs to someone else.
+
+    With only_if_status, the database changes the listing only if it still has
+    that status at that very moment (see "Changing a status safely" in deals.py).
+    Returns True if a row was changed.
+    """
     changes = {**changes, "updated_at": datetime.now(timezone.utc).isoformat()}
-    (
+    query = (
         _client().table("listings").update(changes)
         .eq("id", listing_id).eq("seller_id", seller_id)
-        .execute()
     )
+    if only_if_status is not None:
+        query = query.eq("status", only_if_status)
+    changed = query.execute().data
     _listings_changed()
+    return bool(changed)
 
 
 def delete_listing(listing_id: int, seller_id: int) -> None:
     """Remove a listing. Nothing happens if the listing belongs to someone else."""
     _client().table("listings").delete().eq("id", listing_id).eq("seller_id", seller_id).execute()
     _listings_changed()
+    live_deals_of.clear()  # its requests were deleted with it
 
 
 def _listings_changed() -> None:
@@ -266,7 +279,9 @@ def open_report(
 
 def insert_request(row: dict) -> dict:
     """Store a new purchase request and return it, with its new id."""
-    return _client().table("purchase_requests").insert(row).execute().data[0]
+    stored = _client().table("purchase_requests").insert(row).execute().data[0]
+    live_deals_of.clear()
+    return stored
 
 
 def get_request(request_id: int) -> dict | None:
@@ -306,9 +321,76 @@ def requests_by_buyer(buyer_id: int, statuses: list[str]) -> list[dict]:
     )
 
 
-def update_request(request_id: int, changes: dict) -> None:
-    """Change a purchase request (status or a confirmation time)."""
-    _client().table("purchase_requests").update(changes).eq("id", request_id).execute()
+def requests_for_seller(seller_id: int, statuses: list[str]) -> list[dict]:
+    """Requests on any of this seller's listings, oldest first, in ONE request.
+
+    "listings!inner(...)" attaches each request's listing (as row["listings"])
+    and keeps only the requests whose listing belongs to this seller.
+    """
+    return (
+        _client().table("purchase_requests")
+        .select("*, listings!inner(seller_id, title, price_cents)")
+        .eq("listings.seller_id", seller_id).in_("status", statuses)
+        .order("created_at").order("id")
+        .execute().data
+    )
+
+
+@st.cache_data(ttl=TO_DO_MEMORY_SECONDS, show_spinner=False)
+def live_deals_of(profile_id: int) -> dict[str, list[dict]]:
+    """This student's live deals, for the counts in the menu (remembered briefly).
+
+    {"selling": requests on their listings, "buying": their own requests}.
+    Only for showing counts: the rules in deals.py always read fresh rows.
+    """
+    live = ["requested", "accepted"]
+    return {"selling": requests_for_seller(profile_id, live),
+            "buying": requests_by_buyer(profile_id, live)}
+
+
+def update_request(request_id: int, changes: dict,
+                   only_if_status: str | None = None) -> bool:
+    """Change a purchase request (status or a confirmation time).
+
+    With only_if_status, the database changes it only if it still has that
+    status at that very moment. Returns True if a row was changed.
+    """
+    query = _client().table("purchase_requests").update(changes).eq("id", request_id)
+    if only_if_status is not None:
+        query = query.eq("status", only_if_status)
+    changed = query.execute().data
+    live_deals_of.clear()
+    return bool(changed)
+
+
+def names_of(profile_ids: list[int]) -> dict[int, str]:
+    """{profile id: name} for many students, in one request."""
+    wanted = sorted({pid for pid in profile_ids if pid is not None})
+    if not wanted:
+        return {}
+    rows = _client().table("profiles").select("id, name").in_("id", wanted).execute().data
+    return {row["id"]: row["name"] for row in rows}
+
+
+# --- Reviews ------------------------------------------------------------------
+#
+# After a completed deal, buyer and seller each rate the other once (👍 or 👎).
+# The rules are in reviews.py; here we only store.
+
+
+def insert_review(row: dict) -> dict:
+    """Store a new review and return it."""
+    return _client().table("reviews").insert(row).execute().data[0]
+
+
+def reviews_about(profile_id: int) -> list[dict]:
+    """Every review other students left about this student."""
+    return _client().table("reviews").select("*").eq("reviewee_id", profile_id).execute().data
+
+
+def reviews_by(reviewer_id: int) -> list[dict]:
+    """Every review this student left."""
+    return _client().table("reviews").select("*").eq("reviewer_id", reviewer_id).execute().data
 
 
 # --- Admin --------------------------------------------------------------------
@@ -358,6 +440,7 @@ def admin_delete_listing(listing_id: int) -> None:
     """Remove any listing, whoever the seller is. Its reports go with it."""
     _client().table("listings").delete().eq("id", listing_id).execute()
     _listings_changed()
+    live_deals_of.clear()  # its requests were deleted with it
 
 
 # --- Photos -------------------------------------------------------------------

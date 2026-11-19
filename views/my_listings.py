@@ -3,11 +3,16 @@
 From here a seller can edit, mark as reserved, mark as sold, relist or delete.
 Every button calls a function in listings.py, which checks again that you
 are the seller before changing anything.
+
+Once a buyer was accepted through the app, that deal decides the status: the
+Reserve, Sold, Relist and Delete buttons are hidden and the seller goes to
+Sales instead (listings.py refuses them too).
 """
 
 import streamlit as st
 
 import database
+import deals
 import listings
 from accounts import logged_in_user, verified_nova_email
 
@@ -43,9 +48,11 @@ def run(action, listing_id: int, done_message: str) -> None:
         st.rerun()
 
 
-def listing_row(listing: dict) -> None:
+def listing_row(listing: dict, live_requests: list[dict]) -> None:
     lid = listing["id"]
     status = listing["status"]
+    has_buyer = any(r["status"] == deals.ACCEPTED for r in live_requests)
+    waiting = sum(1 for r in live_requests if r["status"] == deals.REQUESTED)
     with st.container(border=True):
         photo_col, info_col = st.columns([1, 3])
         if listing["photo_paths"]:
@@ -56,11 +63,29 @@ def listing_row(listing: dict) -> None:
                          f"{listings.plain_text(listings.pickup_label(listing))}")
         if status == listings.RESERVED:
             info_col.markdown(":orange[**🔒 Reserved**]")
+        if has_buyer or waiting:
+            if has_buyer:
+                info_col.caption("🤝 Reserved for a buyer who asked through the app. "
+                                 "Confirm or cancel the deal on Sales.")
+            else:
+                info_col.caption(f"🔔 {waiting} buyer request{'s' if waiting != 1 else ''} "
+                                 "waiting for your answer.")
+            info_col.page_link("views/sales.py", label="Open Sales", icon=":material/sell:")
 
         buttons = info_col.columns(5)
-        if status == listings.ACTIVE and buttons[0].button("Reserve", key=f"reserve-{lid}"):
+        if has_buyer:
+            if buttons[0].button("Edit", key=f"edit-{lid}"):
+                st.session_state["edit_listing_id"] = lid
+                st.switch_page("views/sell_item.py")
+            return
+        # Reserving or selling outside the app says "no" to the buyers still waiting.
+        no_to_waiting = (f"The {waiting} waiting request{'s' if waiting != 1 else ''} "
+                         "will be declined.") if waiting else None
+        if status == listings.ACTIVE and buttons[0].button("Reserve", key=f"reserve-{lid}",
+                                                            help=no_to_waiting):
             run(listings.mark_reserved, lid, "Marked as reserved.")
-        if status != listings.SOLD and buttons[1].button("Sold", key=f"sold-{lid}"):
+        if status != listings.SOLD and buttons[1].button("Sold", key=f"sold-{lid}",
+                                                          help=no_to_waiting):
             run(listings.mark_sold, lid, "Marked as sold. It no longer shows in the marketplace.")
         if status != listings.ACTIVE and buttons[2].button("Relist", key=f"relist-{lid}"):
             run(listings.relist, lid, "Back on the marketplace.")
@@ -74,6 +99,11 @@ def listing_row(listing: dict) -> None:
 
 
 groups = listings.my_listings(database, email)
+# The live requests on all my listings, fetched once for the whole page.
+try:
+    live_by_listing = deals.live_requests_by_listing(database, email)
+except Exception:  # buying isn't set up in the database yet
+    live_by_listing = {}
 
 if not any(groups.values()):
     st.info("You haven't listed anything yet.")
@@ -88,4 +118,4 @@ for tab, status in zip(st.tabs(tab_titles), listings.STATUSES):
         if not groups[status]:
             st.caption("Nothing here.")
         for listing in groups[status]:
-            listing_row(listing)
+            listing_row(listing, live_by_listing.get(listing["id"], []))

@@ -2,7 +2,9 @@
 
 A buyer sees every deal they're in, cancels a request, and — once the seller has
 accepted and you've met — confirms you received the item. The item is only marked
-sold when BOTH you and the seller have confirmed.
+sold when BOTH you and the seller have confirmed. After that, you rate the seller.
+Requests that ended without a sale (declined, cancelled) stay visible under
+"Closed", so a buyer always learns what happened.
 """
 
 import streamlit as st
@@ -10,6 +12,7 @@ import streamlit as st
 import database
 import deals
 import listings
+import reviews
 from accounts import logged_in_user, verified_nova_email
 
 email = verified_nova_email(logged_in_user())
@@ -28,10 +31,10 @@ if "deal_message" in st.session_state:
     st.success(st.session_state.pop("deal_message"))
 
 
-def act(action, request_id: int, done_message: str) -> None:
-    """Call a deals.py function, show any error, reload the page on success."""
+def act(action, request_id: int, done_message: str, *extra) -> None:
+    """Call a deals.py or reviews.py function, show any error, reload on success."""
     try:
-        action(database, request_id, email)
+        action(database, request_id, email, *extra)
     except deals.ListingError as exc:
         for message in exc.errors:
             st.error(message)
@@ -56,7 +59,36 @@ if not purchases:
     st.page_link("views/browse.py", label="Browse items", icon=":material/search:")
     st.stop()
 
-for deal in purchases:
+try:
+    my_ratings = reviews.reviewed_deals(database, email)
+    rating_ready = True
+except Exception:  # the reviews table isn't in the database yet
+    my_ratings, rating_ready = {}, False
+
+
+def rate_the_seller(request_id: int) -> None:
+    """👍 / 👎 for a completed deal, or the rating already given."""
+    if not rating_ready:
+        return
+    if request_id in my_ratings:
+        st.caption(f"You rated this seller {'👍' if my_ratings[request_id] else '👎'}.")
+        return
+    st.caption("How did it go? Your rating shows on the seller's profile.")
+    up, down, _ = st.columns([1, 1, 4])
+    if up.button("👍 Good", key=f"up-{request_id}"):
+        act(reviews.leave_review, request_id, "Thanks for rating!", True)
+    if down.button("👎 Bad", key=f"down-{request_id}"):
+        act(reviews.leave_review, request_id, "Thanks for rating!", False)
+
+
+CLOSED = (deals.DECLINED, deals.CANCELLED)
+open_deals = [deal for deal in purchases if deal["status"] not in CLOSED]
+closed_deals = [deal for deal in purchases if deal["status"] in CLOSED]
+if not open_deals:
+    st.caption("Nothing in progress right now.")
+
+
+def show_deal(deal: dict) -> None:
     listing = deal["listing"] or {}
     request_id = deal["id"]
     status = deal["status"]
@@ -89,3 +121,19 @@ for deal in purchases:
 
         elif status == deals.COMPLETED:
             st.markdown(":green[✅ Done — both of you confirmed. Enjoy!]")
+            rate_the_seller(request_id)
+
+        elif status == deals.DECLINED:
+            st.markdown(":grey[The seller said no, or chose another buyer.]")
+
+        elif status == deals.CANCELLED:
+            st.markdown(":grey[This deal was cancelled.]")
+
+
+for deal in open_deals:
+    show_deal(deal)
+
+if closed_deals:
+    with st.expander(f"Closed ({len(closed_deals)})"):
+        for deal in closed_deals:
+            show_deal(deal)

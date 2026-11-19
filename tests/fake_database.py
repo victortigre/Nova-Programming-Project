@@ -16,6 +16,7 @@ class FakeDatabase:
         self.favorites = []  # (profile_id, listing_id), in the order they were saved
         self.reports = {}  # id -> report
         self.requests = {}  # id -> purchase request
+        self.reviews = []  # every review, in the order they were left
         self._numbers = itertools.count(1)
 
     def add_profile(self, email: str, name: str = "Test Student") -> dict:
@@ -68,15 +69,24 @@ class FakeDatabase:
                                   if r["seller_id"] == profile_id and r["status"] == "active"
                                   and not self._seller_is_blocked(r))
 
-    def update_listing(self, listing_id, seller_id, changes):
+    def update_listing(self, listing_id, seller_id, changes, only_if_status=None):
         listing = self.listings.get(listing_id)
-        if listing and listing["seller_id"] == seller_id:
-            listing.update(changes)
+        if not listing or listing["seller_id"] != seller_id:
+            return False
+        if only_if_status is not None and listing["status"] != only_if_status:
+            return False
+        listing.update(changes)
+        return True
 
     def delete_listing(self, listing_id, seller_id):
         listing = self.listings.get(listing_id)
         if listing and listing["seller_id"] == seller_id:
             del self.listings[listing_id]
+            self._requests_go_with(listing_id)
+
+    def _requests_go_with(self, listing_id):
+        """Like "on delete cascade": a deleted listing's requests go too."""
+        self.requests = {i: r for i, r in self.requests.items() if r["listing_id"] != listing_id}
 
     def upload_listing_photo(self, picture):
         path = f"photo-{next(self._numbers)}"
@@ -142,6 +152,7 @@ class FakeDatabase:
         self.listings.pop(listing_id, None)
         # Like "on delete cascade" in the real database: its reports go too.
         self.reports = {i: r for i, r in self.reports.items() if r["listing_id"] != listing_id}
+        self._requests_go_with(listing_id)
 
     # --- buying (purchase requests) -------------------------------------------
 
@@ -174,7 +185,47 @@ class FakeDatabase:
                 if r["buyer_id"] == buyer_id and r["status"] in statuses]
         return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"], reverse=True)]
 
-    def update_request(self, request_id, changes):
+    def update_request(self, request_id, changes, only_if_status=None):
         request = self.requests.get(request_id)
-        if request:
-            request.update(changes)
+        if not request:
+            return False
+        if only_if_status is not None and request["status"] != only_if_status:
+            return False
+        request.update(changes)
+        return True
+
+    def requests_for_seller(self, seller_id, statuses):
+        rows = []
+        for r in sorted(self.requests.values(), key=lambda r: r["created_at"]):
+            listing = self.listings.get(r["listing_id"])
+            if listing and listing["seller_id"] == seller_id and r["status"] in statuses:
+                # Like the real query: the listing comes along as row["listings"].
+                rows.append({**r, "listings": {"seller_id": seller_id,
+                                               "title": listing.get("title"),
+                                               "price_cents": listing.get("price_cents", 0)}})
+        return rows
+
+    def live_deals_of(self, profile_id):
+        live = ["requested", "accepted"]
+        return {"selling": self.requests_for_seller(profile_id, live),
+                "buying": self.requests_by_buyer(profile_id, live)}
+
+    def names_of(self, profile_ids):
+        return {p["id"]: p["name"] for p in self.profiles.values() if p["id"] in set(profile_ids)}
+
+    # --- reviews ----------------------------------------------------------------
+
+    def insert_review(self, row):
+        # Like the unique index in the real database: one review per person per deal.
+        for review in self.reviews:
+            if (review["request_id"], review["reviewer_id"]) == (row["request_id"], row["reviewer_id"]):
+                raise ValueError("duplicate review")
+        review = {**row, "id": next(self._numbers)}
+        self.reviews.append(review)
+        return dict(review)
+
+    def reviews_about(self, profile_id):
+        return [dict(r) for r in self.reviews if r["reviewee_id"] == profile_id]
+
+    def reviews_by(self, reviewer_id):
+        return [dict(r) for r in self.reviews if r["reviewer_id"] == reviewer_id]

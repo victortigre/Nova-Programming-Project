@@ -181,3 +181,13 @@ def test_blocked_reporter_cannot_send_a_report(db):
     with pytest.raises(reports.NotAllowed):
         reports.create_report(db, TOM, reported_profile_id=db.get_profile(ANA)["id"],
                               reason="Other")
+
+
+# --- blocking calls off the student's deals -------------------------------------
+
+def test_blocking_cancels_the_deals_of_the_blocked_student(db):
+    import deals
+    request = deals.request_to_buy(db, db.tom_listing["id"], EVA)
+    admin.block_user(db, BOSS, db.report_id)
+    assert db.get_request(request["id"])["status"] == "cancelled"
+    assert deals.my_purchases(db, EVA)[0]["status"] == "cancelled"

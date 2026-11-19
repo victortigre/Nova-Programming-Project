@@ -325,9 +325,33 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
         db.delete_listing_photos(removed)
 
 
+# --- listings with a buyer (see deals.py) -----------------------------------------
+# A buyer can ask to buy a listing through the app ("Request to buy"). Once the
+# seller accepted one, that deal decides the status: the seller confirms or
+# cancels it on the Sales page, not with the buttons on My listings. Otherwise
+# the buyer would still see "Accepted" for an item that is back on sale.
+# (The names are the same as in deals.py, which can't be imported here:
+# deals.py imports this file.)
+_WAITING, _ACCEPTED = "requested", "accepted"
+DEAL_IN_PROGRESS = ("This item is reserved for a buyer who asked through the app. "
+                    "Confirm or cancel that deal on the Sales page.")
+
+
+def _refuse_if_deal_in_progress(db, listing_id: int) -> list[dict]:
+    """Stop if a buyer was accepted; otherwise return the requests still waiting."""
+    live = db.requests_for_listing(listing_id, [_WAITING, _ACCEPTED])
+    if any(request["status"] == _ACCEPTED for request in live):
+        raise ListingError([DEAL_IN_PROGRESS])
+    return [request for request in live if request["status"] == _WAITING]
+
+
 def delete_listing(db, listing_id: int, seller_email: str) -> None:
-    """Remove the listing and its photos for good."""
+    """Remove the listing and its photos for good.
+
+    Not while a buyer is accepted. Requests still waiting are deleted with it.
+    """
     listing, seller = _own_listing(db, listing_id, seller_email)
+    _refuse_if_deal_in_progress(db, listing_id)
     db.delete_listing(listing_id, seller["id"])
     if listing["photo_paths"]:
         db.delete_listing_photos(listing["photo_paths"])
@@ -346,7 +370,17 @@ def _move(db, listing_id: int, seller_email: str, new_status: str) -> None:
     allowed_from, message = _ALLOWED_MOVES[new_status]
     if listing["status"] not in allowed_from:
         raise ListingError([message])
-    db.update_listing(listing_id, seller["id"], {"status": new_status})
+    waiting = _refuse_if_deal_in_progress(db, listing_id)
+    # Only if the status is still what we just read (see deals.py, "Changing a
+    # status safely"): a buyer may be accepted at this very moment.
+    if not db.update_listing(listing_id, seller["id"], {"status": new_status},
+                             only_if_status=listing["status"]):
+        raise ListingError(["This listing just changed. Please look again."])
+    # Reserved or sold outside the app: the buyers who asked get a clear "no"
+    # instead of waiting for an answer that will never come.
+    if new_status != ACTIVE:
+        for request in waiting:
+            db.update_request(request["id"], {"status": "declined"}, only_if_status=_WAITING)
 
 
 def mark_reserved(db, listing_id: int, seller_email: str) -> None:

@@ -9,6 +9,7 @@ verified Nova student gets through to the pages listed at the bottom.
 import streamlit as st
 
 import database
+import deals
 import ui
 from accounts import admin_emails, email_is_verified, is_admin, logged_in_user, nova_email
 from profiles import DONE, onboarding_step
@@ -139,13 +140,28 @@ if onboarding_step(profile) != DONE:
 # 7. A verified Nova student who finished the Welcome steps: show the pages.
 # Every page of the app is listed here, in the menu bar at the top. The files
 # live in the views folder. Sign out is on "My profile".
+# "Sales (2)" and "My purchases (1)": how many deals wait for this student to
+# do something (see deals.to_do). If buying isn't set up in the database yet,
+# the menu simply shows no numbers.
+try:
+    to_do = deals.to_do(database, email)
+except Exception:
+    to_do = {"sales": 0, "purchases": 0}
+
+
+def with_count(title: str, count: int) -> str:
+    return f"{title} ({count})" if count else title
+
+
 browse = st.Page("views/browse.py", title="Browse", icon=":material/search:", default=True)
 pages = [
     browse,
     st.Page("views/sell_item.py", title="Sell an item", icon=":material/add_circle:"),
     st.Page("views/my_listings.py", title="My listings", icon=":material/inventory_2:"),
-    st.Page("views/purchases.py", title="My purchases", icon=":material/shopping_bag:"),
-    st.Page("views/sales.py", title="Sales", icon=":material/sell:"),
+    st.Page("views/purchases.py", title=with_count("My purchases", to_do["purchases"]),
+            icon=":material/shopping_bag:"),
+    st.Page("views/sales.py", title=with_count("Sales", to_do["sales"]),
+            icon=":material/sell:"),
     st.Page("views/profile.py", title="My profile", icon=":material/person:"),
     # Linked from "My profile" and "Sell an item", so it is not shown in the menu.
     st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:",

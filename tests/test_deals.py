@@ -178,3 +178,91 @@ def test_my_purchases_attaches_the_listing(db):
     mine = deals.my_purchases(db, BUYER)
     assert len(mine) == 1
     assert mine[0]["listing"]["id"] == lid
+
+
+# --- two clicks at the same moment -------------------------------------------
+def test_accept_fails_if_the_buyer_cancelled_meanwhile(db):
+    lid = a_listing(db)["id"]
+    req = deals.request_to_buy(db, lid, BUYER)
+    seen_by_seller = db.get_request(req["id"])           # the seller's page loaded...
+    db.requests[req["id"]]["status"] = CANCELLED         # ...then the buyer cancelled
+    real_get = db.get_request
+    db.get_request = lambda rid: seen_by_seller if rid == req["id"] else real_get(rid)
+    with pytest.raises(ListingError):
+        deals.accept_request(db, req["id"], SELLER)
+    assert db.get_listing(lid)["status"] == ACTIVE        # the listing was given back
+    assert db.requests[req["id"]]["status"] == CANCELLED
+
+
+def test_two_buyers_can_never_both_be_accepted(db):
+    lid = a_listing(db)["id"]
+    first = deals.request_to_buy(db, lid, BUYER)
+    second = deals.request_to_buy(db, lid, OTHER)
+    deals.accept_request(db, first["id"], SELLER)
+    with pytest.raises(ListingError):
+        deals.accept_request(db, second["id"], SELLER)
+    accepted = [r for r in db.requests.values() if r["status"] == ACCEPTED]
+    assert [r["id"] for r in accepted] == [first["id"]]
+
+
+def test_a_reserved_item_cannot_be_requested(db):
+    lid, rid = _accepted_deal(db)
+    with pytest.raises(ListingError):
+        deals.request_to_buy(db, lid, OTHER)
+
+
+def test_a_blocked_student_cannot_request(db):
+    lid = a_listing(db)["id"]
+    db.get_profile(BUYER)["blocked_at"] = "now"
+    with pytest.raises(NotAllowed):
+        deals.request_to_buy(db, lid, BUYER)
+
+
+# --- the counts in the menu ---------------------------------------------------
+def test_to_do_counts_what_each_side_must_do(db):
+    lid = a_listing(db)["id"]
+    req = deals.request_to_buy(db, lid, BUYER)
+    assert deals.to_do(db, SELLER)["sales"] == 1          # answer the buyer
+    assert deals.to_do(db, BUYER)["purchases"] == 0       # nothing to do yet
+
+    deals.accept_request(db, req["id"], SELLER)
+    assert deals.to_do(db, SELLER)["sales"] == 0
+    assert deals.to_do(db, BUYER)["purchases"] == 1       # meet + confirm
+
+    deals.confirm_received(db, req["id"], BUYER)
+    assert deals.to_do(db, BUYER)["purchases"] == 0
+    assert deals.to_do(db, SELLER)["confirm_sale"] == 1   # buyer confirmed, now you
+
+    deals.confirm_sold(db, req["id"], SELLER)
+    assert deals.to_do(db, SELLER)["sales"] == 0
+
+
+# --- history ------------------------------------------------------------------
+def test_declined_requests_stay_visible_to_the_buyer(db):
+    lid = a_listing(db)["id"]
+    req = deals.request_to_buy(db, lid, BUYER)
+    deals.decline_request(db, req["id"], SELLER)
+    assert [d["status"] for d in deals.my_purchases(db, BUYER)] == [DECLINED]
+
+
+def test_my_sales_lists_completed_sales_with_the_buyer(db):
+    lid, rid = _accepted_deal(db)
+    deals.confirm_sold(db, rid, SELLER)
+    deals.confirm_received(db, rid, BUYER)
+    sales = deals.my_sales(db, SELLER)
+    assert [(s["id"], s["title"], s["buyer_name"]) for s in sales] == [(rid, "Desk lamp", "Buyer")]
+
+
+# --- blocking -----------------------------------------------------------------
+def test_blocking_a_buyer_frees_the_item_reserved_for_them(db):
+    lid, rid = _accepted_deal(db)
+    deals.cancel_deals_of(db, db.get_profile(BUYER)["id"])
+    assert db.get_request(rid)["status"] == CANCELLED
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+def test_blocking_a_seller_cancels_requests_for_their_items(db):
+    lid = a_listing(db)["id"]
+    waiting = deals.request_to_buy(db, lid, OTHER)
+    deals.cancel_deals_of(db, db.get_profile(SELLER)["id"])
+    assert db.get_request(waiting["id"])["status"] == CANCELLED

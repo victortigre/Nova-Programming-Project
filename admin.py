@@ -4,6 +4,7 @@ Feature (area 5 of the MVP, Trust & safety):
     open_reports     every report nobody handled yet, oldest first
     remove_listing   delete the reported listing and its photos
     block_user       block the reported student (for a listing: its seller)
+                     and call off every deal they are in
     dismiss_report   close the report without doing anything else
 
 Rules that keep this safe:
@@ -19,6 +20,7 @@ function takes `db` first: the `database` module in the pages, or the
 pretend database in the tests (tests/fake_database.py).
 """
 
+import deals
 from accounts import admin_emails, is_admin
 
 OPEN = "open"
@@ -133,6 +135,10 @@ def block_user(db, admin_email: str, report_id: int) -> None:
     # Block first, then close the reports. If closing failed, the student is
     # still blocked and the reports simply stay open for another look.
     db.block_profile(student_id)
+
+    # Nobody should keep waiting for a blocked student: their requests are
+    # cancelled, and so are other students' requests for their items.
+    deals.cancel_deals_of(db, student_id)
 
     # The open reports about this student: about them directly, or about one
     # of their listings. This report is one of them.

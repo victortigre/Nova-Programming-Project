@@ -175,6 +175,34 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                 st.rerun()
 
 
+# --- What needs your attention ------------------------------------------------
+# The same numbers as in the menu ("Sales (2)"), spelled out, with a link.
+def plural(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+try:
+    to_do = deals.to_do(database, email)
+except Exception:  # buying isn't set up in the database yet
+    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0}
+if to_do["answer"]:
+    with st.container(border=True):
+        st.markdown(f"🔔 **{plural(to_do['answer'], 'buyer wants', 'buyers want')} "
+                    "to buy your items.** Accept or decline on Sales.")
+        st.page_link("views/sales.py", label="Open Sales", icon=":material/sell:")
+if to_do["confirm_sale"]:
+    with st.container(border=True):
+        st.markdown(f"🔔 **{plural(to_do['confirm_sale'], 'buyer', 'buyers')} confirmed "
+                    "they got the item.** Confirm the hand-over too, so it counts as sold.")
+        st.page_link("views/sales.py", label="Open Sales", icon=":material/sell:")
+if to_do["confirm_received"]:
+    with st.container(border=True):
+        st.markdown(f"🔔 **{plural(to_do['confirm_received'], 'seller', 'sellers')} "
+                    "accepted your request.** Meet them, then confirm you got the item.")
+        st.page_link("views/purchases.py", label="Open My purchases",
+                     icon=":material/shopping_bag:")
+
+
 # --- Browse and Saved tabs ----------------------------------------------------
 browse_tab, saved_tab = st.tabs(["All items", f"♥ Saved ({len(saved)})"])
 

@@ -10,6 +10,7 @@ from io import BytesIO
 import pytest
 from PIL import Image
 
+import deals
 import listings
 from fake_database import FakeDatabase
 from listings import ListingError, NotAllowed, NotFound
@@ -432,3 +433,36 @@ def test_plain_text_escapes_bold():
 
 def test_plain_text_leaves_normal_text_alone():
     assert listings.plain_text("Desk lamp 2024") == "Desk lamp 2024"
+
+
+# --- listings with a buyer (deals.py) -----------------------------------------
+def _with_request(db, accepted: bool):
+    lid = new_listing(db)
+    request = deals.request_to_buy(db, lid, TOM)
+    if accepted:
+        deals.accept_request(db, request["id"], ANA)
+    return lid, request["id"]
+
+
+@pytest.mark.parametrize("action", [listings.mark_sold, listings.relist,
+                                    listings.delete_listing])
+def test_a_deal_in_progress_blocks_the_manual_buttons(db, action):
+    lid, rid = _with_request(db, accepted=True)
+    with pytest.raises(listings.ListingError, match="Sales page"):
+        action(db, lid, ANA)
+    assert db.get_listing(lid)["status"] == listings.RESERVED
+    assert db.get_request(rid)["status"] == "accepted"
+
+
+@pytest.mark.parametrize("action", [listings.mark_reserved, listings.mark_sold])
+def test_reserving_or_selling_outside_the_app_declines_waiting_buyers(db, action):
+    lid, rid = _with_request(db, accepted=False)
+    action(db, lid, ANA)
+    assert db.get_request(rid)["status"] == "declined"
+
+
+def test_deleting_with_only_waiting_requests_is_allowed(db):
+    lid, rid = _with_request(db, accepted=False)
+    listings.delete_listing(db, lid, ANA)
+    assert db.get_listing(lid) is None
+    assert db.get_request(rid) is None  # deleted with the listing

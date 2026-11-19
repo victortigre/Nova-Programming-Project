@@ -13,6 +13,7 @@ from datetime import date
 import streamlit as st
 
 import database
+import reviews
 import ui
 from accounts import logged_in_user, verified_nova_email
 from listings import plain_text
@@ -70,6 +71,18 @@ with ui.card("profile-head"):
         st.html(chips)
         st.caption(f"Member since {shown['member_since']:%B %Y} · "
                    f"{len(listings)} active listing{'s' if len(listings) != 1 else ''}")
+        # Ratings from completed deals (reviews.py). Hidden until the reviews
+        # table is in the database.
+        try:
+            rating = reviews.summary(database, shown["id"])
+        except Exception:
+            rating = None
+        if rating is not None:
+            if rating["positive"] or rating["negative"]:
+                st.markdown(f"👍 **{rating['positive']}** · 👎 **{rating['negative']}** "
+                            f"· {rating['sold']} sold through the app")
+            else:
+                st.caption(f"No ratings yet · {rating['sold']} sold through the app")
 
 st.subheader("Active listings")
 if not listings:
