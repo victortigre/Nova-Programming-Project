@@ -258,6 +258,59 @@ def open_report(
     return rows[0] if rows else None
 
 
+# --- Buying (purchase requests) -----------------------------------------------
+#
+# A buyer asks to buy a listing; the seller accepts; then both sides confirm the
+# hand-over. The rules (who may do what) live in deals.py; here we only store.
+
+
+def insert_request(row: dict) -> dict:
+    """Store a new purchase request and return it, with its new id."""
+    return _client().table("purchase_requests").insert(row).execute().data[0]
+
+
+def get_request(request_id: int) -> dict | None:
+    """Return the request with this number, or None if there is none."""
+    rows = _client().table("purchase_requests").select("*").eq("id", request_id).execute().data
+    return rows[0] if rows else None
+
+
+def live_request(buyer_id: int, listing_id: int) -> dict | None:
+    """This buyer's requested-or-accepted request for this listing, or None."""
+    rows = (
+        _client().table("purchase_requests").select("*")
+        .eq("buyer_id", buyer_id).eq("listing_id", listing_id)
+        .in_("status", ["requested", "accepted"]).limit(1)
+        .execute().data
+    )
+    return rows[0] if rows else None
+
+
+def requests_for_listing(listing_id: int, statuses: list[str]) -> list[dict]:
+    """Requests on a listing with one of these statuses, oldest first (a fair queue)."""
+    return (
+        _client().table("purchase_requests").select("*")
+        .eq("listing_id", listing_id).in_("status", statuses)
+        .order("created_at").order("id")
+        .execute().data
+    )
+
+
+def requests_by_buyer(buyer_id: int, statuses: list[str]) -> list[dict]:
+    """A buyer's requests with one of these statuses, newest first."""
+    return (
+        _client().table("purchase_requests").select("*")
+        .eq("buyer_id", buyer_id).in_("status", statuses)
+        .order("created_at", desc=True).order("id", desc=True)
+        .execute().data
+    )
+
+
+def update_request(request_id: int, changes: dict) -> None:
+    """Change a purchase request (status or a confirmation time)."""
+    _client().table("purchase_requests").update(changes).eq("id", request_id).execute()
+
+
 # --- Admin --------------------------------------------------------------------
 #
 # The rules (only admins, what each button does) are in admin.py. These

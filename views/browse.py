@@ -12,6 +12,7 @@ import streamlit as st
 
 import browsing
 import database
+import deals
 import listings
 import ui
 from accounts import verified_nova_email
@@ -113,7 +114,24 @@ if viewing is not None:
             st.html(ui.chip(listings.category_label(item)) + ui.chip(item["condition"])
                     + ui.chip(listings.pickup_label(item), warm=True))
             st.write(plain(item["description"]))
+            if message := st.session_state.pop("deal_message", None):
+                st.success(message)
+            if error := st.session_state.pop("deal_error", None):
+                st.error(error)
             if my_id != item["seller_id"]:
+                if item["status"] == listings.ACTIVE:
+                    if st.button("Request to buy", key=f"buy-{item['id']}",
+                                 type="primary", icon=":material/shopping_bag:"):
+                        try:
+                            deals.request_to_buy(database, item["id"], email)
+                            st.session_state["deal_message"] = (
+                                "Request sent! Track it in My purchases.")
+                        except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
+                            st.session_state["deal_error"] = (
+                                exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
+                        st.rerun()
+                elif item["status"] == listings.RESERVED:
+                    st.caption("This item is reserved for another buyer.")
                 save_button(item["id"], where="detail")
                 st.page_link("views/public_profile.py",
                              label="View the seller's profile to get in touch",

@@ -138,6 +138,8 @@ pages = [
     browse,
     st.Page("views/sell_item.py", title="Sell an item", icon=":material/add_circle:"),
     st.Page("views/my_listings.py", title="My listings", icon=":material/inventory_2:"),
+    st.Page("views/purchases.py", title="My purchases", icon=":material/shopping_bag:"),
+    st.Page("views/sales.py", title="Sales", icon=":material/sell:"),
     st.Page("views/profile.py", title="My profile", icon=":material/person:"),
     st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:"),
     # Opened through links to one student, so it is not shown in the menu.
