@@ -24,41 +24,47 @@ def login_is_set_up() -> bool:
     return all(value and "PASTE" not in value for value in values)
 
 
+# Shown along the bottom of the landing page, moving from right to left.
+THINGS_STUDENTS_SELL = [
+    "Road bikes", "Surfboards", "Beds", "Desks", "Textbooks", "Guitars",
+    "Monitors", "Coffee machines", "Wetsuits", "Plants", "Calculators", "Sofas",
+]
+
+
 def show_landing_page() -> None:
     """The first thing a visitor sees: what the app is, and the sign-in button."""
-    with st.container(key="hero"):
+    st.set_page_config(layout="wide")
+    st.logo("static/logo-white.png", size="large")  # white, for the dark photo
+    st.html(ui.LANDING_CSS)
+    with st.container(key="landing"):
         st.html(
-            "<h1 style='margin:0;font-size:2.6rem;line-height:1.15'>"
-            "Buy and sell with<br>Nova SBE students</h1>"
-            "<p style='font-size:1.1rem;opacity:.9;margin:.8rem 0 0'>"
-            "Furniture, books, bikes and more, from students on campus and from "
-            "everyone who is leaving Lisbon.</p>"
+            '<span class="nm-dark-badge">ONLY FOR @NOVASBE.PT STUDENTS</span>'
+            '<div class="nm-serif">From students, for students.</div>'
+            '<p class="nm-sub">Buy and sell second-hand with people on your campus. '
+            "The marketplace of Nova SBE, Carcavelos.</p>"
         )
-        if st.button("Sign in or create an account", icon=":material/arrow_forward:",
-                     icon_position="right"):
-            st.login("auth0")
-        st.html("<p style='font-size:.85rem;opacity:.8;margin:0'>"
-                "Use your @novasbe.pt email. New here? You can create an account "
-                "on the next screen.</p>")
+        with st.container(horizontal_alignment="center"):
+            if st.button("Sign in or create an account"):
+                st.login("auth0")
+        st.html('<p class="nm-hint">New here? You can create an account on the next screen.</p>')
 
-    columns = st.columns(3)
-    benefits = [
-        (":material/verified_user:", "Nova students only",
-         "Every account is a confirmed @novasbe.pt address."),
-        (":material/handshake:", "Meet on campus",
-         "Hand items over on campus or nearby. No shipping."),
-        (":material/money_off:", "Free to use",
-         "No fees. Putting an item online takes a couple of minutes."),
-    ]
-    for number, (column, (icon, title, text)) in enumerate(zip(columns, benefits)):
-        with column, ui.card(f"benefit-{number}"):
-            st.markdown(f"### {icon}")
-            st.markdown(f"**{title}**")
-            st.caption(text)
+        # The list is written twice in a row, so the movement can loop without a jump.
+        names = "".join(f"<span>{name}</span>" for name in THINGS_STUDENTS_SELL)
+        with st.container(key="landing-items"):
+            st.html(f'<div class="nm-items"><div class="nm-items-track">{names}{names}</div></div>')
 
 
 # The browser tab shows this name and icon on every page.
-st.set_page_config(page_title="Nova Marketplace", page_icon="static/icon.png")
+# "About" in the ⋮ menu names the photographer of the landing page photo,
+# which its licence (CC BY-SA 4.0) asks for.
+ABOUT = (
+    "**Nova Marketplace** is made by Nova SBE students as a course project.\n\n"
+    "Landing page photo: Miguelmcorreia, "
+    "[Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Nova_SBE_3.jpg), "
+    "[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), cropped."
+)
+st.set_page_config(page_title="Nova Marketplace", page_icon="static/icon.png",
+                   menu_items={"About": ABOUT})
 st.logo("static/logo.png", size="large")
 ui.apply_style()
 

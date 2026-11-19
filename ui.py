@@ -121,6 +121,73 @@ button[data-variant="pills"][data-selected="true"] p {{
 """
 
 
+# The landing page (before sign-in): the Nova campus photo fills the whole
+# screen, with a dark shade over it so the white text stays readable.
+LANDING_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif&display=swap');
+
+.stApp {
+    background:
+        radial-gradient(ellipse 60% 45% at 50% 45%, rgba(8, 12, 28, 0.45), transparent 75%),
+        linear-gradient(180deg, rgba(8, 12, 28, 0.6) 0%, rgba(8, 12, 28, 0.42) 30%,
+                        rgba(8, 12, 28, 0.55) 65%, rgba(4, 5, 10, 0.96) 100%),
+        url("app/static/landing-campus.jpg") center 60% / cover no-repeat fixed;
+}
+[data-testid="stHeader"] { background: transparent; }
+[data-testid="stHeader"] button { color: #FFFFFF; }
+[data-testid="stMainBlockContainer"] { max-width: 100%; padding: 0 24px; }
+
+.st-key-landing {
+    min-height: 100vh; justify-content: center; align-items: center;
+    text-align: center; position: relative; padding-bottom: 60px;
+}
+.nm-dark-badge {
+    display: inline-flex; align-items: center; gap: 10px; padding: 7px 16px;
+    border-radius: 999px; background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2); color: #FFFFFF;
+    font: 500 0.76rem/1 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 0.08em;
+}
+.nm-dark-badge::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%; background: #FFFFFF;
+}
+.nm-serif {
+    font-family: "Instrument Serif", Georgia, serif; font-weight: 400; color: #FFFFFF;
+    font-size: clamp(2.5rem, 5.2vw, 4.8rem); line-height: 1.05; letter-spacing: -0.01em;
+    margin: 26px auto 18px; text-wrap: balance; text-shadow: 0 2px 30px rgba(0, 0, 0, 0.25);
+}
+.nm-sub {
+    color: rgba(255, 255, 255, 0.92); font-size: 1.05rem; margin: 0 auto 22px; max-width: 36rem;
+    text-shadow: 0 1px 12px rgba(0, 0, 0, 0.5);
+}
+.st-key-landing button {
+    background: #FFFFFF; border: none; padding: 0.65rem 1.6rem; min-height: 0;
+}
+.st-key-landing button p { color: #111111; font-weight: 500; }
+.st-key-landing button:hover { background: #EEEBFF; }
+.nm-hint { color: rgba(255, 255, 255, 0.65); font-size: 0.82rem; margin-top: 4px; }
+
+/* The names of things students sell, moving slowly from right to left. */
+.st-key-landing-items { position: absolute; left: 0; right: 0; bottom: 34px; width: 100%; }
+.nm-items {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 15%, #000 85%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 15%, #000 85%, transparent);
+}
+.nm-items-track { display: flex; width: max-content; animation: nm-scroll 55s linear infinite; }
+.nm-items-track span {
+    flex: none; padding: 0 34px; color: rgba(255, 255, 255, 0.85); white-space: nowrap;
+    font-weight: 600; font-size: 0.95rem; letter-spacing: 0.2em; text-transform: uppercase;
+}
+@keyframes nm-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .nm-items-track { animation: none; } }
+@media (max-width: 640px) {
+    .stApp { background-attachment: scroll; }
+    .st-key-landing-items { bottom: 40px; }
+}
+</style>
+"""
+
 def apply_style() -> None:
     """Add the extra CSS to the page. app.py calls this once on every visit."""
     st.html(CSS)
