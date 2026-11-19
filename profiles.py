@@ -16,6 +16,7 @@ PROGRAMS = [
     "Bachelor's in Management",
     "Master's in Economics",
     "Master's in Finance",
+    "International Master's in Finance",
     "Master's in Management",
     "International Master's in Management",
     "Master's in Business Analytics",
