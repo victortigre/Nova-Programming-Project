@@ -42,7 +42,14 @@ def act(action, request_id: int, done_message: str) -> None:
         st.rerun()
 
 
-purchases = deals.my_purchases(database, email)
+try:
+    purchases = deals.my_purchases(database, email)
+except (deals.ListingError, deals.NotAllowed, deals.NotFound):
+    raise
+except Exception:
+    st.info("Buying isn't set up in the database yet. Check back soon.")
+    st.stop()
+
 if not purchases:
     st.info("You haven't asked to buy anything yet. "
             "Find something on Browse and tap “Request to buy”.")

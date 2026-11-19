@@ -69,16 +69,20 @@ groups = listings.my_listings(database, email)
 sellable = groups[listings.ACTIVE] + groups[listings.RESERVED]
 
 shown_any = False
-for listing in sellable:
-    requests = deals.requests_on_listing(database, listing["id"], email, statuses=deals.LIVE)
-    if not requests:
-        continue
-    shown_any = True
-    with st.container(border=True):
-        st.markdown(f"### {listings.plain_text(listing['title'])}")
-        st.caption(f"{listings.format_price(listing['price_cents'])} · {listing['status']}")
-        for request in requests:
-            request_row(request)
+try:
+    for listing in sellable:
+        requests = deals.requests_on_listing(database, listing["id"], email, statuses=deals.LIVE)
+        if not requests:
+            continue
+        shown_any = True
+        with st.container(border=True):
+            st.markdown(f"### {listings.plain_text(listing['title'])}")
+            st.caption(f"{listings.format_price(listing['price_cents'])} · {listing['status']}")
+            for request in requests:
+                request_row(request)
+except Exception:
+    st.info("Buying isn't set up in the database yet. Check back soon.")
+    st.stop()
 
 if not shown_any:
     st.info("No buyer requests yet. When someone taps “Request to buy” on one of "

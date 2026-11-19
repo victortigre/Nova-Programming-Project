@@ -129,6 +129,9 @@ if viewing is not None:
                         except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
                             st.session_state["deal_error"] = (
                                 exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
+                        except Exception:
+                            st.session_state["deal_error"] = (
+                                "Buying isn't set up yet. Please try again later.")
                         st.rerun()
                 elif item["status"] == listings.RESERVED:
                     st.caption("This item is reserved for another buyer.")
