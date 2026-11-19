@@ -6,12 +6,14 @@ check again, because the rule is to check where the action happens.
 """
 
 import re
+from functools import partial
 
 import streamlit as st
 
 import browsing
 import database
 import listings
+import ui
 from accounts import verified_nova_email
 
 FEED_LIMIT = 500  # the marketplace is small; fetch the newest listings and filter here
@@ -21,7 +23,8 @@ if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
 
-st.header("Browse")
+# The product grid needs the full width of the screen.
+st.set_page_config(layout="wide")
 
 me = database.get_profile(email)
 if me is None:
@@ -79,82 +82,111 @@ def save_button(listing_id: int, *, where: str) -> None:
 
 
 # --- detail view --------------------------------------------------------------
+# Another page (a student's profile) can ask Browse to open one listing.
+if "open_listing" in st.session_state:
+    st.session_state["view_listing"] = st.session_state.pop("open_listing")
 viewing = st.session_state.get("view_listing")
 if viewing is not None:
     item = listings.get_listing(database, viewing)
     if item is None:
         close_listing()
         st.rerun()
-    st.button("← Back to results", on_click=close_listing)
-    st.subheader(plain(item["title"]))
-    st.markdown(f"**{listings.format_price(item['price_cents'])}**{status_note(item['status'])}")
-    st.caption(f"{item['category']} · {item['condition']} · {item['pickup_area']}")
-    for path in item["photo_paths"]:
-        url = database.listing_photo_url(path)
-        if url:
-            st.image(url, width=320)
-    st.write(plain(item["description"]))
-
-    if my_id != item["seller_id"]:
-        save_button(item["id"], where="detail")
-        st.page_link("views/public_profile.py",
-                     label="View the seller's profile to get in touch",
-                     query_params={"id": item["seller_id"]})
-    else:
-        st.caption("This is your own listing.")
+    st.button("Back to results", icon=":material/arrow_back:", type="tertiary",
+              on_click=close_listing)
+    with ui.card("detail"):
+        photo_col, info_col = st.columns([1, 1], gap="large")
+        with photo_col:
+            urls = [database.listing_photo_url(path) for path in item["photo_paths"]]
+            urls = [url for url in urls if url]
+            if urls:
+                st.image(urls[0], width="stretch")
+                if len(urls) > 1:
+                    for column, url in zip(st.columns(4), urls[1:5]):
+                        column.image(url, width="stretch")
+            else:
+                st.html('<div class="nm-photo"><span class="nm-empty">🛍️</span></div>')
+        with info_col:
+            st.subheader(plain(item["title"]))
+            st.html(f'<p class="nm-price">{listings.format_price(item["price_cents"])}</p>')
+            if item["status"] != listings.ACTIVE:
+                st.markdown(status_note(item["status"]).lstrip(" ·"))
+            st.html(ui.chip(listings.category_label(item)) + ui.chip(item["condition"])
+                    + ui.chip(listings.pickup_label(item), warm=True))
+            st.write(plain(item["description"]))
+            if my_id != item["seller_id"]:
+                save_button(item["id"], where="detail")
+                st.page_link("views/public_profile.py",
+                             label="View the seller's profile to get in touch",
+                             icon=":material/person:",
+                             query_params={"id": item["seller_id"]})
+                st.page_link("views/report.py", label="Report this listing",
+                             icon=":material/flag:", query_params={"listing": item["id"]})
+            else:
+                st.caption("This is your own listing.")
     st.stop()
 
 
-# --- a card in the results ----------------------------------------------------
-# A saved listing shows up in both tabs, so "tab" goes into each button key:
+# --- the grid of results -----------------------------------------------------
+# A saved listing shows up in both tabs, so "tab" goes into each key:
 # Streamlit refuses two buttons with the same key on one page.
-def listing_card(item: dict, tab: str) -> None:
-    with st.container(border=True):
-        photo_col, info_col = st.columns([1, 3])
-        cover = item["photo_paths"][0] if item["photo_paths"] else None
-        url = database.listing_photo_url(cover) if cover else None
-        if url:
-            photo_col.image(url)
-        else:
-            photo_col.markdown("### 🛍️")
-        info_col.markdown(f"**{plain(item['title'])}** — "
-                          f"{listings.format_price(item['price_cents'])}{status_note(item['status'])}")
-        info_col.caption(f"{item['category']} · {item['pickup_area']}")
-        actions = info_col.columns([1, 1, 4])
-        actions[0].button("View", key=f"view-{tab}-{item['id']}",
-                          on_click=open_listing, args=(item["id"],))
-        if my_id != item["seller_id"]:
-            with actions[1]:
-                save_button(item["id"], where=f"card-{tab}")
+def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
+    for start in range(0, len(items), columns):
+        row = st.columns(columns, gap="medium")
+        for column, item in zip(row, items[start:start + columns]):
+            cover = item["photo_paths"][0] if item["photo_paths"] else None
+            with column:
+                own = my_id == item["seller_id"]
+                clicked = ui.listing_card(
+                    item,
+                    database.listing_photo_url(cover) if cover else None,
+                    key=f"{tab}-{item['id']}",
+                    saved=None if (own or not saving_ready) else item["id"] in saved,
+                    on_heart=partial(flip_saved, item["id"]),
+                )
+            if clicked:
+                open_listing(item["id"])
+                st.rerun()
 
 
 # --- Browse and Saved tabs ----------------------------------------------------
-browse_tab, saved_tab = st.tabs(["Browse", f"⭐ Saved ({len(saved)})"])
+browse_tab, saved_tab = st.tabs(["All items", f"♥ Saved ({len(saved)})"])
 
 with browse_tab:
+    query = st.text_input("Search", placeholder="Search desks, books, bikes...",
+                          icon=":material/search:", label_visibility="collapsed")
+    category = st.pills("Category", ["All"] + listings.CATEGORIES, default="All",
+                        label_visibility="collapsed") or "All"
     feed = listings.feed_listings(database, limit=FEED_LIMIT)
+    filters_col, grid_col = st.columns([1, 3], gap="medium")
 
-    top = st.columns([3, 1])
-    query = top[0].text_input("Search", placeholder="e.g. calculator, desk, bike")
-    category = top[1].selectbox("Category", ["All"] + listings.CATEGORIES)
-
-    row = st.columns([2, 2])
-    sort_label = row[0].selectbox("Sort by", list(browsing.SORTS))
-    max_euros = max((item["price_cents"] // 100 for item in feed), default=0)
-    if max_euros < 1:
-        max_euros = 100
-    low, high = row[1].slider("Price (€)", 0, max_euros, (0, max_euros))
+    with filters_col:
+        prices = [item["price_cents"] / 100 for item in feed]
+        max_euros = max((int(price) + 1 for price in prices), default=0)
+        if max_euros < 1:
+            max_euros = 100
+        with ui.card("price-range"):
+            st.markdown("**Price range**")
+            if prices:
+                st.caption(f"The average price is €{sum(prices) / len(prices):,.0f}")
+            ui.price_chart(prices)
+            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros),
+                                  label_visibility="collapsed")
+        with ui.card("sort"):
+            st.markdown("**Sort by**")
+            sort_label = st.radio("Sort by", list(browsing.SORTS),
+                                  label_visibility="collapsed")
 
     results = browsing.search_and_sort(
         feed, query=query, category=category,
         min_cents=low * 100, max_cents=high * 100,
         sort=browsing.SORTS[sort_label],
     )
-    st.caption(f"{len(results)} listing(s)")
-    if not results:
-        st.info("No listings match your filters — try clearing the search, category or price range.")
-    for item in results:
-        listing_card(item, tab="browse")
+    with grid_col:
+        st.caption(f"{len(results)} listing(s)")
+        if not results:
+            st.info("No listings match your filters. Try clearing the search, "
+                    "category or price range.")
+        listing_grid(results, tab="browse")
 
 with saved_tab:
     if not saving_ready:
@@ -163,6 +195,5 @@ with saved_tab:
     else:
         saved_items = browsing.saved_listings(database, my_id)
         if not saved_items:
-            st.info("You haven't saved anything yet. Tap 🤍 on a listing to keep it here.")
-        for item in saved_items:
-            listing_card(item, tab="saved")
+            st.info("You haven't saved anything yet. Tap ♡ on a listing to keep it here.")
+        listing_grid(saved_items, tab="saved", columns=4)

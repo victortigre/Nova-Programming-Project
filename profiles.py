@@ -119,3 +119,26 @@ def prepare_photo(file_bytes: bytes) -> bytes:
     output = io.BytesIO()
     picture.save(output, format="JPEG", quality=85)
     return output.getvalue()
+
+
+# --- Onboarding ---------------------------------------------------------------
+#
+# A new student goes through two steps before the rest of the app opens:
+# first the profile, then agreeing to the house rules. app.py asks this
+# function which step someone is on.
+
+PROFILE_STEP = "profile"
+RULES_STEP = "rules"
+DONE = "done"
+
+
+def onboarding_step(profile: dict | None) -> str:
+    """Which welcome step this student still has to do, or DONE.
+
+    `profile` is the stored profile, or None if there is none yet.
+    """
+    if profile is None:
+        return PROFILE_STEP
+    if not profile.get("rules_accepted_at"):
+        return RULES_STEP
+    return DONE

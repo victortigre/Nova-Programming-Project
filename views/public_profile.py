@@ -13,8 +13,9 @@ from datetime import date
 import streamlit as st
 
 import database
+import ui
 from accounts import logged_in_user, verified_nova_email
-from listings import format_price, plain_text
+from listings import plain_text
 from profiles import profile_id_from_text, public_profile
 
 # Only verified Nova students may look at profiles.
@@ -42,36 +43,54 @@ if profile is None:
 
 # From here on only the public parts are used, so the email cannot slip out.
 shown = public_profile(profile, date.today())
-
-if profile["email"] == email:
-    st.info("This is your own profile, as other students see it.")
-    st.page_link("views/profile.py", label="Edit my profile")
-
-photo_column, text_column = st.columns([1, 3])
-with photo_column:
-    if shown["photo_path"]:
-        st.image(database.photo_url(shown["photo_path"]), width=160)
-with text_column:
-    st.header(shown["name"])
-    st.write(shown["program"])
-    if shown["leaving_lisbon_on"]:
-        st.write(f"Leaving Lisbon on {shown['leaving_lisbon_on']:%d %B %Y}")
-    st.caption(f"Member since {shown['member_since']:%B %Y}")
-
-# Nobody reports themselves, so the Report links only show on other profiles.
 is_own_profile = profile["email"] == email
-if not is_own_profile:
-    st.page_link("views/report.py", label="Report this student",
-                 query_params={"student": shown["id"]})
+
+# The listings are shown as a grid, which needs the full width of the screen.
+st.set_page_config(layout="wide")
+
+if is_own_profile:
+    st.info("This is your own profile, as other students see it.")
+    st.page_link("views/profile.py", label="Edit my profile", icon=":material/edit:")
+
+listings = database.get_active_listings(shown["id"])
+
+with ui.card("profile-head"):
+    photo_column, text_column = st.columns([1, 5], vertical_alignment="center")
+    with photo_column:
+        st.html(ui.avatar(database.photo_url(shown["photo_path"]), shown["name"]))
+    with text_column:
+        st.header(plain_text(shown["name"]))
+        chips = ui.chip("✓ Verified Nova student") + ui.chip(shown["program"])
+        if shown["leaving_lisbon_on"]:
+            days = (shown["leaving_lisbon_on"] - date.today()).days
+            when = "today" if days == 0 else f"in {days} day{'s' if days != 1 else ''}"
+            chips += ui.chip(
+                f"Leaving Lisbon on {shown['leaving_lisbon_on']:%d %B} ({when})", warm=True
+            )
+        st.html(chips)
+        st.caption(f"Member since {shown['member_since']:%B %Y} · "
+                   f"{len(listings)} active listing{'s' if len(listings) != 1 else ''}")
 
 st.subheader("Active listings")
-listings = database.get_active_listings(shown["id"])
 if not listings:
     st.write("No active listings at the moment.")
-for listing in listings:
-    title_column, link_column = st.columns([4, 1])
-    # plain_text shows the title as typed, so it can't add links or formatting.
-    title_column.write(f"**{plain_text(listing['title'])}** - {format_price(listing['price_cents'])}")
-    if not is_own_profile:
-        link_column.page_link("views/report.py", label="Report",
-                              query_params={"listing": listing["id"]})
+columns_per_row = 4
+for start in range(0, len(listings), columns_per_row):
+    row = st.columns(columns_per_row, gap="medium")
+    for column, listing in zip(row, listings[start:start + columns_per_row]):
+        cover = listing["photo_paths"][0] if listing.get("photo_paths") else None
+        with column:
+            clicked = ui.listing_card(
+                listing, database.listing_photo_url(cover) if cover else None,
+                key=f"profile-{listing['id']}",
+            )
+        # The price button opens the listing on Browse, where it can be saved or reported.
+        if clicked:
+            st.session_state["open_listing"] = listing["id"]
+            st.switch_page("views/browse.py")
+
+# Nobody reports themselves, so the Report link only shows on other profiles.
+if not is_own_profile:
+    st.write("")
+    st.page_link("views/report.py", label="Report this student", icon=":material/flag:",
+                 query_params={"student": shown["id"]})

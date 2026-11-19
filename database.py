@@ -71,6 +71,12 @@ def save_profile(
     return saved[0]
 
 
+def accept_house_rules(email: str) -> None:
+    """Remember that the student with this email agreed to the house rules (now)."""
+    now = datetime.now(timezone.utc).isoformat()
+    _client().table("profiles").update({"rules_accepted_at": now}).eq("email", email).execute()
+
+
 # --- Listings -----------------------------------------------------------------
 #
 # The rules (who may change a listing, what a valid listing is) are in
