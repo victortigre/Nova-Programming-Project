@@ -46,9 +46,6 @@ if profile is None:
 shown = public_profile(profile, date.today())
 is_own_profile = profile["email"] == email
 
-# The listings are shown as a grid, which needs the full width of the screen.
-st.set_page_config(layout="wide")
-
 if is_own_profile:
     st.info("This is your own profile, as other students see it.")
     st.page_link("views/profile.py", label="Edit my profile", icon=":material/edit:")

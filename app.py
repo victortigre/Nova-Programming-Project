@@ -64,8 +64,10 @@ ABOUT = (
     "[Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Nova_SBE_3.jpg), "
     "[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/), cropped."
 )
+# Every page uses the full width of the screen. Set once here, so the width
+# does not change depending on which page was opened first.
 st.set_page_config(page_title="Nova Marketplace", page_icon="static/icon.png",
-                   menu_items={"About": ABOUT})
+                   layout="wide", menu_items={"About": ABOUT})
 st.logo("static/logo.png", size="large")
 ui.apply_style()
 

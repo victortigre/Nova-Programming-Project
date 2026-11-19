@@ -24,9 +24,6 @@ if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
 
-# The product grid needs the full width of the screen.
-st.set_page_config(layout="wide")
-
 me = database.get_profile(email)
 if me is None:
     st.info("Fill in your profile first. After that you can browse and save items.")
