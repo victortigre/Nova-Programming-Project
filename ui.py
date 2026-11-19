@@ -33,6 +33,11 @@ CSS = f"""
 /* Less empty space between the menu bar and the page. */
 [data-testid="stMainBlockContainer"] {{ padding-top: 4.5rem; }}
 
+/* The menu bar: room between the logo and the menu, and between the links. */
+[data-testid="stTopNav"] {{ margin-left: 1.5rem; }}
+[data-testid="stTopNav"] .rc-overflow-item {{ padding-right: 0.35rem; }}
+[data-testid="stTopNavLink"] {{ padding: 0.3rem 0.65rem; }}
+
 /* The selected category pill is filled violet. */
 button[data-variant="pills"][data-selected="true"],
 button[data-variant="pills"][data-selected="true"] p {{
