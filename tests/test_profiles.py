@@ -179,3 +179,21 @@ def test_empty_file_is_rejected():
 def test_file_that_is_too_large_is_rejected():
     with pytest.raises(ValueError):
         prepare_photo(b"x" * (MAX_PHOTO_BYTES + 1))
+
+
+# --- onboarding_step ----------------------------------------------------------
+
+from profiles import DONE, PROFILE_STEP, RULES_STEP, onboarding_step
+
+
+def test_a_student_without_a_profile_starts_with_the_profile():
+    assert onboarding_step(None) == PROFILE_STEP
+
+
+def test_a_profile_without_agreed_rules_goes_to_the_rules():
+    assert onboarding_step({"name": "Ana", "rules_accepted_at": None}) == RULES_STEP
+    assert onboarding_step({"name": "Ana"}) == RULES_STEP  # column not added yet
+
+
+def test_a_student_who_agreed_to_the_rules_is_done():
+    assert onboarding_step({"name": "Ana", "rules_accepted_at": "2026-11-19T10:00:00+00:00"}) == DONE

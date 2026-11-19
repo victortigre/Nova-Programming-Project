@@ -119,3 +119,8 @@ create unique index if not exists reports_one_open_per_student
 -- means the student is not blocked. A blocked student cannot use the app,
 -- and their listings are no longer shown to others.
 alter table profiles add column if not exists blocked_at timestamptz;
+
+-- When a student agreed to the house rules during sign-up, the time is
+-- stored here. Empty (null) means they have not agreed yet; app.py then
+-- shows only the Welcome steps until they do.
+alter table profiles add column if not exists rules_accepted_at timestamptz;

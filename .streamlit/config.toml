@@ -1,0 +1,26 @@
+# Look of the app, shared by the whole team. Colours are hex codes; change
+# them here and every page follows. Extra styling (cards, price buttons)
+# is in ui.py.
+
+[theme]
+base = "light"
+primaryColor = "#5F47F5"             # violet: buttons, links, selected pills
+backgroundColor = "#F1F2F6"          # light grey page
+secondaryBackgroundColor = "#FFFFFF" # input boxes are white
+textColor = "#1B1B29"
+borderColor = "#E4E4EE"
+showWidgetBorder = true
+baseRadius = "large"
+buttonRadius = "full"                # round "pill" buttons
+font = "Poppins:https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap"
+headingFontWeights = 600
+
+[client]
+# Hide Streamlit's own developer menu ("Deploy", settings) from students.
+toolbarMode = "viewer"
+
+[server]
+# Files in the "static" folder can be opened by their web address, for
+# example https://<our-app>/app/static/icon.png. Auth0 shows that logo on
+# its sign-in page.
+enableStaticServing = true
