@@ -113,6 +113,9 @@ if viewing is not None:
                 st.markdown(status_note(item["status"]).lstrip(" ·"))
             st.html(ui.chip(listings.category_label(item)) + ui.chip(item["condition"])
                     + ui.chip(listings.pickup_label(item), warm=True))
+            seller = database.get_profile_by_id(item["seller_id"])
+            if seller and my_id != item["seller_id"]:
+                st.markdown(f"Sold by **{plain(seller['name'])}**")
             st.write(plain(item["description"]))
             if message := st.session_state.pop("deal_message", None):
                 st.success(message)

@@ -63,6 +63,10 @@ for deal in purchases:
     with st.container(border=True):
         title = listings.plain_text(listing.get("title", "(this listing was removed)"))
         st.markdown(f"**{title}** · {listings.format_price(listing.get('price_cents', 0))}")
+        seller = (database.get_profile_by_id(listing["seller_id"])
+                  if listing.get("seller_id") else None)
+        if seller:
+            st.caption(f"Seller: {listings.plain_text(seller['name'])}")
 
         if status == deals.REQUESTED:
             st.markdown(":grey[Waiting for the seller to accept your request…]")
