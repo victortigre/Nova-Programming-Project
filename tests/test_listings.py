@@ -80,7 +80,7 @@ def test_selling_needs_a_price(db):
     ({"title": "x" * 81}, "Title must be at most 80 characters."),
     ({"description": "short"}, "Description must be at least 10 characters."),
     ({"price_cents": -100}, "Enter a price, or choose “Give it away for free”."),
-    ({"price_cents": 1_000_001}, "Price can't be more than €10,000."),
+    ({"price_cents": 100_001}, "Price can't be more than €1,000."),
     ({"price_cents": 12.5}, "Price must be a number."),
     ({"category": "Cars"}, "Choose a category from the list."),
     ({"condition": "Broken"}, "Choose a condition from the list."),
@@ -412,6 +412,15 @@ def test_typed_nonsense_is_not_a_price(typed):
 def test_price_goes_back_into_the_box():
     assert listings.price_text(1550) == "15.50"
     assert listings.price_text(None) == ""
+
+
+def test_price_limit_is_1000_euros(db):
+    listing_id = new_listing(db, price_cents=100_000)  # exactly €1,000 is allowed
+    assert listings.get_listing(db, listing_id)["price_cents"] == 100_000
+    with pytest.raises(ListingError, match="more than €1,000"):
+        new_listing(db, price_cents=100_001)  # €1,000.01 is not
+    with pytest.raises(ListingError, match="more than €1,000"):
+        edit(db, listing_id, price_cents=150_000)  # also when editing
 
 
 def test_money_conversion():
