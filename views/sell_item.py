@@ -98,10 +98,11 @@ if offer == SELL:
             cents = listings.parse_price(st.session_state[price_key]) or 0
         except ValueError:
             cents = 0
-        st.session_state[price_key] = listings.price_text(max(0, cents + step_cents))
+        st.session_state[price_key] = listings.price_text(min(max(0, cents + step_cents), listings.MAX_PRICE_CENTS))
 
     box, minus, plus = st.columns([8, 1, 1], vertical_alignment="bottom")
-    price_text = box.text_input("Price (€)", key=price_key, placeholder="e.g. 15,50")
+    price_text = box.text_input(f"Price (€, max {listings.MAX_PRICE_CENTS // 100:,})", key=price_key,
+                                placeholder="e.g. 15,50")
     minus.button("−", key=key("price-minus"), on_click=change_price, args=(-50,),
                  width="stretch", help="€0.50 less")
     plus.button("+", key=key("price-plus"), on_click=change_price, args=(50,),
