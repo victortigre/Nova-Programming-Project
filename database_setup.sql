@@ -178,6 +178,10 @@ create index if not exists reviews_reviewee_idx on reviews (reviewee_id);
 -- Locked the same way as the other tables: only our app can read or change rows.
 alter table reviews enable row level security;
 
+-- When the buyer gave the item back after the hand-over (empty = not returned).
+-- The seller then has 48 hours to confirm before the buyer is refunded.
+alter table purchase_requests add column if not exists returned_at timestamptz;
+
 -- Nova credits (pretend money, see wallet.py). One row per change, like a
 -- bank statement: + for added credits, a sale or a refund, - for money held
 -- when a seller accepts a request. A student's balance is the sum of their rows.

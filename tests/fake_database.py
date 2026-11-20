@@ -160,7 +160,8 @@ class FakeDatabase:
     def insert_request(self, row):
         request = {**row, "id": next(self._numbers),
                    "status": row.get("status", "requested"),
-                   "seller_confirmed_at": None, "buyer_confirmed_at": None}
+                   "seller_confirmed_at": None, "buyer_confirmed_at": None,
+                   "returned_at": None}
         request["created_at"] = request["id"]  # a higher number means newer
         self.requests[request["id"]] = request
         return dict(request)

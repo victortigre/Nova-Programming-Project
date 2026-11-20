@@ -114,24 +114,47 @@ def show_deal(deal: dict) -> None:
                 st.markdown(":orange[You confirmed. Waiting for the seller to confirm too…]")
                 if price:
                     st.caption(f"{listings.format_price(price)} went to the seller.")
+            elif deal.get("returned_at"):
+                # The buyer gave the item back; the seller has 48 hours to confirm.
+                st.markdown(":orange[You returned the item. Waiting for the seller to "
+                            "confirm they got it back…]")
+                if price:
+                    st.caption(f"You get {listings.format_price(price)} back when the seller "
+                               f"confirms, or automatically on {deals.refund_text(deal)}.")
+            elif deal.get("seller_confirmed_at"):
+                # Handed over: 48 hours to confirm or return. No simple cancel any more.
+                st.warning(f"The seller says they handed it over. Check the item and confirm "
+                           f"or return it by **{deals.due_text(deal)}**. After that, the "
+                           "payment goes to the seller automatically.",
+                           icon=":material/schedule:")
+                columns = st.columns(2)
+                if columns[0].button("I received it, all OK", key=f"recv-{request_id}",
+                                     type="primary"):
+                    act(deals.confirm_received, request_id,
+                        "Thanks! " + (f"{listings.format_price(price)} went to the seller."
+                                      if price else "Enjoy!"))
+                with columns[1].popover("Return the item"):
+                    st.write("Only press this once you have **given the item back** to the "
+                             "seller. They then have 48 hours to confirm, and you get your "
+                             "credits back.")
+                    if st.button("I returned the item", key=f"return-{request_id}"):
+                        act(deals.return_item, request_id,
+                            "Return noted. The seller has 48 hours to confirm.")
             else:
                 st.markdown(":green[Accepted! Meet the seller to collect it, then confirm below.]")
                 if price:
                     st.caption(f"{listings.format_price(price)} is held from your credits. "
                                "Confirming sends it to the seller, so only confirm once "
                                "you have the item.")
-                if due := deals.due_text(deal):
-                    st.warning(f"The seller says they handed it over. Confirm or cancel by "
-                               f"**{due}**. After that, the payment goes to the seller "
-                               "automatically.", icon=":material/schedule:")
                 if st.button("I received the item", key=f"recv-{request_id}", type="primary"):
                     act(deals.confirm_received, request_id,
                         "Thanks! Waiting for the seller to confirm too.")
             if listing.get("seller_id"):
                 st.page_link("views/public_profile.py", label="View the seller's profile",
                              icon=":material/person:", query_params={"id": listing["seller_id"]})
-            if not deal["buyer_confirmed_at"] and st.button("Cancel deal",
-                                                             key=f"cancel-{request_id}"):
+            # Cancelling is only possible before the hand-over.
+            if (not deal["buyer_confirmed_at"] and not deal.get("seller_confirmed_at")
+                    and st.button("Cancel deal", key=f"cancel-{request_id}")):
                 act(deals.cancel_deal, request_id,
                     "Deal cancelled." + (" Your credits are back." if price else ""))
 

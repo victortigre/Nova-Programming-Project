@@ -186,7 +186,7 @@ def plural(count: int, one: str, many: str) -> str:
 try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
-    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0}
+    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0, "confirm_return": 0}
 if to_do["answer"]:
     with st.container(border=True):
         st.markdown(f"🔔 **{plural(to_do['answer'], 'buyer wants', 'buyers want')} "
@@ -196,6 +196,11 @@ if to_do["confirm_sale"]:
     with st.container(border=True):
         st.markdown(f"🔔 **{plural(to_do['confirm_sale'], 'buyer', 'buyers')} confirmed "
                     "they got the item.** Confirm the hand-over too, so it counts as sold.")
+        st.page_link("views/sales.py", label="Open Sales", icon=":material/sell:")
+if to_do.get("confirm_return"):
+    with st.container(border=True):
+        st.markdown(f"🔔 **{plural(to_do['confirm_return'], 'buyer', 'buyers')} gave an item "
+                    "back.** Check it and confirm on Sales within 48 hours.")
         st.page_link("views/sales.py", label="Open Sales", icon=":material/sell:")
 if to_do["confirm_received"]:
     with st.container(border=True):
