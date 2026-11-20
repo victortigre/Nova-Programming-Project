@@ -223,6 +223,10 @@ with browse_tab:
             ui.price_chart(prices)
             low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=5,
                                   format="€%d", label_visibility="collapsed")
+        with ui.card("sort"):
+            st.markdown("**Sort by**")
+            sort_label = st.radio("Sort by", list(browsing.SORTS),
+                                  label_visibility="collapsed")
         # One tick box per line, like "Sort by". Several can be ticked; none = all.
         with ui.card("location"):
             st.markdown("**Location**")
@@ -232,10 +236,6 @@ with browse_tab:
             st.markdown("**Condition**")
             conditions = [condition for condition in listings.CONDITIONS
                           if st.checkbox(condition, key=f"condition-{condition}")]
-        with ui.card("sort"):
-            st.markdown("**Sort by**")
-            sort_label = st.radio("Sort by", list(browsing.SORTS),
-                                  label_visibility="collapsed")
 
     results = browsing.search_and_sort(
         feed, query=query, category=category,
