@@ -9,6 +9,8 @@ pass the real `database` module, the tests pass the in-memory fake database.
 """
 
 # Buyers filter by the same categories, conditions and pickup areas sellers pick.
+from datetime import date
+
 from listings import CATEGORIES, CONDITIONS, PICKUP_AREAS  # noqa: F401
 
 # The label shown in the "Sort by" box -> how to sort.
@@ -16,6 +18,8 @@ SORTS = {
     "Newest": "newest",
     "Price: low to high": "price_asc",
     "Price: high to low": "price_desc",
+    "Available from: soonest to latest": "available_soonest",
+    "Available from: latest to soonest": "available_latest",
 }
 
 
@@ -56,6 +60,16 @@ def search_and_sort(items: list[dict], *, query: str | None = None,
         result.sort(key=lambda item: item.get("price_cents", 0))
     elif sort == "price_desc":
         result.sort(key=lambda item: item.get("price_cents", 0), reverse=True)
+    elif sort in ("available_soonest", "available_latest"):
+        # By the "available from" date. No date (or a date already past) means the
+        # item can be picked up now, so it counts as today.
+        today = date.today().isoformat()
+
+        def available_from(item):
+            value = str(item.get("available_from") or "")[:10]
+            return max(value, today) if value else today
+
+        result.sort(key=available_from, reverse=sort == "available_latest")
     else:  # "newest" — a later created_at is newer (an ISO string, or the fake's counter)
         result.sort(key=lambda item: item.get("created_at", 0), reverse=True)
     return result
