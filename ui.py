@@ -41,6 +41,19 @@ def _heart_picture(fill: str, line: str) -> str:
 HEART_OUTLINE = _heart_picture("none", "#1B1B29")      # not saved
 HEART_OUTLINE_HOVER = _heart_picture("none", VIOLET)   # not saved, mouse over it
 HEART_FILLED = _heart_picture(VIOLET, VIOLET)          # saved
+
+
+def heart_icon(size: int = 16, filled: bool = False) -> str:
+    """The app's heart as a small picture, to put inside a line of text with st.html."""
+    picture = HEART_FILLED if filled else HEART_OUTLINE
+    return (f'<img src="{picture}" alt="heart" width="{size}" height="{size}" '
+            'style="vertical-align: -3px; margin: 0 2px;">')
+
+
+def hint_with_heart(text: str) -> None:
+    """A grey hint like st.caption, where "{heart}" in the text becomes the heart picture."""
+    st.html('<p style="color: rgba(27, 27, 41, 0.6); font-size: 0.875rem; margin: 0;">'
+            + html.escape(text).replace("{heart}", heart_icon(14)) + "</p>")
 YELLOW = "#F6DF62"
 GREY_TEXT = "#8A8AA0"
 
@@ -134,6 +147,16 @@ button[data-variant="pills"][data-selected="true"] p {{
 [class*="st-key-heart-off-"] button:hover {{ background-image: url("{HEART_OUTLINE_HOVER}"); }}
 [class*="st-key-heart-on-"] button {{ background-image: url("{HEART_FILLED}"); }}
 [class*="st-key-heart-"] button:hover {{ transform: scale(1.08); }}
+
+/* The "Save" / "Saved" button on a listing's details: the same heart picture,
+   with the word next to it. */
+[class*="st-key-heartlabel-"] button {{
+    background-position: 14px center; background-repeat: no-repeat;
+    background-size: 18px 18px; padding-left: 40px;
+}}
+[class*="st-key-heartlabel-off-"] button {{ background-image: url("{HEART_OUTLINE}"); }}
+[class*="st-key-heartlabel-off-"] button:hover {{ background-image: url("{HEART_OUTLINE_HOVER}"); }}
+[class*="st-key-heartlabel-on-"] button {{ background-image: url("{HEART_FILLED}"); }}
 
 /* The same outline heart in front of the "Saved" tab on Browse. */
 .st-key-browse-tabs [data-baseweb="tab"]:nth-of-type(2) p::before {{

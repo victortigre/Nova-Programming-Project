@@ -70,11 +70,9 @@ def save_button(listing_id: int, *, where: str) -> None:
     if not saving_ready:
         return
     is_saved = listing_id in saved
-    if where == "detail":
-        label = "♥ Saved" if is_saved else "♡ Save"
-    else:
-        label = "♥" if is_saved else "♡"
-    st.button(label, key=f"save-{where}-{listing_id}",
+    # The heart picture is added by ui.py (keys starting with "heartlabel-on/off-").
+    state = "on" if is_saved else "off"
+    st.button("Saved" if is_saved else "Save", key=f"heartlabel-{state}-{where}-{listing_id}",
               help="Remove from saved" if is_saved else "Save for later",
               on_click=flip_saved, args=(listing_id,))
 
@@ -261,5 +259,7 @@ with saved_tab:
     else:
         saved_items = browsing.saved_listings(database, my_id)
         if not saved_items:
-            st.info("You haven't saved anything yet. Tap ♡ on a listing to keep it here.")
+            with st.container(border=True):
+                ui.hint_with_heart("You haven't saved anything yet. "
+                                   "Tap {heart} on a listing to keep it here.")
         listing_grid(saved_items, tab="saved", columns=4)
