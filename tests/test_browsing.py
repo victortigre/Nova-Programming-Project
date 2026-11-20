@@ -100,6 +100,31 @@ def test_buyers_choose_from_the_same_lists_as_sellers():
     assert browsing.PICKUP_AREAS == listings.PICKUP_AREAS
 
 
+def test_sort_by_available_from():
+    from datetime import date, timedelta
+    soon = (date.today() + timedelta(days=5)).isoformat()
+    later = (date.today() + timedelta(days=40)).isoformat()
+    past = (date.today() - timedelta(days=3)).isoformat()
+    items = [L(id=1, available_from=later), L(id=2, available_from=None),
+             L(id=3, available_from=soon), L(id=4, available_from=past)]
+    soonest = [i["id"] for i in browsing.search_and_sort(items, sort="available_soonest")]
+    latest = [i["id"] for i in browsing.search_and_sort(items, sort="available_latest")]
+    assert soonest[:2] in ([2, 4], [4, 2])  # available now (no date / date passed) first
+    assert soonest[2:] == [3, 1]
+    assert latest[:2] == [1, 3]
+    assert sorted(latest[2:]) == [2, 4]
+
+
+def test_sorting_by_available_from_works_before_the_date_exists():
+    items = [L(id=1), L(id=2)]  # listings without the field at all
+    assert len(browsing.search_and_sort(items, sort="available_soonest")) == 2
+
+
+def test_available_from_sort_choices():
+    assert browsing.SORTS["Available from: soonest to latest"] == "available_soonest"
+    assert browsing.SORTS["Available from: latest to soonest"] == "available_latest"
+
+
 def test_filters_combine():
     items = [L(title="Cheap textbook", category="Textbooks", price_cents=1000),
              L(title="Pricey textbook", category="Textbooks", price_cents=30000),
