@@ -1,4 +1,4 @@
-"""Authenticated Messaging page; register in app.py when backend is ready.
+"""Authenticated Messaging page registered in the main app navigation.
 
 No standalone login or fake data. All operations go through the repository.
 """
@@ -8,11 +8,11 @@ from uuid import uuid4
 
 import streamlit as st
 
-from accounts import verified_nova_email
+from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
 import messaging_repository as repository
 
-email = verified_nova_email(st.user.to_dict())
+email = verified_nova_email(logged_in_user())
 if email is None or not st.user.is_logged_in:
     st.info("Please sign in with your verified @novasbe.pt account to open Messages.")
     st.stop()
@@ -34,6 +34,8 @@ def report_error(error: Exception) -> None:
 
 def show_listing(row: dict) -> None:
     st.text(row["listing_title_snapshot"])
+    if row["listing_id"] is None:
+        st.caption("Listing no longer available")
     st.caption(f"€{row['listing_price_snapshot']}")
 
 
@@ -56,6 +58,8 @@ st.title("Messages")
 st.caption("Keep your marketplace conversations together.")
 try:
     configured = repository.is_configured()
+    if configured:
+        repository.require_access()
 except Exception as error:
     report_error(error)
     st.stop()
@@ -74,7 +78,7 @@ if selected is None:
         report_error(error)
         st.stop()
     if not rows:
-        st.info("No conversations yet. Conversations will appear here when messaging is available for listings. Listings are not available yet.")
+        st.info("No conversations yet. Conversations will appear here when you contact a seller or a buyer contacts you.")
     for row in rows:
         with st.container(border=True):
             st.subheader(row["other_name"])

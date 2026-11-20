@@ -11,6 +11,7 @@ import messaging_repository as repo
 
 CID = "11111111-1111-4111-8111-111111111111"
 MID = "22222222-2222-4222-8222-222222222222"
+ORIGINAL_ACTOR_PROFILE = database.messaging_actor_profile
 
 
 @pytest.fixture
@@ -21,8 +22,9 @@ def context(monkeypatch):
         "email": "student@novasbe.pt", "email_verified": True,
     })
     monkeypatch.setattr(repo.st, "user", user)
-    profile = MagicMock(return_value={"id": 7})
-    monkeypatch.setattr(database, "get_profile", profile)
+    monkeypatch.setattr(repo, "logged_in_user", lambda: user.to_dict())
+    profile = MagicMock(return_value={"id": 7, "rules_accepted_at": "2026-11-20"})
+    monkeypatch.setattr(database, "messaging_actor_profile", profile)
     row = {"id": CID, "buyer_id": 7, "seller_id": 8}
     conversation = MagicMock(return_value=row)
     monkeypatch.setattr(database, "messaging_conversation", conversation)
@@ -31,10 +33,13 @@ def context(monkeypatch):
 
 @pytest.mark.parametrize("operation", [
     lambda: repo.list_conversations(),
+    lambda: repo.get_inbox(),
+    lambda: repo.get_conversation_details(CID),
+    lambda: repo.require_access(),
     lambda: repo.get_conversation(CID),
     lambda: repo.get_messages(CID),
     lambda: repo.send_message(CID, "Hi", MID),
-    lambda: repo.get_or_create_demo_conversation("demo:desk"),
+    lambda: repo.get_or_create_conversation(10),
 ])
 @pytest.mark.parametrize("identity", ["logged_out", "unverified", "wrong_domain"])
 def test_all_operations_reject_invalid_identity_before_database(context, operation, identity):
@@ -88,7 +93,7 @@ def test_send_derives_actor_and_validates_text(context, monkeypatch):
 
 def test_actor_is_resolved_again_on_each_operation(context):
     repo.get_conversation(CID)
-    context[2].return_value = {"id": 99}
+    context[2].return_value = {"id": 99, "rules_accepted_at": "2026-11-20"}
     with pytest.raises(ValueError, match="Conversation unavailable"):
         repo.get_conversation(CID)
 
@@ -110,24 +115,6 @@ def test_inbox_rechecks_membership(context, monkeypatch):
     query.return_value = [{"buyer_id": 8, "seller_id": 9}]
     with pytest.raises(ValueError):
         repo.list_conversations()
-
-
-def test_unconfigured_demo_listing_cannot_write(context):
-    with pytest.raises(ValueError, match="listing unavailable"):
-        repo.get_or_create_demo_conversation("demo:unknown")
-    context[0].table.assert_not_called()
-
-
-def test_creation_uses_server_fixture_and_actor(context, monkeypatch):
-    monkeypatch.setattr(repo, "DEMO_LISTINGS", {
-        "demo:desk": repo.DemoListing("seller@novasbe.pt", "Desk", "45.00"),
-    })
-    context[2].side_effect = [{"id": 7}, {"id": 8}]
-    insert = MagicMock(side_effect=lambda payload: {"id": CID, **payload})
-    monkeypatch.setattr(database, "messaging_insert_conversation", insert)
-    row = repo.get_or_create_demo_conversation("demo:desk")
-    assert row["buyer_id"] == 7 and row["seller_id"] == 8
-    assert row["listing_price_snapshot"] == "45.00"
 
 
 def test_retry_must_match_sender_and_body(context, monkeypatch):
@@ -184,7 +171,7 @@ def test_transport_scopes_history_and_bounds_page(context):
 
 def test_transport_conversation_create_conflict_fetches_existing(context):
     client = context[0]
-    payload = {"demo_listing_ref": "demo:desk", "buyer_id": 7, "seller_id": 8}
+    payload = {"listing_id": 10, "buyer_id": 7}
     client.table.return_value.insert.return_value.execute.side_effect = APIError({
         "code": "23505", "message": "mock unique conflict", "details": None, "hint": None,
     })
@@ -193,7 +180,7 @@ def test_transport_conversation_create_conflict_fetches_existing(context):
     query.limit.return_value = query
     query.execute.return_value.data = [payload]
     assert database.messaging_insert_conversation(payload) == payload
-    assert query.eq.call_args_list[0].args == ("demo_listing_ref", "demo:desk")
+    assert query.eq.call_args_list[0].args == ("original_listing_id", 10)
     assert query.eq.call_args_list[1].args == ("buyer_id", 7)
 
 
@@ -212,3 +199,90 @@ def test_inbox_sorts_by_message_activity_and_uses_profile_name(context, monkeypa
     assert rows[1]["last_message"] is None
     assert rows[0]["other_name"] == "Other participant"
     assert "email" not in rows[0]
+
+
+@pytest.mark.parametrize("operation", [
+    lambda: repo.get_inbox(), lambda: repo.get_conversation_details(CID),
+    lambda: repo.get_messages(CID), lambda: repo.send_message(CID, "Hello", MID),
+    lambda: repo.get_or_create_conversation(10),
+])
+@pytest.mark.parametrize("restriction", ["blocked", "onboarding"])
+def test_account_restrictions_apply_at_each_operation(context, operation, restriction):
+    context[2].return_value = {
+        "id": 7, "blocked_at": "2026-11-20" if restriction == "blocked" else None,
+        "rules_accepted_at": "2026-11-20" if restriction == "blocked" else None,
+    }
+    with pytest.raises(ValueError, match="blocked|Welcome"):
+        operation()
+    context[4].assert_not_called()
+    context[0].table.assert_not_called()
+
+
+def test_repository_uses_refreshed_authenticated_identity(context, monkeypatch):
+    context[1].to_dict = lambda: {"email": "student@novasbe.pt", "email_verified": False}
+    monkeypatch.setattr(repo, "logged_in_user", lambda: {
+        "email": "student@novasbe.pt", "email_verified": True,
+    })
+    assert repo.get_conversation(CID)["id"] == CID
+    context[2].assert_called_once_with("student@novasbe.pt")
+
+
+def test_fresh_block_rejects_next_operation_without_using_display_cache(context, monkeypatch):
+    cached = MagicMock(return_value={"id": 7, "rules_accepted_at": "yes", "blocked_at": None})
+    monkeypatch.setattr(database, "get_profile", cached)
+    assert repo.get_conversation(CID)["id"] == CID
+    context[2].return_value = {"id": 7, "rules_accepted_at": "yes", "blocked_at": "now"}
+    with pytest.raises(ValueError, match="blocked"):
+        repo.get_conversation(CID)
+    assert context[2].call_count == 2
+    assert context[4].call_count == 1
+    cached.assert_not_called()
+
+
+def test_authorization_transport_uses_email_filter_and_no_cache(context):
+    client = context[0]
+    query = client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value.data = [{"id": 7, "email": "student@novasbe.pt"}]
+    # Call the underlying transport, not the repository fixture's mock.
+    assert ORIGINAL_ACTOR_PROFILE("student@novasbe.pt")["id"] == 7
+    query.execute.return_value.data = [{"id": 7, "blocked_at": "now"}]
+    assert ORIGINAL_ACTOR_PROFILE("student@novasbe.pt")["blocked_at"] == "now"
+    assert query.execute.call_count == 2
+    query.eq.assert_called_with("email", "student@novasbe.pt")
+
+
+@pytest.mark.parametrize("mismatch", [{"body": "Changed"}, {"sender_id": 8}, {"conversation_id": MID}])
+def test_message_retry_cannot_change_original_payload(context, monkeypatch, mismatch):
+    monkeypatch.setattr(database, "messaging_insert_message", lambda payload: {**payload, **mismatch})
+    with pytest.raises(ValueError, match="retry"):
+        repo.send_message(CID, "Original", MID)
+
+
+def test_successful_message_retry_returns_original_row(context, monkeypatch):
+    saved = {"id": 12, "conversation_id": CID, "sender_id": 7,
+             "body": "Original", "client_message_id": MID}
+    insert = MagicMock(return_value=saved)
+    monkeypatch.setattr(database, "messaging_insert_message", insert)
+    assert repo.send_message(CID, " Original ", MID) == saved
+    assert repo.send_message(CID, "Original", MID) == saved
+    assert insert.call_args_list[0] == insert.call_args_list[1]
+
+
+@pytest.mark.parametrize("table", ["messages", "conversations"])
+def test_unmatched_unique_conflict_is_not_treated_as_success(context, table):
+    client = context[0]
+    error = APIError({"code": "23505", "message": "Other unique constraint",
+                      "details": None, "hint": None})
+    client.table.return_value.insert.return_value.execute.side_effect = error
+    query = client.table.return_value.select.return_value
+    query.eq.return_value = query
+    query.limit.return_value = query
+    query.execute.return_value.data = []
+    with pytest.raises(APIError) as raised:
+        if table == "messages":
+            database.messaging_insert_message({"conversation_id": CID, "client_message_id": MID})
+        else:
+            database.messaging_insert_conversation({"listing_id": 10, "buyer_id": 7})
+    assert raised.value is error

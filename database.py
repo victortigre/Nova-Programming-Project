@@ -538,6 +538,17 @@ def listing_photo_urls(paths: list[str]) -> dict[str, str]:
 # No global caching of private rows or per-user changes to the shared client.
 
 
+def messaging_actor_profile(email: str) -> dict | None:
+    """Uncached authorization state; blocking must apply on the next operation.
+
+    Kept separate from the profile-display cache used by the rest of the app.
+    """
+    rows = (_client().table("profiles")
+            .select("id,email,blocked_at,rules_accepted_at")
+            .eq("email", email).limit(1).execute().data)
+    return rows[0] if rows else None
+
+
 def messaging_conversation(conversation_id: str, actor_id: int) -> dict | None:
     rows = (_client().table("conversations").select("*")
             .eq("id", conversation_id)
@@ -589,8 +600,15 @@ def messaging_insert_conversation(payload: dict) -> dict:
         if error.code != "23505":
             raise
         rows = (_client().table("conversations").select("*")
-                .eq("demo_listing_ref", payload["demo_listing_ref"])
+                .eq("original_listing_id", payload["listing_id"])
                 .eq("buyer_id", payload["buyer_id"]).limit(1).execute().data)
         if not rows:
             raise
         return rows[0]
+
+
+def messaging_conversation_for_listing(listing_id: int, buyer_id: int) -> dict | None:
+    rows = (_client().table("conversations").select("*")
+            .eq("original_listing_id", listing_id).eq("buyer_id", buyer_id)
+            .limit(1).execute().data)
+    return rows[0] if rows else None

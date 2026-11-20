@@ -164,6 +164,7 @@ pages = [
             icon=":material/shopping_bag:"),
     st.Page("views/sales.py", title=with_count("Sales", to_do["sales"]),
             icon=":material/sell:"),
+    st.Page("views/messaging.py", title="Messages", icon=":material/chat:"),
     st.Page("views/profile.py", title="My profile", icon=":material/person:"),
     # Linked from "My profile" and "Sell an item", so it is not shown in the menu.
     st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:",

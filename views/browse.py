@@ -14,13 +14,15 @@ import browsing
 import database
 import deals
 import listings
+import messaging_repository
 import ui
-from accounts import verified_nova_email
+from accounts import logged_in_user, verified_nova_email
+from profiles import DONE, onboarding_step
 
 FEED_LIMIT = 500  # the marketplace is small; fetch the newest listings and filter here
 
-email = verified_nova_email(st.user.to_dict())
-if email is None:
+email = verified_nova_email(logged_in_user())
+if email is None or not st.user.is_logged_in:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
 
@@ -135,6 +137,28 @@ if viewing is not None:
                         st.rerun()
                 elif item["status"] == listings.RESERVED:
                     st.caption("This item is reserved for another buyer.")
+                if (not me.get("blocked_at") and onboarding_step(me) == DONE
+                        and seller and not seller.get("blocked_at")
+                        and onboarding_step(seller) == DONE):
+                    if st.button("Contact Seller", key=f"contact-{item['id']}",
+                                 icon=":material/chat:"):
+                        try:
+                            with st.spinner("Opening conversation…"):
+                                conversation = messaging_repository.get_or_create_conversation(item["id"])
+                        except ValueError as exc:
+                            st.warning(str(exc))
+                        except Exception:
+                            st.error("Messaging is not available right now. It may still need database setup. Please try again later.")
+                        else:
+                            # Establish account ownership before the Messages
+                            # page runs its account-change reset. Never carry
+                            # another account's pending message into this chat.
+                            if st.session_state.get("messaging_account") != email:
+                                st.session_state.pop("messaging_pending", None)
+                            st.session_state["messaging_account"] = email
+                            st.session_state["messaging_selected"] = conversation["id"]
+                            st.session_state["messaging_history_limit"] = 50
+                            st.switch_page("views/messaging.py")
                 save_button(item["id"], where="detail")
                 st.page_link("views/public_profile.py",
                              label="View the seller's profile to get in touch",

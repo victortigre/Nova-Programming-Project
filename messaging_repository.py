@@ -4,36 +4,25 @@ No UI-supplied actor IDs or emails are accepted. Every call rechecks st.user.
 Nothing connects on import. The standalone session-state demo does not use this.
 """
 
-from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
 import streamlit as st
 
 import database
-from accounts import verified_nova_email
+from accounts import logged_in_user, verified_nova_email
+from profiles import DONE, onboarding_step
 from messaging import (
+    conversation_key,
     require_conversation_participant,
     validate_conversation_participants,
     validate_message,
 )
 
 
-@dataclass(frozen=True)
-class DemoListing:
-    seller_email: str
-    title: str
-    price: str
-
-
-# Trusted server configuration only; never populate from form/session data.
-# Deliberately empty until consenting test accounts and fixtures are configured.
-DEMO_LISTINGS: dict[str, DemoListing] = {}
-
-
 def is_configured() -> bool:
     """Check local configuration only; never opens a database connection."""
-    if not st.user.is_logged_in or verified_nova_email(st.user.to_dict()) is None:
+    if not st.user.is_logged_in or verified_nova_email(logged_in_user()) is None:
         raise ValueError("Please sign in with a verified Nova account.")
     return database.database_is_set_up()
 
@@ -74,13 +63,22 @@ def get_inbox() -> list[dict]:
 def _actor() -> int:
     if not st.user.is_logged_in:
         raise ValueError("Please sign in with a verified Nova account.")
-    email = verified_nova_email(st.user.to_dict())
+    email = verified_nova_email(logged_in_user())
     if email is None:
         raise ValueError("Please sign in with a verified Nova account.")
-    profile = database.get_profile(email)
+    profile = database.messaging_actor_profile(email)
     if profile is None or type(profile.get("id")) is not int or profile["id"] <= 0:
         raise ValueError("Complete your profile before using messages.")
+    if profile.get("blocked_at"):
+        raise ValueError("Your account has been blocked.")
+    if onboarding_step(profile) != DONE:
+        raise ValueError("Finish the Welcome steps before using messages.")
     return profile["id"]
+
+
+def require_access() -> None:
+    """Recheck account restrictions before rendering any private Messaging UI."""
+    _actor()
 
 
 def _uuid(value: str) -> str:
@@ -136,24 +134,31 @@ def send_message(conversation_id: str, body: str, client_message_id: str) -> dic
     return saved
 
 
-def get_or_create_demo_conversation(demo_listing_ref: str) -> dict:
-    """Only configured fixtures may create conversations; no UI seller metadata."""
+def get_or_create_conversation(listing_id: int) -> dict:
+    """Use a stored listing and the current login; never accept participant IDs.
+
+    A missing listing cannot start/reopen a chat through this operation. Existing
+    participants can still open it by conversation ID and continue messaging.
+    """
     actor = _actor()
-    fixture = DEMO_LISTINGS.get(demo_listing_ref)
-    if fixture is None:
-        raise ValueError("Demo listing unavailable.")
-    seller = database.get_profile(fixture.seller_email)
-    if seller is None:
-        raise ValueError("Demo listing unavailable.")
+    conversation_key(listing_id, actor)  # Reject bool, text, negative IDs.
+    listing = database.get_listing(listing_id)
+    if listing is None:
+        raise ValueError("Listing no longer available.")
+    seller = database.get_profile_by_id(listing["seller_id"])
+    if seller is None or seller.get("blocked_at") or onboarding_step(seller) != DONE:
+        raise ValueError("Seller unavailable.")
     validate_conversation_participants(actor, seller["id"])
-    payload = {
-        "buyer_id": actor, "seller_id": seller["id"],
-        "demo_listing_ref": demo_listing_ref,
-        "listing_title_snapshot": fixture.title,
-        "listing_price_snapshot": fixture.price,
-    }
-    row = database.messaging_insert_conversation(payload)
+    existing = database.messaging_conversation_for_listing(listing_id, actor)
+    if existing is not None:
+        row = existing
+    else:
+        if listing["status"] not in ("active", "reserved"):
+            raise ValueError("Listing is not available for new conversations.")
+        # The INSERT trigger derives seller and immutable snapshots atomically
+        # from the live listing. Its lock serializes this with listing deletion.
+        row = database.messaging_insert_conversation({"listing_id": listing_id, "buyer_id": actor})
     require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
-    if (row["buyer_id"], row["seller_id"], row["demo_listing_ref"]) != (actor, seller["id"], demo_listing_ref):
-        raise ValueError("Demo listing configuration no longer matches this conversation.")
+    if (row["buyer_id"], row["seller_id"], row["original_listing_id"]) != (actor, seller["id"], listing_id):
+        raise ValueError("Conversation does not match the listing participants.")
     return row
