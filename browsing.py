@@ -16,6 +16,7 @@ SORTS = {
     "Newest": "newest",
     "Price: low to high": "price_asc",
     "Price: high to low": "price_desc",
+    "Available until: soonest": "available_soonest",
 }
 
 
@@ -56,6 +57,10 @@ def search_and_sort(items: list[dict], *, query: str | None = None,
         result.sort(key=lambda item: item.get("price_cents", 0))
     elif sort == "price_desc":
         result.sort(key=lambda item: item.get("price_cents", 0), reverse=True)
+    elif sort == "available_soonest":
+        # Items that stop being available soonest first; items without a date last.
+        result.sort(key=lambda item: (not item.get("available_until"),
+                                      str(item.get("available_until") or "")))
     else:  # "newest" — a later created_at is newer (an ISO string, or the fake's counter)
         result.sort(key=lambda item: item.get("created_at", 0), reverse=True)
     return result

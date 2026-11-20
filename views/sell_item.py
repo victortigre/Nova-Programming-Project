@@ -7,6 +7,8 @@ The page only collects the input and shows messages. The rules themselves
 (and the check that you own the listing) are in listings.py.
 """
 
+from datetime import date, timedelta
+
 import streamlit as st
 
 import database
@@ -134,6 +136,17 @@ with right:
                                           value=start_value("pickup_area_other", ""),
                                           placeholder="e.g. Saldanha metro station")
 
+# Until when the seller can hand the item over. After this date the listing is
+# hidden from Browse. Required, from today up to one year ahead.
+today = date.today()
+saved_until = listings._as_date(editing.get("available_until")) if editing else None
+available_until = st.date_input(
+    "Available until", key=key("available-until"), format="DD/MM/YYYY",
+    value=saved_until if saved_until and saved_until >= today else None,
+    min_value=today, max_value=today + timedelta(days=listings.MAX_AVAILABLE_DAYS),
+    help="After this date buyers no longer see the item. You can change it later.",
+)
+
 # --- current photos (only when editing) --------------------------------------
 keep_paths = None
 if editing:
@@ -165,6 +178,7 @@ if st.button("Save changes" if editing else "Publish listing", type="primary"):
         title=title, description=description, free=free, price_cents=price_cents,
         category=category, category_other=category_other, condition=condition,
         pickup_area=pickup_area, pickup_area_other=pickup_area_other,
+        available_until=available_until,
     )
     new_photos = [upload.getvalue() for upload in uploads or []]
     try:

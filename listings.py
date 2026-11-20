@@ -28,6 +28,7 @@ lives in memory (tests/fake_database.py), so they run without internet.
 """
 
 import re
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounts import nova_email
@@ -51,7 +52,8 @@ MAX_OTHER_LENGTH = 40
 ACTIVE, RESERVED, SOLD = "active", "reserved", "sold"
 STATUSES = [ACTIVE, RESERVED, SOLD]
 
-MAX_PRICE_CENTS = 100_000  # €1,000: the highest price a listing can have
+MAX_PRICE_CENTS = 500_000  # €5,000: the highest price a listing can have
+MAX_AVAILABLE_DAYS = 365  # "available until" can be at most one year ahead
 
 
 class ListingError(ValueError):
@@ -149,8 +151,49 @@ def _choice_with_other(value, other_text, options, label, other_label) -> list[s
     return []
 
 
+def _as_date(value) -> date | None:
+    """A date from a date or an ISO text like '2026-12-03'; None if there is none."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def check_available_until(value, today: date | None = None) -> list[str]:
+    """Until when the item can be picked up: required, from today up to one year ahead."""
+    today = today or date.today()
+    try:
+        until = _as_date(value)
+    except ValueError:
+        return ["“Available until” must be a date."]
+    if until is None:
+        return ["Choose until when the item is available."]
+    if until < today:
+        return ["“Available until” can't be in the past."]
+    if until > today + timedelta(days=MAX_AVAILABLE_DAYS):
+        return ["“Available until” can be at most one year from today."]
+    return []
+
+
+def is_expired(listing: dict, today: date | None = None) -> bool:
+    """True when the listing's "available until" date has passed (it is hidden from Browse).
+
+    Listings saved before this date existed have none, and never expire.
+    """
+    until = _as_date(listing.get("available_until"))
+    return until is not None and until < (today or date.today())
+
+
+def available_label(listing: dict) -> str:
+    """'Available until 3 Dec 2026', or '' when the listing has no date."""
+    until = _as_date(listing.get("available_until"))
+    return f"Available until {until.day} {until:%b %Y}" if until else ""
+
+
 def check_listing(*, title, description, free, price_cents, category, condition,
-                  pickup_area, category_other=None, pickup_area_other=None) -> list[str]:
+                  pickup_area, category_other=None, pickup_area_other=None,
+                  available_until=None) -> list[str]:
     """Every problem with the listing's fields (empty list = all good). All fields are required."""
     errors = _text(title, "Title", 3, 80) + _text(description, "Description", 10, 2000)
     errors += check_offer(free=free, price_cents=price_cents)
@@ -160,6 +203,7 @@ def check_listing(*, title, description, free, price_cents, category, condition,
         errors.append("Choose a condition from the list.")
     errors += _choice_with_other(pickup_area, pickup_area_other, PICKUP_AREAS, "pickup area",
                                  "Your pickup area (for “Other”)")
+    errors += check_available_until(available_until)
     return errors
 
 
@@ -169,7 +213,8 @@ def _other_text(value, other_text):
 
 
 def _fields(*, title, description, free, price_cents, category, condition,
-            pickup_area, category_other=None, pickup_area_other=None) -> dict:
+            pickup_area, category_other=None, pickup_area_other=None,
+            available_until=None) -> dict:
     """The checked fields, tidied, in the shape they are stored in."""
     return {
         "title": title.strip(),
@@ -180,6 +225,7 @@ def _fields(*, title, description, free, price_cents, category, condition,
         "condition": condition,
         "pickup_area": pickup_area,
         "pickup_area_other": _other_text(pickup_area, pickup_area_other),
+        "available_until": _as_date(available_until).isoformat(),
     }
 
 
@@ -234,8 +280,12 @@ def my_listings(db, seller_email: str) -> dict[str, list[dict]]:
 
 
 def feed_listings(db, limit: int = 20, offset: int = 0) -> list[dict]:
-    """What buyers may see: active and reserved listings, newest first. Never sold ones."""
-    return db.feed_listings(limit, offset)
+    """What buyers may see: active and reserved listings, newest first.
+
+    Never sold ones, and never ones whose "available until" date has passed
+    (the database already leaves those out; this is a second check).
+    """
+    return [item for item in db.feed_listings(limit, offset) if not is_expired(item)]
 
 
 # --- changing -------------------------------------------------------------------
@@ -244,7 +294,8 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
                    free: bool | None, price_cents: int | None, category: str | None,
                    condition: str | None, pickup_area: str | None, photos: list[bytes],
                    category_other: str | None = None,
-                   pickup_area_other: str | None = None) -> int:
+                   pickup_area_other: str | None = None,
+                   available_until: date | str | None = None) -> int:
     """Publish a new listing. Returns its id. Raises ListingError listing every problem."""
     seller = _seller_profile(db, seller_email)
     if seller.get("blocked_at"):  # an admin blocked this student (see admin.py)
@@ -252,7 +303,8 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
                   condition=condition, pickup_area=pickup_area,
-                  category_other=category_other, pickup_area_other=pickup_area_other)
+                  category_other=category_other, pickup_area_other=pickup_area_other,
+                  available_until=available_until)
     errors = check_listing(**fields)
     count_errors = check_photo_count(len(photos))
     errors += count_errors
@@ -288,7 +340,8 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
                    condition: str | None, pickup_area: str | None,
                    keep_photo_paths: list[str] | None = None, new_photos: list[bytes] = (),
                    category_other: str | None = None,
-                   pickup_area_other: str | None = None) -> None:
+                   pickup_area_other: str | None = None,
+                   available_until: date | str | None = None) -> None:
     """Edit your own listing.
 
     keep_photo_paths: the current photos to keep, in the order to show them
@@ -305,7 +358,8 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
                   condition=condition, pickup_area=pickup_area,
-                  category_other=category_other, pickup_area_other=pickup_area_other)
+                  category_other=category_other, pickup_area_other=pickup_area_other,
+                  available_until=available_until)
     errors = check_listing(**fields)
     new_photos = list(new_photos)
     count_errors = check_photo_count(len(keep_photo_paths) + len(new_photos))

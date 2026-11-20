@@ -61,6 +61,11 @@ def listing_row(listing: dict, live_requests: list[dict]) -> None:
         info_col.caption(f"{listings.format_price(listing['price_cents'])} · "
                          f"{listings.plain_text(listings.category_label(listing))} · "
                          f"{listings.plain_text(listings.pickup_label(listing))}")
+        if until := listings.available_label(listing):
+            info_col.caption(f"📅 {until}")
+        if status != listings.SOLD and listings.is_expired(listing):
+            info_col.markdown(":red[**⏰ Expired: buyers no longer see this.** "
+                              "Edit it to choose a new date.]")
         if status == listings.RESERVED:
             info_col.markdown(":orange[**🔒 Reserved**]")
         if has_buyer or waiting:

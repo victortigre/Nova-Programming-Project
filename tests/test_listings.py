@@ -5,6 +5,7 @@ so the real Supabase database is never touched.
 Run them with:  pytest
 """
 
+from datetime import date, timedelta
 from io import BytesIO
 
 import pytest
@@ -27,7 +28,8 @@ def photo(color=(200, 50, 50)) -> bytes:
 
 GOOD = dict(title="BA II Plus calculator", description="Financial calculator, works perfectly.",
             free=False, price_cents=2000, category="Calculators & electronics",
-            condition="Good", pickup_area="Nova SBE campus")
+            condition="Good", pickup_area="Nova SBE campus",
+            available_until=date.today() + timedelta(days=30))
 
 
 @pytest.fixture
@@ -80,7 +82,7 @@ def test_selling_needs_a_price(db):
     ({"title": "x" * 81}, "Title must be at most 80 characters."),
     ({"description": "short"}, "Description must be at least 10 characters."),
     ({"price_cents": -100}, "Enter a price, or choose “Give it away for free”."),
-    ({"price_cents": 100_001}, "Price can't be more than €1,000."),
+    ({"price_cents": 500_001}, "Price can't be more than €5,000."),
     ({"price_cents": 12.5}, "Price must be a number."),
     ({"category": "Cars"}, "Choose a category from the list."),
     ({"condition": "Broken"}, "Choose a condition from the list."),
@@ -97,7 +99,7 @@ def test_every_problem_is_reported_at_once(db):
         listings.create_listing(db, ANA, title="", description="", free=False,
                                 price_cents=0, category="?", condition="?", pickup_area="?",
                                 photos=[])
-    assert len(exc.value.errors) == 7
+    assert len(exc.value.errors) == 8  # 7 questions + photos
 
 
 # --- every question is required -------------------------------------------------
@@ -114,6 +116,7 @@ def test_nothing_chosen_is_rejected_with_one_message_per_question(db):
         "Choose a category from the list.",
         "Choose a condition from the list.",
         "Choose a pickup area from the list.",
+        "Choose until when the item is available.",
         "Add at least one photo.",
     ]
 
@@ -414,13 +417,71 @@ def test_price_goes_back_into_the_box():
     assert listings.price_text(None) == ""
 
 
-def test_price_limit_is_1000_euros(db):
-    listing_id = new_listing(db, price_cents=100_000)  # exactly €1,000 is allowed
-    assert listings.get_listing(db, listing_id)["price_cents"] == 100_000
-    with pytest.raises(ListingError, match="more than €1,000"):
-        new_listing(db, price_cents=100_001)  # €1,000.01 is not
-    with pytest.raises(ListingError, match="more than €1,000"):
-        edit(db, listing_id, price_cents=150_000)  # also when editing
+def test_price_limit_is_5000_euros(db):
+    listing_id = new_listing(db, price_cents=500_000)  # exactly €5,000 is allowed
+    assert listings.get_listing(db, listing_id)["price_cents"] == 500_000
+    with pytest.raises(ListingError, match="more than €5,000"):
+        new_listing(db, price_cents=500_001)  # €5,000.01 is not
+    with pytest.raises(ListingError, match="more than €5,000"):
+        edit(db, listing_id, price_cents=750_000)  # also when editing
+
+
+def test_typed_price_above_5000_is_refused():
+    assert listings.check_offer(free=False, price_cents=listings.parse_price("5000")) == []
+    assert listings.check_offer(free=False, price_cents=listings.parse_price("5000,01")) == \
+        ["Price can't be more than €5,000."]
+    assert listings.check_offer(free=False, price_cents=listings.parse_price("99999")) == \
+        ["Price can't be more than €5,000."]
+
+
+# --- available until ------------------------------------------------------------
+
+def test_available_until_is_required(db):
+    with pytest.raises(ListingError, match="Choose until when the item is available"):
+        new_listing(db, available_until=None)
+
+
+def test_available_until_today_and_one_year_ahead_are_allowed(db):
+    today = date.today()
+    for until in (today, today + timedelta(days=365)):
+        listing = listings.get_listing(db, new_listing(db, available_until=until))
+        assert listing["available_until"] == until.isoformat()
+
+
+@pytest.mark.parametrize("days, message", [(-1, "can't be in the past"),
+                                           (366, "at most one year")])
+def test_available_until_outside_the_allowed_range(db, days, message):
+    with pytest.raises(ListingError, match=message):
+        new_listing(db, available_until=date.today() + timedelta(days=days))
+
+
+def test_available_until_can_be_changed_when_editing(db):
+    listing_id = new_listing(db)
+    new_date = date.today() + timedelta(days=90)
+    edit(db, listing_id, available_until=new_date)
+    assert listings.get_listing(db, listing_id)["available_until"] == new_date.isoformat()
+
+
+def test_expired_listings_are_hidden_from_buyers_but_not_from_the_seller(db):
+    listing_id = new_listing(db, title="Old lamp")
+    db.listings[listing_id]["available_until"] = (date.today() - timedelta(days=1)).isoformat()
+    new_listing(db, title="Fresh chair")
+    assert [i["title"] for i in listings.feed_listings(db)] == ["Fresh chair"]
+    assert listing_id in [i["id"] for i in listings.my_listings(db, ANA)["active"]]
+    assert listings.is_expired(listings.get_listing(db, listing_id))
+
+
+def test_listings_without_a_date_never_expire(db):
+    listing_id = new_listing(db)
+    db.listings[listing_id]["available_until"] = None  # saved before the date existed
+    assert not listings.is_expired(listings.get_listing(db, listing_id))
+    assert [i["id"] for i in listings.feed_listings(db)] == [listing_id]
+
+
+def test_available_label():
+    assert listings.available_label({"available_until": "2026-12-03"}) == \
+        "Available until 3 Dec 2026"
+    assert listings.available_label({}) == ""
 
 
 def test_money_conversion():

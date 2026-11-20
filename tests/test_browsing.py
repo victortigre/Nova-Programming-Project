@@ -100,6 +100,17 @@ def test_buyers_choose_from_the_same_lists_as_sellers():
     assert browsing.PICKUP_AREAS == listings.PICKUP_AREAS
 
 
+def test_sort_by_available_until_soonest_first_and_no_date_last():
+    items = [L(id=1, available_until="2026-12-20"), L(id=2, available_until=None),
+             L(id=3, available_until="2026-11-25"), L(id=4, available_until="2027-01-05")]
+    out = browsing.search_and_sort(items, sort="available_soonest")
+    assert [i["id"] for i in out] == [3, 1, 4, 2]
+
+
+def test_available_until_is_a_sort_choice():
+    assert browsing.SORTS["Available until: soonest"] == "available_soonest"
+
+
 def test_filters_combine():
     items = [L(title="Cheap textbook", category="Textbooks", price_cents=1000),
              L(title="Pricey textbook", category="Textbooks", price_cents=30000),

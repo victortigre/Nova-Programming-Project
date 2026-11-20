@@ -110,6 +110,8 @@ if viewing is not None:
                 st.markdown(status_note(item["status"]).lstrip(" ·"))
             st.html(ui.chip(listings.category_label(item)) + ui.chip(item["condition"])
                     + ui.chip(listings.pickup_label(item), warm=True))
+            if until := listings.available_label(item):
+                st.caption(f"📅 {until}")
             seller = database.get_profile_by_id(item["seller_id"])
             if seller and my_id != item["seller_id"]:
                 st.markdown(f"Sold by **{plain(seller['name'])}**")
@@ -213,7 +215,7 @@ with browse_tab:
 
     with filters_col:
         prices = [item["price_cents"] / 100 for item in feed]
-        # Always €0 to the highest price a listing may have (€1,000), so the
+        # Always €0 to the highest price a listing may have (€5,000), so the
         # range is the same for everyone, whatever is on sale right now.
         max_euros = listings.MAX_PRICE_CENTS // 100
         with ui.card("price-range"):
@@ -221,7 +223,7 @@ with browse_tab:
             if prices:
                 st.caption(f"The average price is €{sum(prices) / len(prices):,.0f}")
             ui.price_chart(prices)
-            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=5,
+            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=10,
                                   format="€%d", label_visibility="collapsed")
         with ui.card("sort"):
             st.markdown("**Sort by**")

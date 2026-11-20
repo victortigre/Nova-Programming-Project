@@ -6,6 +6,7 @@ when the seller number matches.
 """
 
 import itertools
+from datetime import date
 
 
 class FakeDatabase:
@@ -59,15 +60,22 @@ class FakeDatabase:
         seller = self.get_profile_by_id(listing["seller_id"])
         return seller is not None and seller["blocked_at"] is not None
 
+    @staticmethod
+    def _still_available(listing):
+        """Like the real database: no "available until" date, or a date from today on."""
+        until = listing.get("available_until")
+        return not until or str(until)[:10] >= date.today().isoformat()
+
     def feed_listings(self, limit, offset):
         shown = self._newest_first(r for r in self.listings.values()
-                                   if r["status"] != "sold" and not self._seller_is_blocked(r))
+                                   if r["status"] != "sold" and not self._seller_is_blocked(r)
+                                   and self._still_available(r))
         return shown[offset:offset + limit]
 
     def get_active_listings(self, profile_id):
         return self._newest_first(r for r in self.listings.values()
                                   if r["seller_id"] == profile_id and r["status"] == "active"
-                                  and not self._seller_is_blocked(r))
+                                  and not self._seller_is_blocked(r) and self._still_available(r))
 
     def update_listing(self, listing_id, seller_id, changes, only_if_status=None):
         listing = self.listings.get(listing_id)

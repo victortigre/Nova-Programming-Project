@@ -49,6 +49,10 @@ create table if not exists listings (
 alter table listings add column if not exists category_other text;
 alter table listings add column if not exists pickup_area_other text;
 
+-- Added later: until when the seller can hand the item over. After this date
+-- the listing is hidden from Browse (the seller still sees it). Safe to run again.
+alter table listings add column if not exists available_until date;
+
 -- Condition names were renamed ("New" -> "Brand New", "Like new" -> "Like New").
 update listings set condition = 'Brand New' where condition = 'New';
 update listings set condition = 'Like New' where condition = 'Like new';

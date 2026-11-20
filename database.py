@@ -136,11 +136,17 @@ NOT_BLOCKED_SELLER = "*, profiles!inner(blocked_at)"
 
 
 @st.cache_data(ttl=FEED_MEMORY_SECONDS, show_spinner=False)
+def _still_available_filter() -> str:
+    """Filter: no "available until" date (older listings), or a date from today on."""
+    return f"available_until.is.null,available_until.gte.{date.today().isoformat()}"
+
+
 def feed_listings(limit: int, offset: int) -> list[dict]:
-    """Return the listings buyers may see (not sold, seller not blocked), newest first."""
+    """Return the listings buyers may see (not sold, not expired, seller not blocked), newest first."""
     return (
         _client().table("listings").select(NOT_BLOCKED_SELLER)
         .is_("profiles.blocked_at", "null").neq("status", "sold")
+        .or_(_still_available_filter())
         .order("created_at", desc=True).order("id", desc=True)
         .range(offset, offset + limit - 1)
         .execute().data
@@ -148,10 +154,10 @@ def feed_listings(limit: int, offset: int) -> list[dict]:
 
 
 def get_active_listings(profile_id: int) -> list[dict]:
-    """Return the active listings of one student (none if blocked), newest first."""
+    """Return the active, not expired listings of one student (none if blocked), newest first."""
     return (
         _client().table("listings").select(NOT_BLOCKED_SELLER)
-        .is_("profiles.blocked_at", "null")
+        .is_("profiles.blocked_at", "null").or_(_still_available_filter())
         .eq("seller_id", profile_id).eq("status", "active")
         .order("created_at", desc=True)
         .execute().data
