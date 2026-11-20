@@ -6,6 +6,7 @@ check again, because the rule is to check where the action happens.
 """
 
 import re
+from datetime import date
 from functools import partial
 
 import streamlit as st
@@ -110,6 +111,9 @@ if viewing is not None:
                 st.markdown(status_note(item["status"]).lstrip(" ·"))
             st.html(ui.chip(listings.category_label(item)) + ui.chip(item["condition"])
                     + ui.chip(listings.pickup_label(item), warm=True))
+            available_note = listings.availability_text(item, date.today())
+            if available_note:
+                st.markdown(f"📅 **{available_note}**")
             seller = database.get_profile_by_id(item["seller_id"])
             if seller and my_id != item["seller_id"]:
                 st.markdown(f"Sold by **{plain(seller['name'])}**")

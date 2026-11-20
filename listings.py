@@ -28,6 +28,7 @@ lives in memory (tests/fake_database.py), so they run without internet.
 """
 
 import re
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounts import nova_email
@@ -150,7 +151,8 @@ def _choice_with_other(value, other_text, options, label, other_label) -> list[s
 
 
 def check_listing(*, title, description, free, price_cents, category, condition,
-                  pickup_area, category_other=None, pickup_area_other=None) -> list[str]:
+                  pickup_area, category_other=None, pickup_area_other=None,
+                  available_from=None) -> list[str]:
     """Every problem with the listing's fields (empty list = all good). All fields are required."""
     errors = _text(title, "Title", 3, 80) + _text(description, "Description", 10, 2000)
     errors += check_offer(free=free, price_cents=price_cents)
@@ -169,7 +171,8 @@ def _other_text(value, other_text):
 
 
 def _fields(*, title, description, free, price_cents, category, condition,
-            pickup_area, category_other=None, pickup_area_other=None) -> dict:
+            pickup_area, category_other=None, pickup_area_other=None,
+            available_from=None) -> dict:
     """The checked fields, tidied, in the shape they are stored in."""
     return {
         "title": title.strip(),
@@ -180,7 +183,20 @@ def _fields(*, title, description, free, price_cents, category, condition,
         "condition": condition,
         "pickup_area": pickup_area,
         "pickup_area_other": _other_text(pickup_area, pickup_area_other),
+        "available_from": available_from.isoformat() if available_from else None,
     }
+
+
+def availability_text(listing: dict, today: date) -> str:
+    """'Available from 10 Dec 2026' when the item is only free to collect later;
+    an empty string when it's available now (no date, or a date already past)."""
+    value = listing.get("available_from")
+    if not value:
+        return ""
+    when = date.fromisoformat(value) if isinstance(value, str) else value
+    if when <= today:
+        return ""
+    return f"Available from {when.day} {when:%b %Y}"
 
 
 def category_label(listing: dict) -> str:
@@ -244,7 +260,8 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
                    free: bool | None, price_cents: int | None, category: str | None,
                    condition: str | None, pickup_area: str | None, photos: list[bytes],
                    category_other: str | None = None,
-                   pickup_area_other: str | None = None) -> int:
+                   pickup_area_other: str | None = None,
+                   available_from: date | None = None) -> int:
     """Publish a new listing. Returns its id. Raises ListingError listing every problem."""
     seller = _seller_profile(db, seller_email)
     if seller.get("blocked_at"):  # an admin blocked this student (see admin.py)
@@ -252,7 +269,8 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
                   condition=condition, pickup_area=pickup_area,
-                  category_other=category_other, pickup_area_other=pickup_area_other)
+                  category_other=category_other, pickup_area_other=pickup_area_other,
+                  available_from=available_from)
     errors = check_listing(**fields)
     count_errors = check_photo_count(len(photos))
     errors += count_errors
@@ -288,7 +306,8 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
                    condition: str | None, pickup_area: str | None,
                    keep_photo_paths: list[str] | None = None, new_photos: list[bytes] = (),
                    category_other: str | None = None,
-                   pickup_area_other: str | None = None) -> None:
+                   pickup_area_other: str | None = None,
+                   available_from: date | None = None) -> None:
     """Edit your own listing.
 
     keep_photo_paths: the current photos to keep, in the order to show them
@@ -305,7 +324,8 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
     fields = dict(title=title, description=description, free=free,
                   price_cents=price_cents, category=category,
                   condition=condition, pickup_area=pickup_area,
-                  category_other=category_other, pickup_area_other=pickup_area_other)
+                  category_other=category_other, pickup_area_other=pickup_area_other,
+                  available_from=available_from)
     errors = check_listing(**fields)
     new_photos = list(new_photos)
     count_errors = check_photo_count(len(keep_photo_paths) + len(new_photos))
