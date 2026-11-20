@@ -13,11 +13,14 @@ from datetime import date
 import streamlit as st
 
 import database
-from accounts import verified_nova_email
+import reviews
+import ui
+from accounts import logged_in_user, verified_nova_email
+from listings import plain_text
 from profiles import profile_id_from_text, public_profile
 
 # Only verified Nova students may look at profiles.
-email = verified_nova_email(st.user.to_dict())
+email = verified_nova_email(logged_in_user())
 if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
@@ -41,25 +44,66 @@ if profile is None:
 
 # From here on only the public parts are used, so the email cannot slip out.
 shown = public_profile(profile, date.today())
+is_own_profile = profile["email"] == email
 
-if profile["email"] == email:
+if is_own_profile:
     st.info("This is your own profile, as other students see it.")
-    st.page_link("views/profile.py", label="Edit my profile")
+    st.page_link("views/profile.py", label="Edit my profile", icon=":material/edit:")
 
-photo_column, text_column = st.columns([1, 3])
-with photo_column:
-    if shown["photo_path"]:
-        st.image(database.photo_url(shown["photo_path"]), width=160)
-with text_column:
-    st.header(shown["name"])
-    st.write(shown["program"])
-    if shown["leaving_lisbon_on"]:
-        st.write(f"Leaving Lisbon on {shown['leaving_lisbon_on']:%d %B %Y}")
-    st.caption(f"Member since {shown['member_since']:%B %Y}")
+listings = database.get_active_listings(shown["id"])
+
+with ui.card("profile-head"):
+    photo_column, text_column = st.columns([1, 5], vertical_alignment="center")
+    with photo_column:
+        st.html(ui.avatar(database.photo_url(shown["photo_path"]), shown["name"]))
+    with text_column:
+        st.header(plain_text(shown["name"]))
+        chips = ui.chip("✓ Verified Nova student") + ui.chip(shown["program"])
+        if shown["leaving_lisbon_on"]:
+            days = (shown["leaving_lisbon_on"] - date.today()).days
+            when = "today" if days == 0 else f"in {days} day{'s' if days != 1 else ''}"
+            chips += ui.chip(
+                f"Leaving Lisbon on {shown['leaving_lisbon_on']:%d %B} ({when})", warm=True
+            )
+        st.html(chips)
+        st.caption(f"Member since {shown['member_since']:%B %Y} · "
+                   f"{len(listings)} active listing{'s' if len(listings) != 1 else ''}")
+        # Ratings from completed deals (reviews.py). Hidden until the reviews
+        # table is in the database.
+        try:
+            rating = reviews.summary(database, shown["id"])
+        except Exception:
+            rating = None
+        if rating is not None:
+            if rating["positive"] or rating["negative"]:
+                st.markdown(f"👍 **{rating['positive']}** · 👎 **{rating['negative']}** "
+                            f"· {rating['sold']} sold through the app")
+            else:
+                st.caption(f"No ratings yet · {rating['sold']} sold through the app")
 
 st.subheader("Active listings")
-listings = database.get_active_listings(shown["id"])
 if not listings:
     st.write("No active listings at the moment.")
-for listing in listings:
-    st.write(f"**{listing['title']}** - {listing['price']} €")
+columns_per_row = 4
+# One request for all cover photo links, instead of one per card.
+links = database.listing_photo_urls(
+    [listing["photo_paths"][0] for listing in listings if listing.get("photo_paths")])
+for start in range(0, len(listings), columns_per_row):
+    row = st.columns(columns_per_row, gap="medium")
+    for column, listing in zip(row, listings[start:start + columns_per_row]):
+        cover = listing["photo_paths"][0] if listing.get("photo_paths") else None
+        with column:
+            clicked = ui.listing_card(
+                listing, links.get(cover),
+                key=f"profile-{listing['id']}",
+            )
+        # The price button opens the listing on Browse, where it can be saved or reported.
+        if clicked:
+            st.session_state["open_listing"] = listing["id"]
+            st.switch_page("views/browse.py")
+
+# Nobody reports themselves, so the Report link only shows on other profiles.
+if not is_own_profile:
+    st.write("")
+    st.page_link("views/report.py", label="Report this student", icon=":material/flag:",
+                 query_params={"student": shown["id"]})

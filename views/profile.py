@@ -1,23 +1,19 @@
-"""My profile: a student fills in or changes their own profile."""
+"""My profile: a student fills in or changes their own profile, and sees the
+listings they saved (tapped ♡ on)."""
 
-from datetime import date
+from functools import partial
 
 import streamlit as st
 
+import browsing
 import database
-from accounts import verified_nova_email
-from profiles import (
-    MAX_NAME_LENGTH,
-    MAX_PHOTO_MB,
-    PROGRAMS,
-    clean_name,
-    prepare_photo,
-    profile_problems,
-)
+import ui
+from accounts import logged_in_user, verified_nova_email
+from profile_form import show_profile_form
 
 # Who is using this page? The email always comes from the login, never from
 # a form, so nobody can open or change someone else's profile here.
-email = verified_nova_email(st.user.to_dict())
+email = verified_nova_email(logged_in_user())
 if email is None:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
@@ -38,75 +34,51 @@ if profile is not None:
         query_params={"id": profile["id"]},
     )
 
-# What is stored so far. A new student has nothing stored yet.
-if profile is None:
-    profile = {}
-saved_program = profile.get("program")
-saved_photo = profile.get("photo_path")
-saved_date = None
-if profile.get("leaving_lisbon_on"):
-    saved_date = date.fromisoformat(profile["leaving_lisbon_on"])
+with ui.card("profile-form"):
+    show_profile_form(email, profile)
 
-# --- The fields ---------------------------------------------------------------
+# --- Saved items ---------------------------------------------------------------
+# The listings this student liked. Tapping ♥ removes one; tapping the price
+# opens it on Browse, the same way a student's public profile does.
+SAVED_COLUMNS = 3
 
-if saved_photo:
-    st.image(database.photo_url(saved_photo), width=160)
 
-name = st.text_input("Name", value=profile.get("name", ""), max_chars=MAX_NAME_LENGTH)
+def unsave(listing_id: int) -> None:
+    browsing.toggle_saved(database, profile["id"], listing_id)
 
-program = st.selectbox(
-    "Program",
-    PROGRAMS,
-    index=PROGRAMS.index(saved_program) if saved_program in PROGRAMS else None,
-    placeholder="Choose your program",
-)
 
-leaving_lisbon_on = None
-if st.checkbox("I know when I am leaving Lisbon", value=saved_date is not None):
-    leaving_lisbon_on = st.date_input(
-        "Leaving Lisbon on", value=saved_date or date.today(), format="DD/MM/YYYY"
-    )
-
-# The upload box gets a new key after every save, which empties it again.
-upload_round = st.session_state.get("photo_upload_round", 0)
-uploaded = st.file_uploader(
-    "Profile photo (optional)",
-    type=["jpg", "jpeg", "png", "webp"],
-    max_upload_size=MAX_PHOTO_MB,
-    key=f"photo_upload_{upload_round}",
-)
-remove_photo = saved_photo is not None and st.checkbox("Remove my current photo")
-
-# --- Saving -------------------------------------------------------------------
-
-if st.button("Save profile", type="primary"):
-    name = clean_name(name)
-    problems = profile_problems(name, program, leaving_lisbon_on, date.today())
-
-    new_photo = None
-    if uploaded is not None:
+if profile is not None:
+    with ui.card("saved-items"):
         try:
-            new_photo = prepare_photo(uploaded.getvalue())
-        except ValueError as error:
-            problems.append(str(error))
-
-    if problems:
-        for problem in problems:
-            st.error(problem)
-    else:
-        if new_photo is not None:
-            photo_path = database.upload_photo(new_photo)
-        elif remove_photo:
-            photo_path = None
+            saved_items = browsing.saved_listings(database, profile["id"])
+        except Exception:
+            saved_items = None
+        st.markdown(f"**♥ Saved items ({len(saved_items or [])})**")
+        if saved_items is None:
+            st.caption("Saving isn't set up in the database yet. Whoever manages the "
+                       "database needs to run `database_setup.sql`.")
+        elif not saved_items:
+            st.caption("You haven't saved anything yet. Tap ♡ on a listing to keep it here.")
+            st.page_link("views/browse.py", label="Browse items", icon=":material/search:")
         else:
-            photo_path = saved_photo
+            # One request for all cover photo links, instead of one per card.
+            links = database.listing_photo_urls(
+                [item["photo_paths"][0] for item in saved_items if item["photo_paths"]])
+            for start in range(0, len(saved_items), SAVED_COLUMNS):
+                row = st.columns(SAVED_COLUMNS, gap="medium")
+                for column, item in zip(row, saved_items[start:start + SAVED_COLUMNS]):
+                    cover = item["photo_paths"][0] if item["photo_paths"] else None
+                    with column:
+                        clicked = ui.listing_card(
+                            item, links.get(cover), key=f"saved-{item['id']}",
+                            saved=True, on_heart=partial(unsave, item["id"]))
+                    if clicked:
+                        st.session_state["open_listing"] = item["id"]
+                        st.switch_page("views/browse.py")
 
-        database.save_profile(email, name, program, leaving_lisbon_on, photo_path)
-
-        # The old photo is not shown anywhere any more, so remove the file.
-        if saved_photo and saved_photo != photo_path:
-            database.delete_photo(saved_photo)
-
-        st.session_state["profile_saved"] = True
-        st.session_state["photo_upload_round"] = upload_round + 1
-        st.rerun()
+# The menu bar has no room for the account, so signing out is here.
+with ui.card("account"):
+    st.markdown("**Account**")
+    st.caption(f"Signed in as {email}")
+    st.page_link("views/house_rules.py", label="House rules", icon=":material/gavel:")
+    st.button("Sign out", icon=":material/logout:", on_click=st.logout)
