@@ -103,7 +103,19 @@ button[data-variant="pills"][data-selected="true"] p {{
     background: #FFFFFF; color: {VIOLET};
     box-shadow: 0 2px 8px rgba(27, 27, 41, 0.15);
 }}
-[class*="st-key-heart-"] button p {{ font-size: 1.35rem; line-height: 1; }}
+/* The heart is the SAME character (♥) in both states, so it never changes size:
+   not saved = only its outline (transparent inside), saved = filled violet. */
+[class*="st-key-heart-"] button p {{
+    font-size: 1.25rem; line-height: 1; margin: 0; transition: transform 0.15s ease;
+}}
+[class*="st-key-heart-off-"] button p {{
+    color: transparent; -webkit-text-stroke: 1.7px #1B1B29;
+}}
+[class*="st-key-heart-on-"] button p {{
+    color: {VIOLET}; -webkit-text-stroke: 1.7px {VIOLET};
+}}
+[class*="st-key-heart-"] button:hover p {{ transform: scale(1.12); }}
+[class*="st-key-heart-off-"] button:hover p {{ -webkit-text-stroke-color: {VIOLET}; }}
 
 /* The price under a listing: an outlined violet pill that opens it. */
 [class*="st-key-price-"] button {{
@@ -241,7 +253,9 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
             f'<div class="nm-meta">{html.escape(details)}</div>'
         )
         if saved is not None:
-            st.button("♥" if saved else "♡", key=f"heart-{key}", on_click=on_heart,
+            # "\ufe0e" asks for the plain text heart, never a coloured emoji.
+            st.button("♥\ufe0e", key=f"heart-{'on' if saved else 'off'}-{key}",
+                      on_click=on_heart,
                       help="Remove from saved" if saved else "Save for later")
         with st.container(horizontal_alignment="center"):
             return st.button(listings.format_price(item["price_cents"]), key=f"price-{key}",
