@@ -53,12 +53,14 @@ if profile is not None:
             saved_items = browsing.saved_listings(database, profile["id"])
         except Exception:
             saved_items = None
-        st.markdown(f"**♥ Saved items ({len(saved_items or [])})**")
+        st.html(f'<p style="font-weight: 600; margin: 0;">{ui.heart_icon(18)} '
+                f"Saved items ({len(saved_items or [])})</p>")
         if saved_items is None:
             st.caption("Saving isn't set up in the database yet. Whoever manages the "
                        "database needs to run `database_setup.sql`.")
         elif not saved_items:
-            st.caption("You haven't saved anything yet. Tap ♡ on a listing to keep it here.")
+            ui.hint_with_heart("You haven't saved anything yet. "
+                               "Tap {heart} on a listing to keep it here.")
             st.page_link("views/browse.py", label="Browse items", icon=":material/search:")
         else:
             # One request for all cover photo links, instead of one per card.

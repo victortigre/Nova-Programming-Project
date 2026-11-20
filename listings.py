@@ -51,7 +51,7 @@ MAX_OTHER_LENGTH = 40
 ACTIVE, RESERVED, SOLD = "active", "reserved", "sold"
 STATUSES = [ACTIVE, RESERVED, SOLD]
 
-MAX_PRICE_CENTS = 100_000  # €1,000: the highest price a listing can have
+MAX_PRICE_CENTS = 500_000  # €5,000: the highest price a listing can have
 
 
 class ListingError(ValueError):

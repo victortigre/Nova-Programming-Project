@@ -70,11 +70,9 @@ def save_button(listing_id: int, *, where: str) -> None:
     if not saving_ready:
         return
     is_saved = listing_id in saved
-    if where == "detail":
-        label = "♥ Saved" if is_saved else "♡ Save"
-    else:
-        label = "♥" if is_saved else "♡"
-    st.button(label, key=f"save-{where}-{listing_id}",
+    # The heart picture is added by ui.py (keys starting with "heartlabel-on/off-").
+    state = "on" if is_saved else "off"
+    st.button("Saved" if is_saved else "Save", key=f"heartlabel-{state}-{where}-{listing_id}",
               help="Remove from saved" if is_saved else "Save for later",
               on_click=flip_saved, args=(listing_id,))
 
@@ -201,7 +199,9 @@ if to_do["confirm_received"]:
 
 
 # --- Browse and Saved tabs ----------------------------------------------------
-browse_tab, saved_tab = st.tabs(["All items", f"♥ Saved ({len(saved)})"])
+# In a keyed container, so ui.py can put the heart picture in front of "Saved".
+with st.container(key="browse-tabs"):
+    browse_tab, saved_tab = st.tabs(["All items", f"Saved ({len(saved)})"])
 
 with browse_tab:
     query = st.text_input("Search", placeholder="Search desks, books, bikes...",
@@ -213,7 +213,7 @@ with browse_tab:
 
     with filters_col:
         prices = [item["price_cents"] / 100 for item in feed]
-        # Always €0 to the highest price a listing may have (€1,000), so the
+        # Always €0 to the highest price a listing may have (€5,000), so the
         # range is the same for everyone, whatever is on sale right now.
         max_euros = listings.MAX_PRICE_CENTS // 100
         with ui.card("price-range"):
@@ -221,7 +221,7 @@ with browse_tab:
             if prices:
                 st.caption(f"The average price is €{sum(prices) / len(prices):,.0f}")
             ui.price_chart(prices)
-            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=5,
+            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=10,
                                   format="€%d", label_visibility="collapsed")
         with ui.card("sort"):
             st.markdown("**Sort by**")
@@ -257,5 +257,7 @@ with saved_tab:
     else:
         saved_items = browsing.saved_listings(database, my_id)
         if not saved_items:
-            st.info("You haven't saved anything yet. Tap ♡ on a listing to keep it here.")
+            with st.container(border=True):
+                ui.hint_with_heart("You haven't saved anything yet. "
+                                   "Tap {heart} on a listing to keep it here.")
         listing_grid(saved_items, tab="saved", columns=4)
