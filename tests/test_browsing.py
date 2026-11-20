@@ -107,8 +107,16 @@ def test_sort_by_available_until_soonest_first_and_no_date_last():
     assert [i["id"] for i in out] == [3, 1, 4, 2]
 
 
-def test_available_until_is_a_sort_choice():
-    assert browsing.SORTS["Available until: soonest"] == "available_soonest"
+def test_sort_by_available_until_latest_first_and_no_date_still_last():
+    items = [L(id=1, available_until="2026-12-20"), L(id=2, available_until=None),
+             L(id=3, available_until="2026-11-25"), L(id=4, available_until="2027-01-05")]
+    out = browsing.search_and_sort(items, sort="available_latest")
+    assert [i["id"] for i in out] == [4, 1, 3, 2]
+
+
+def test_available_until_sort_choices():
+    assert browsing.SORTS["Available until: soonest to latest"] == "available_soonest"
+    assert browsing.SORTS["Available until: latest to soonest"] == "available_latest"
 
 
 def test_filters_combine():
