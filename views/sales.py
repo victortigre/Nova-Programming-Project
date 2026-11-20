@@ -44,7 +44,7 @@ def act(action, request_id: int, done_message: str, *extra) -> None:
         st.rerun()
 
 
-def request_row(request: dict) -> None:
+def request_row(request: dict, price: int = 0) -> None:
     rid = request["id"]
     st.divider()
     st.write(f"**{request['buyer_name']}** wants to buy this.")
@@ -55,6 +55,12 @@ def request_row(request: dict) -> None:
         if columns[1].button("Decline", key=f"decline-{rid}"):
             act(deals.decline_request, rid, "Request declined.")
     elif request["status"] == deals.ACCEPTED:
+        if request["buyer_confirmed_at"] and price:
+            st.caption(f"The buyer confirmed they got it: {listings.format_price(price)} "
+                       "is in your Nova credits.")
+        elif price:
+            st.caption(f"{listings.format_price(price)} is held from the buyer's credits. "
+                       "You get it when they confirm they received the item.")
         if request["seller_confirmed_at"]:
             st.markdown(":orange[You confirmed. Waiting for the buyer to confirm too…]")
         else:
@@ -62,8 +68,9 @@ def request_row(request: dict) -> None:
             if st.button("I handed it over — confirm sold", key=f"sold-{rid}", type="primary"):
                 act(deals.confirm_sold, rid,
                     "Confirmed. Once the buyer confirms too, it's marked sold.")
-        if st.button("Cancel deal", key=f"cancel-{rid}"):
-            act(deals.cancel_deal, rid, "Deal cancelled. The item is active again.")
+        if not request["buyer_confirmed_at"] and st.button("Cancel deal", key=f"cancel-{rid}"):
+            act(deals.cancel_deal, rid, "Deal cancelled. The item is active again"
+                + (" and the buyer got their credits back." if price else "."))
 
 
 # Only active/reserved listings can have live requests.
@@ -81,7 +88,7 @@ try:
             st.markdown(f"### {listings.plain_text(listing['title'])}")
             st.caption(f"{listings.format_price(listing['price_cents'])} · {listing['status']}")
             for request in requests:
-                request_row(request)
+                request_row(request, listing.get("price_cents") or 0)
 except Exception:
     st.info("Buying isn't set up in the database yet. Check back soon.")
     st.stop()

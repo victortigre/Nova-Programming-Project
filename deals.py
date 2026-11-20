@@ -6,6 +6,11 @@ Like listings.py, every function takes `db` first (the pages pass the real
 HERE, where the action happens: a buyer may only touch their own request, a
 seller only their own listing.
 
+Money (see wallet.py): when the seller accepts, the price is held from the
+buyer's Nova credits; when the buyer confirms they got the item, it goes to the
+seller; if the deal is called off before that, it goes back to the buyer.
+After the buyer has confirmed, the deal can no longer be cancelled.
+
 A deal (purchase request) moves through these states:
     requested  the buyer asked; the seller hasn't answered
     accepted   the seller picked this buyer; the listing is now Reserved
@@ -24,6 +29,7 @@ first, nothing changes and the student sees a message instead.
 from datetime import datetime, timezone
 
 from accounts import nova_email
+import wallet
 from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound
 
 REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
@@ -85,6 +91,10 @@ def request_to_buy(db, listing_id: int, buyer_email: str) -> dict:
         raise ListingError(["This item is reserved for someone else."])
     if db.live_request(buyer["id"], listing_id) is not None:
         raise ListingError(["You already have a request on this item."])
+    # Asking is free, but only if you could pay now (the money is held when
+    # the seller accepts).
+    if not wallet.can_afford(db, buyer["id"], listing.get("price_cents") or 0):
+        raise ListingError([wallet.not_enough_message(db, buyer["id"], listing["price_cents"])])
     return db.insert_request({"listing_id": listing_id, "buyer_id": buyer["id"]})
 
 
@@ -120,7 +130,15 @@ def accept_request(db, request_id: int, seller_email: str) -> None:
                           only_if_status=RESERVED)
         raise ListingError(["This request can't be accepted any more. "
                             "The buyer may have cancelled it."])
-    # 3. Everyone else who was waiting gets a "no".
+    # 3. Hold the price from the buyer's credits. If they don't have enough any
+    #    more, undo steps 1 and 2 and tell the seller.
+    if not wallet.hold(db, request, listing):
+        db.update_request(request_id, {"status": REQUESTED}, only_if_status=ACCEPTED)
+        db.update_listing(listing["id"], seller["id"], {"status": ACTIVE},
+                          only_if_status=RESERVED)
+        raise ListingError(["This buyer doesn't have enough credits any more. "
+                            "You can accept another buyer, or wait for them to add credits."])
+    # 4. Everyone else who was waiting gets a "no".
     for other in db.requests_for_listing(listing["id"], [REQUESTED]):
         db.update_request(other["id"], {"status": DECLINED}, only_if_status=REQUESTED)
 
@@ -130,10 +148,14 @@ def decline_request(db, request_id: int, seller_email: str) -> None:
     request, listing, seller = _my_request(db, request_id, seller_email)
     if request["status"] not in LIVE:
         raise ListingError(["This request can't be declined any more."])
+    if request.get("buyer_confirmed_at"):
+        raise ListingError(["The buyer already confirmed they got the item and the "
+                            "money is yours, so this can't be declined any more."])
     if not db.update_request(request_id, {"status": DECLINED},
                              only_if_status=request["status"]):
         raise ListingError(["This request just changed. Please look again."])
     if request["status"] == ACCEPTED:
+        wallet.refund(db, request)
         db.update_listing(listing["id"], seller["id"], {"status": ACTIVE},
                           only_if_status=RESERVED)
 
@@ -164,6 +186,8 @@ def confirm_received(db, request_id: int, buyer_email: str) -> None:
     if not db.update_request(request_id, {"buyer_confirmed_at": _now()},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal isn't active any more."])
+    # The buyer is happy: the held money goes to the seller.
+    wallet.release(db, request, db.get_listing(request["listing_id"]))
     _complete_if_both(db, request_id)
 
 
@@ -188,6 +212,9 @@ def cancel_deal(db, request_id: int, email: str) -> None:
         raise NotFound("This request doesn't exist any more.")
     if request["status"] not in LIVE:
         raise ListingError(["This deal can't be cancelled any more."])
+    if request.get("buyer_confirmed_at"):
+        raise ListingError(["The buyer already confirmed they got the item and the "
+                            "money went to the seller, so this deal can't be cancelled."])
     person = _profile(db, email)
     listing = db.get_listing(request["listing_id"])
     is_buyer = request["buyer_id"] == person["id"]
@@ -203,6 +230,8 @@ def _call_off(db, request: dict, listing: dict | None) -> bool:
     if not db.update_request(request["id"], {"status": CANCELLED},
                              only_if_status=request["status"]):
         return False
+    if request["status"] == ACCEPTED:
+        wallet.refund(db, request)  # nothing happens if the money was already released
     if request["status"] == ACCEPTED and listing is not None:
         db.update_listing(listing["id"], listing["seller_id"], {"status": ACTIVE},
                           only_if_status=RESERVED)

@@ -34,8 +34,11 @@ GOOD = dict(title="BA II Plus calculator", description="Financial calculator, wo
 def db():
     """A pretend database in which Ana and Tom already have a profile."""
     db = FakeDatabase()
-    db.add_profile(ANA)
-    db.add_profile(TOM)
+    for email in (ANA, TOM):
+        profile = db.add_profile(email)
+        # Nova credits, so they can ask to buy priced items (see wallet.py).
+        db.wallet_add_entry({"profile_id": profile["id"], "amount_cents": 100_000,
+                             "kind": "top_up", "request_id": None, "note": None})
     return db
 
 

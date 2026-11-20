@@ -15,6 +15,7 @@ import database
 import deals
 import listings
 import ui
+import wallet
 from accounts import verified_nova_email
 
 FEED_LIMIT = 500  # the marketplace is small; fetch the newest listings and filter here
@@ -117,6 +118,12 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
+                if item["status"] == listings.ACTIVE and item["price_cents"]:
+                    try:
+                        st.caption(f"Your Nova credits: "
+                                   f"{wallet.euros(wallet.my_balance(database, email))}")
+                    except Exception:  # credits aren't set up in the database yet
+                        pass
                 if item["status"] == listings.ACTIVE:
                     if st.button("Request to buy", key=f"buy-{item['id']}",
                                  type="primary", icon=":material/shopping_bag:"):

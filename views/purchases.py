@@ -100,24 +100,36 @@ def show_deal(deal: dict) -> None:
         if seller:
             st.caption(f"Seller: {listings.plain_text(seller['name'])}")
 
+        price = listing.get("price_cents") or 0
         if status == deals.REQUESTED:
             st.markdown(":grey[Waiting for the seller to accept your request…]")
+            if price:
+                st.caption(f"When the seller accepts, {listings.format_price(price)} "
+                           "is held from your Nova credits.")
             if st.button("Cancel request", key=f"cancel-{request_id}"):
                 act(deals.cancel_deal, request_id, "Request cancelled.")
 
         elif status == deals.ACCEPTED:
             if deal["buyer_confirmed_at"]:
                 st.markdown(":orange[You confirmed. Waiting for the seller to confirm too…]")
+                if price:
+                    st.caption(f"{listings.format_price(price)} went to the seller.")
             else:
                 st.markdown(":green[Accepted! Meet the seller to collect it, then confirm below.]")
+                if price:
+                    st.caption(f"{listings.format_price(price)} is held from your credits. "
+                               "Confirming sends it to the seller, so only confirm once "
+                               "you have the item.")
                 if st.button("I received the item", key=f"recv-{request_id}", type="primary"):
                     act(deals.confirm_received, request_id,
                         "Thanks! Waiting for the seller to confirm too.")
             if listing.get("seller_id"):
                 st.page_link("views/public_profile.py", label="View the seller's profile",
                              icon=":material/person:", query_params={"id": listing["seller_id"]})
-            if st.button("Cancel deal", key=f"cancel-{request_id}"):
-                act(deals.cancel_deal, request_id, "Deal cancelled.")
+            if not deal["buyer_confirmed_at"] and st.button("Cancel deal",
+                                                             key=f"cancel-{request_id}"):
+                act(deals.cancel_deal, request_id,
+                    "Deal cancelled." + (" Your credits are back." if price else ""))
 
         elif status == deals.COMPLETED:
             st.markdown(":green[✅ Done — both of you confirmed. Enjoy!]")
