@@ -4,6 +4,7 @@ Uses the in-memory fake database (tests/fake_database.py), like the other tests.
 Run them with:  pytest
 """
 
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import pytest
@@ -252,3 +253,74 @@ def test_money_is_never_created_or_lost(db):
     total = sum(bal(db, who) for who in (SELLER, BUYER, OTHER))
     held = 4000
     assert total + held == 20_000
+
+
+# --- 48 hours after the hand-over: the seller is paid automatically -------------
+
+def handed_over_hours_ago(db, request_id, hours):
+    """The seller confirmed the hand-over `hours` ago."""
+    deals.confirm_sold(db, request_id, SELLER)
+    moment = datetime.now(timezone.utc) - timedelta(hours=hours)
+    db.requests[request_id]["seller_confirmed_at"] = moment.isoformat()
+
+
+def test_no_countdown_before_the_seller_confirms_the_hand_over(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    assert deals.payment_due(db.get_request(request_id)) is None
+    later = datetime.now(timezone.utc) + timedelta(days=30)
+    assert deals.release_overdue(db, BUYER, now=later) == 0
+    assert bal(db, SELLER) == 0
+
+
+def test_the_buyer_has_48_hours_after_the_hand_over(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    handed_over_hours_ago(db, request_id, 47)
+    due = deals.payment_due(db.get_request(request_id))
+    assert timedelta(minutes=59) < due - datetime.now(timezone.utc) <= timedelta(hours=1)
+    assert deals.release_overdue(db, SELLER) == 0
+    assert bal(db, SELLER) == 0
+
+
+@pytest.mark.parametrize("who_opens_the_app", [SELLER, BUYER])
+def test_after_48_hours_the_seller_is_paid_automatically(db, who_opens_the_app):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    handed_over_hours_ago(db, request_id, 49)
+    deals.to_do(db, who_opens_the_app)  # what every page does when it opens
+    assert bal(db, SELLER) == 2_000 and bal(db, BUYER) == 3_000
+    assert db.get_request(request_id)["status"] == deals.COMPLETED
+    assert listings.get_listing(db, db.get_request(request_id)["listing_id"])["status"] == \
+        listings.SOLD
+
+
+def test_automatic_payment_happens_only_once(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    handed_over_hours_ago(db, request_id, 72)
+    deals.release_overdue(db, SELLER)
+    deals.release_overdue(db, BUYER)
+    deals.release_overdue(db, SELLER)
+    assert bal(db, SELLER) == 2_000
+
+
+def test_buyer_confirming_in_time_stops_the_countdown(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    handed_over_hours_ago(db, request_id, 10)
+    deals.confirm_received(db, request_id, BUYER)
+    assert deals.payment_due(db.get_request(request_id)) is None
+    later = datetime.now(timezone.utc) + timedelta(days=5)
+    deals.release_overdue(db, SELLER, now=later)
+    assert bal(db, SELLER) == 2_000  # paid once, when the buyer confirmed
+
+
+def test_a_cancelled_deal_is_never_paid_automatically(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    deals.confirm_sold(db, request_id, SELLER)
+    deals.cancel_deal(db, request_id, BUYER)  # the buyer reported a problem in time
+    later = datetime.now(timezone.utc) + timedelta(days=5)
+    deals.release_overdue(db, SELLER, now=later)
+    assert bal(db, SELLER) == 0 and bal(db, BUYER) == 5_000

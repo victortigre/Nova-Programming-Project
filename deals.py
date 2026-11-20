@@ -10,6 +10,8 @@ Money (see wallet.py): when the seller accepts, the price is held from the
 buyer's Nova credits; when the buyer confirms they got the item, it goes to the
 seller; if the deal is called off before that, it goes back to the buyer.
 After the buyer has confirmed, the deal can no longer be cancelled.
+Once the seller confirms the hand-over, the buyer has 48 hours to confirm too;
+if they don't, the money goes to the seller automatically (release_overdue).
 
 A deal (purchase request) moves through these states:
     requested  the buyer asked; the seller hasn't answered
@@ -26,7 +28,7 @@ database checks that in the same step as the change. If someone else got there
 first, nothing changes and the student sees a message instead.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from accounts import nova_email
 import wallet
@@ -35,6 +37,7 @@ from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound
 REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
     "requested", "accepted", "declined", "cancelled", "completed")
 LIVE = (REQUESTED, ACCEPTED)  # a deal still in progress
+AUTO_RELEASE_HOURS = 48  # after the seller's hand-over, how long the buyer has to confirm
 
 
 def _now() -> str:
@@ -203,6 +206,63 @@ def _complete_if_both(db, request_id: int) -> None:
             db.update_listing(listing["id"], listing["seller_id"], {"status": SOLD})
 
 
+# --- 48 hours after the hand-over: pay the seller automatically ---------------
+
+def _as_time(value) -> datetime | None:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    else:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def payment_due(request: dict) -> datetime | None:
+    """When the seller gets paid automatically, or None if no countdown is running.
+
+    The countdown runs once the seller confirmed the hand-over and the buyer
+    hasn't confirmed yet.
+    """
+    if request.get("status") != ACCEPTED or request.get("buyer_confirmed_at"):
+        return None
+    handed_over = _as_time(request.get("seller_confirmed_at"))
+    if handed_over is None:
+        return None
+    return handed_over + timedelta(hours=AUTO_RELEASE_HOURS)
+
+
+def due_text(request: dict) -> str:
+    """'Sat 22 Nov, 18:05' for the automatic payment, or '' when no countdown runs."""
+    due = payment_due(request)
+    return f"{due:%a %d %b, %H:%M}" if due else ""
+
+
+def release_overdue(db, email: str, now: datetime | None = None) -> int:
+    """Confirm, for the buyer, every deal of this student whose 48 hours have passed.
+
+    The money goes to the seller and the deal is completed, exactly as if the
+    buyer had confirmed. Runs whenever the student opens a page (see to_do), so
+    no clock has to run in the background. Returns how many deals it settled.
+    """
+    now = now or datetime.now(timezone.utc)
+    me = _profile(db, email)
+    live = db.live_deals_of(me["id"])
+    settled = 0
+    for request in live["buying"] + live["selling"]:
+        due = payment_due(request)
+        if due is None or now < due:
+            continue
+        # Only if it is still accepted and unconfirmed at this very moment.
+        if not db.update_request(request["id"], {"buyer_confirmed_at": _now()},
+                                 only_if_status=ACCEPTED):
+            continue
+        wallet.release(db, request, db.get_listing(request["listing_id"]))
+        _complete_if_both(db, request["id"])
+        settled += 1
+    return settled
+
+
 # --- either side: cancel a live deal ------------------------------------------
 
 def cancel_deal(db, request_id: int, email: str) -> None:
@@ -303,6 +363,7 @@ def to_do(db, email: str) -> dict[str, int]:
         sales, purchases  the totals for the "Sales" and "My purchases" pages
     """
     me = _profile(db, email)
+    release_overdue(db, email)  # 48 hours passed on a hand-over? Pay the seller now.
     live = db.live_deals_of(me["id"])
     answer = sum(1 for r in live["selling"] if r["status"] == REQUESTED)
     confirm_sale = sum(1 for r in live["selling"]

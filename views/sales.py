@@ -63,6 +63,9 @@ def request_row(request: dict, price: int = 0) -> None:
                        "You get it when they confirm they received the item.")
         if request["seller_confirmed_at"]:
             st.markdown(":orange[You confirmed. Waiting for the buyer to confirm too…]")
+            if price and (due := deals.due_text(request)):
+                st.caption(f"If the buyer doesn't answer, you get "
+                           f"{listings.format_price(price)} automatically on {due}.")
         else:
             st.markdown(":green[Reserved for this buyer. Meet them, then confirm the hand-over.]")
             if st.button("I handed it over — confirm sold", key=f"sold-{rid}", type="primary"):

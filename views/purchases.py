@@ -120,6 +120,10 @@ def show_deal(deal: dict) -> None:
                     st.caption(f"{listings.format_price(price)} is held from your credits. "
                                "Confirming sends it to the seller, so only confirm once "
                                "you have the item.")
+                if due := deals.due_text(deal):
+                    st.warning(f"The seller says they handed it over. Confirm or cancel by "
+                               f"**{due}**. After that, the payment goes to the seller "
+                               "automatically.", icon=":material/schedule:")
                 if st.button("I received the item", key=f"recv-{request_id}", type="primary"):
                     act(deals.confirm_received, request_id,
                         "Thanks! Waiting for the seller to confirm too.")
