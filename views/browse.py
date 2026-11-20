@@ -213,31 +213,41 @@ with browse_tab:
 
     with filters_col:
         prices = [item["price_cents"] / 100 for item in feed]
-        max_euros = max((int(price) + 1 for price in prices), default=0)
-        if max_euros < 1:
-            max_euros = 100
+        # Always €0 to the highest price a listing may have (€1,000), so the
+        # range is the same for everyone, whatever is on sale right now.
+        max_euros = listings.MAX_PRICE_CENTS // 100
         with ui.card("price-range"):
             st.markdown("**Price range**")
             if prices:
                 st.caption(f"The average price is €{sum(prices) / len(prices):,.0f}")
             ui.price_chart(prices)
-            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros),
-                                  label_visibility="collapsed")
+            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=5,
+                                  format="€%d", label_visibility="collapsed")
         with ui.card("sort"):
             st.markdown("**Sort by**")
             sort_label = st.radio("Sort by", list(browsing.SORTS),
                                   label_visibility="collapsed")
+        # One tick box per line, like "Sort by". Several can be ticked; none = all.
+        with ui.card("location"):
+            st.markdown("**Location**")
+            pickup_areas = [area for area in listings.PICKUP_AREAS
+                            if st.checkbox(area, key=f"location-{area}")]
+        with ui.card("condition"):
+            st.markdown("**Condition**")
+            conditions = [condition for condition in listings.CONDITIONS
+                          if st.checkbox(condition, key=f"condition-{condition}")]
 
     results = browsing.search_and_sort(
         feed, query=query, category=category,
         min_cents=low * 100, max_cents=high * 100,
+        conditions=conditions, pickup_areas=pickup_areas,
         sort=browsing.SORTS[sort_label],
     )
     with grid_col:
         st.caption(f"{len(results)} listing(s)")
         if not results:
             st.info("No listings match your filters. Try clearing the search, "
-                    "category or price range.")
+                    "category, price range, location or condition.")
         listing_grid(results, tab="browse")
 
 with saved_tab:
