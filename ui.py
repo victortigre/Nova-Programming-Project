@@ -14,6 +14,7 @@ never add links, images or scripts.
 """
 
 import html
+from urllib.parse import quote
 
 import altair as alt
 import pandas as pd
@@ -22,6 +23,24 @@ import streamlit as st
 import listings
 
 VIOLET = "#5F47F5"
+
+
+def _heart_picture(fill: str, line: str) -> str:
+    """A heart drawn as a picture (SVG). Saved and not saved use the SAME shape and
+    size: only the inside (fill) and the line colour change."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" '
+        f'fill="{fill}" stroke="{line}" stroke-width="1.8" '
+        'stroke-linecap="round" stroke-linejoin="round">'
+        '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0'
+        '-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>'
+    )
+    return "data:image/svg+xml," + quote(svg)
+
+
+HEART_OUTLINE = _heart_picture("none", "#1B1B29")      # not saved
+HEART_OUTLINE_HOVER = _heart_picture("none", VIOLET)   # not saved, mouse over it
+HEART_FILLED = _heart_picture(VIOLET, VIOLET)          # saved
 YELLOW = "#F6DF62"
 GREY_TEXT = "#8A8AA0"
 
@@ -103,19 +122,18 @@ button[data-variant="pills"][data-selected="true"] p {{
     background: #FFFFFF; color: {VIOLET};
     box-shadow: 0 2px 8px rgba(27, 27, 41, 0.15);
 }}
-/* The heart is the SAME character (♥) in both states, so it never changes size:
-   not saved = only its outline (transparent inside), saved = filled violet. */
-[class*="st-key-heart-"] button p {{
-    font-size: 1.25rem; line-height: 1; margin: 0; transition: transform 0.15s ease;
+/* The heart is a picture with the same shape and size in both states:
+   not saved = outline only, saved = filled violet. The button's text is hidden
+   (it is still there for screen readers). */
+[class*="st-key-heart-"] button {{
+    background-position: center; background-repeat: no-repeat; background-size: 22px 22px;
+    transition: transform 0.15s ease;
 }}
-[class*="st-key-heart-off-"] button p {{
-    color: transparent; -webkit-text-stroke: 1.7px #1B1B29;
-}}
-[class*="st-key-heart-on-"] button p {{
-    color: {VIOLET}; -webkit-text-stroke: 1.7px {VIOLET};
-}}
-[class*="st-key-heart-"] button:hover p {{ transform: scale(1.12); }}
-[class*="st-key-heart-off-"] button:hover p {{ -webkit-text-stroke-color: {VIOLET}; }}
+[class*="st-key-heart-"] button p {{ font-size: 0; }}
+[class*="st-key-heart-off-"] button {{ background-image: url("{HEART_OUTLINE}"); }}
+[class*="st-key-heart-off-"] button:hover {{ background-image: url("{HEART_OUTLINE_HOVER}"); }}
+[class*="st-key-heart-on-"] button {{ background-image: url("{HEART_FILLED}"); }}
+[class*="st-key-heart-"] button:hover {{ transform: scale(1.08); }}
 
 /* The price under a listing: an outlined violet pill that opens it. */
 [class*="st-key-price-"] button {{
@@ -253,8 +271,8 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
             f'<div class="nm-meta">{html.escape(details)}</div>'
         )
         if saved is not None:
-            # "\ufe0e" asks for the plain text heart, never a coloured emoji.
-            st.button("♥\ufe0e", key=f"heart-{'on' if saved else 'off'}-{key}",
+            # The heart itself is drawn by the CSS above; the label is for screen readers.
+            st.button("Saved" if saved else "Save", key=f"heart-{'on' if saved else 'off'}-{key}",
                       on_click=on_heart,
                       help="Remove from saved" if saved else "Save for later")
         with st.container(horizontal_alignment="center"):
