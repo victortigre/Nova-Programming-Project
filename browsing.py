@@ -8,7 +8,8 @@ The saved-listings helpers take `db` first, exactly like listings.py: the pages
 pass the real `database` module, the tests pass the in-memory fake database.
 """
 
-from listings import CATEGORIES  # buyers filter by the same categories sellers pick
+# Buyers filter by the same categories, conditions and pickup areas sellers pick.
+from listings import CATEGORIES, CONDITIONS, PICKUP_AREAS  # noqa: F401
 
 # The label shown in the "Sort by" box -> how to sort.
 SORTS = {
@@ -20,11 +21,16 @@ SORTS = {
 
 def search_and_sort(items: list[dict], *, query: str | None = None,
                     category: str = "All", min_cents: int | None = None,
-                    max_cents: int | None = None, sort: str = "newest") -> list[dict]:
+                    max_cents: int | None = None, conditions: list[str] | None = None,
+                    pickup_areas: list[str] | None = None,
+                    sort: str = "newest") -> list[dict]:
     """Return the listings to show a buyer, after search + filters, in order.
 
     `items` is a list of listing dicts with at least: title, description,
     price_cents, category, created_at. Pure — no database, no Streamlit.
+
+    conditions / pickup_areas: keep only listings with one of these values.
+    None or an empty list means "any" (nothing ticked = no filter).
     """
     needle = (query or "").strip().lower()
     result = []
@@ -39,6 +45,10 @@ def search_and_sort(items: list[dict], *, query: str | None = None,
         if min_cents is not None and price < min_cents:
             continue
         if max_cents is not None and price > max_cents:
+            continue
+        if conditions and item.get("condition") not in conditions:
+            continue
+        if pickup_areas and item.get("pickup_area") not in pickup_areas:
             continue
         result.append(item)
 

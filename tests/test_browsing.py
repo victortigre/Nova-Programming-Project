@@ -59,6 +59,47 @@ def test_free_items_are_included_and_sort_first_by_price():
     assert browsing.search_and_sort(items, sort="price_asc")[0]["title"] == "Freebie"
 
 
+def test_location_filter_keeps_only_the_chosen_places():
+    items = [L(id=1, pickup_area="Carcavelos"), L(id=2, pickup_area="Cascais"),
+             L(id=3, pickup_area="Nova SBE campus")]
+    out = browsing.search_and_sort(items, pickup_areas=["Carcavelos", "Nova SBE campus"])
+    assert sorted(i["id"] for i in out) == [1, 3]
+
+
+def test_condition_filter_keeps_only_the_chosen_conditions():
+    items = [L(id=1, condition="Brand New"), L(id=2, condition="Fair"),
+             L(id=3, condition="Like New")]
+    out = browsing.search_and_sort(items, conditions=["Brand New", "Like New"])
+    assert sorted(i["id"] for i in out) == [1, 3]
+
+
+@pytest.mark.parametrize("nothing_chosen", [None, []])
+def test_choosing_no_location_or_condition_shows_everything(nothing_chosen):
+    items = [L(id=1, condition="Good", pickup_area="Oeiras"), L(id=2, condition="Fair")]
+    out = browsing.search_and_sort(items, conditions=nothing_chosen,
+                                   pickup_areas=nothing_chosen)
+    assert len(out) == 2
+
+
+def test_location_and_condition_combine_with_the_other_filters():
+    items = [
+        L(id=1, category="Furniture", price_cents=2000, condition="Good", pickup_area="Carcavelos"),
+        L(id=2, category="Furniture", price_cents=2000, condition="Fair", pickup_area="Carcavelos"),
+        L(id=3, category="Furniture", price_cents=2000, condition="Good", pickup_area="Cascais"),
+        L(id=4, category="Textbooks", price_cents=2000, condition="Good", pickup_area="Carcavelos"),
+        L(id=5, category="Furniture", price_cents=90000, condition="Good", pickup_area="Carcavelos"),
+    ]
+    out = browsing.search_and_sort(items, category="Furniture", max_cents=100_000 // 2,
+                                   conditions=["Good"], pickup_areas=["Carcavelos"])
+    assert [i["id"] for i in out] == [1]
+
+
+def test_buyers_choose_from_the_same_lists_as_sellers():
+    import listings
+    assert browsing.CONDITIONS == listings.CONDITIONS
+    assert browsing.PICKUP_AREAS == listings.PICKUP_AREAS
+
+
 def test_filters_combine():
     items = [L(title="Cheap textbook", category="Textbooks", price_cents=1000),
              L(title="Pricey textbook", category="Textbooks", price_cents=30000),
