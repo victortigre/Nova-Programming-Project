@@ -222,7 +222,10 @@ class FakeDatabase:
         for review in self.reviews:
             if (review["request_id"], review["reviewer_id"]) == (row["request_id"], row["reviewer_id"]):
                 raise ValueError("duplicate review")
-        review = {**row, "id": next(self._numbers)}
+        stars = row.get("stars")
+        if stars is not None and not 1 <= stars <= 5:  # like the check in the database
+            raise ValueError("stars must be 1 to 5")
+        review = {"stars": None, "comment": None, **row, "id": next(self._numbers)}
         self.reviews.append(review)
         return dict(review)
 

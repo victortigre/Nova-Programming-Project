@@ -72,14 +72,22 @@ with ui.card("profile-head"):
         # table is in the database.
         try:
             rating = reviews.summary(database, shown["id"])
+            feedback = reviews.recent_feedback(database, shown["id"])
         except Exception:
-            rating = None
+            rating, feedback = None, []
         if rating is not None:
-            if rating["positive"] or rating["negative"]:
-                st.markdown(f"👍 **{rating['positive']}** · 👎 **{rating['negative']}** "
+            if rating["count"]:
+                plural = "s" if rating["count"] != 1 else ""
+                st.markdown(f"**★ {rating['average']:.1f}** ({rating['count']} rating{plural}) "
                             f"· {rating['sold']} sold through the app")
             else:
                 st.caption(f"No ratings yet · {rating['sold']} sold through the app")
+        if feedback:
+            with st.expander(f"What students say ({len(feedback)})"):
+                for item in feedback:
+                    st.markdown(f"{reviews.star_text(item['stars'])} "
+                                f"· **{plain_text(item['reviewer_name'])}**")
+                    st.caption(plain_text(item["comment"]))
 
 st.subheader("Active listings")
 if not listings:

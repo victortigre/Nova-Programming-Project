@@ -13,6 +13,7 @@ import database
 import deals
 import listings
 import reviews
+import ui
 from accounts import logged_in_user, verified_nova_email
 
 email = verified_nova_email(logged_in_user())
@@ -67,18 +68,18 @@ except Exception:  # the reviews table isn't in the database yet
 
 
 def rate_the_seller(request_id: int) -> None:
-    """👍 / 👎 for a completed deal, or the rating already given."""
+    """1 to 5 stars and optional feedback for a completed deal, or the rating already given."""
     if not rating_ready:
         return
     if request_id in my_ratings:
-        st.caption(f"You rated this seller {'👍' if my_ratings[request_id] else '👎'}.")
+        given = my_ratings[request_id]
+        st.caption(f"You rated this seller {reviews.star_text(given['stars'])}")
+        if given["comment"]:
+            st.caption(f"“{listings.plain_text(given['comment'])}”")
         return
-    st.caption("How did it go? Your rating shows on the seller's profile.")
-    up, down, _ = st.columns([1, 1, 4])
-    if up.button("👍 Good", key=f"up-{request_id}"):
-        act(reviews.leave_review, request_id, "Thanks for rating!", True)
-    if down.button("👎 Bad", key=f"down-{request_id}"):
-        act(reviews.leave_review, request_id, "Thanks for rating!", False)
+    sent = ui.rating_form(request_id, "seller")
+    if sent:
+        act(reviews.leave_review, request_id, "Thanks for rating!", *sent)
 
 
 CLOSED = (deals.DECLINED, deals.CANCELLED)

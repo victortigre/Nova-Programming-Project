@@ -173,6 +173,12 @@ create table if not exists reviews (
 
 -- One rating per person per deal, even on a double-click.
 create unique index if not exists reviews_one_per_deal on reviews (request_id, reviewer_id);
+
+-- Added later: 1 to 5 stars and an optional written feedback. Older ratings
+-- (thumbs up / down) become 5 or 1 stars. Safe to run again.
+alter table reviews add column if not exists stars smallint check (stars between 1 and 5);
+alter table reviews add column if not exists comment text check (char_length(comment) <= 500);
+update reviews set stars = case when positive then 5 else 1 end where stars is null;
 create index if not exists reviews_reviewee_idx on reviews (reviewee_id);
 
 -- Locked the same way as the other tables: only our app can read or change rows.

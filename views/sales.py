@@ -12,6 +12,7 @@ import database
 import deals
 import listings
 import reviews
+import ui
 from accounts import logged_in_user, verified_nova_email
 
 email = verified_nova_email(logged_in_user())
@@ -132,11 +133,11 @@ for sale in completed:
         if not rating_ready:
             continue
         if rid in my_ratings:
-            st.caption(f"You rated this buyer {'👍' if my_ratings[rid] else '👎'}.")
+            given = my_ratings[rid]
+            st.caption(f"You rated this buyer {reviews.star_text(given['stars'])}")
+            if given["comment"]:
+                st.caption(f"“{listings.plain_text(given['comment'])}”")
             continue
-        st.caption("How did it go? Your rating shows on the buyer's profile.")
-        up, down, _ = st.columns([1, 1, 4])
-        if up.button("👍 Good", key=f"up-{rid}"):
-            act(reviews.leave_review, rid, "Thanks for rating!", True)
-        if down.button("👎 Bad", key=f"down-{rid}"):
-            act(reviews.leave_review, rid, "Thanks for rating!", False)
+        sent = ui.rating_form(rid, "buyer")
+        if sent:
+            act(reviews.leave_review, rid, "Thanks for rating!", *sent)

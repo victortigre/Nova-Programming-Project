@@ -374,7 +374,7 @@ def names_of(profile_ids: list[int]) -> dict[int, str]:
 
 # --- Reviews ------------------------------------------------------------------
 #
-# After a completed deal, buyer and seller each rate the other once (👍 or 👎).
+# After a completed deal, buyer and seller each rate the other once (1 to 5 stars, plus optional feedback).
 # The rules are in reviews.py; here we only store.
 
 
