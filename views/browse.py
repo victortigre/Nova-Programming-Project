@@ -203,7 +203,9 @@ if to_do["confirm_received"]:
 
 
 # --- Browse and Saved tabs ----------------------------------------------------
-browse_tab, saved_tab = st.tabs(["All items", f"♥ Saved ({len(saved)})"])
+# In a keyed container, so ui.py can put the heart picture in front of "Saved".
+with st.container(key="browse-tabs"):
+    browse_tab, saved_tab = st.tabs(["All items", f"Saved ({len(saved)})"])
 
 with browse_tab:
     query = st.text_input("Search", placeholder="Search desks, books, bikes...",

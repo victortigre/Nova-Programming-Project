@@ -135,6 +135,12 @@ button[data-variant="pills"][data-selected="true"] p {{
 [class*="st-key-heart-on-"] button {{ background-image: url("{HEART_FILLED}"); }}
 [class*="st-key-heart-"] button:hover {{ transform: scale(1.08); }}
 
+/* The same outline heart in front of the "Saved" tab on Browse. */
+.st-key-browse-tabs [data-baseweb="tab"]:nth-of-type(2) p::before {{
+    content: ""; display: inline-block; width: 16px; height: 16px; margin-right: 6px;
+    vertical-align: -3px; background: url("{HEART_OUTLINE}") center / contain no-repeat;
+}}
+
 /* The price under a listing: an outlined violet pill that opens it. */
 [class*="st-key-price-"] button {{
     background: #FFFFFF; color: {VIOLET}; border: 1.5px solid {VIOLET};
