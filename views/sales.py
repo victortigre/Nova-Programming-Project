@@ -133,11 +133,9 @@ for sale in completed:
         if not rating_ready:
             continue
         if rid in my_ratings:
-            given = my_ratings[rid]
-            st.caption(f"You rated this buyer {reviews.star_text(given['stars'])}")
-            if given["comment"]:
-                st.caption(f"“{listings.plain_text(given['comment'])}”")
+            st.caption(f"You rated {listings.plain_text(sale['buyer_name'])} "
+                       f"{reviews.star_text(my_ratings[rid]['stars'])}")
             continue
-        sent = ui.rating_form(rid, "buyer")
+        sent = ui.rating_form(rid, "buyer", listings.plain_text(sale["buyer_name"]))
         if sent:
             act(reviews.leave_review, rid, "Thanks for rating!", *sent)

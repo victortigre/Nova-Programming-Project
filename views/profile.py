@@ -8,6 +8,7 @@ import streamlit as st
 import browsing
 import database
 import listings
+import reviews
 import ui
 import wallet
 from accounts import logged_in_user, verified_nova_email
@@ -84,6 +85,30 @@ if profile is not None:
                         end = "]" if amount > 0 else ""
                         st.markdown(f"{sign}{wallet.euros(abs(amount))}{end} · "
                                     f"{listings.plain_text(entry['text'])}")
+
+# --- My ratings (reviews.py) ----------------------------------------------------
+# What other students said about you after finished deals. You rate others
+# from "My purchases" and "Sales".
+if profile is not None:
+    try:
+        rating = reviews.summary(database, profile["id"])
+        feedback = reviews.recent_feedback(database, profile["id"], limit=10)
+    except Exception:  # the reviews table isn't in the database yet
+        rating = None
+    if rating is not None:
+        with ui.card("ratings"):
+            st.markdown("**My ratings**")
+            if rating["count"]:
+                plural = "s" if rating["count"] != 1 else ""
+                st.markdown(f"**★ {rating['average']:.1f}** ({rating['count']} rating{plural}) "
+                            f"· {rating['sold']} sold through the app")
+            else:
+                st.caption("No ratings yet. After a finished deal, the other student can "
+                           "rate you here.")
+            for item in feedback:
+                st.markdown(f"{reviews.star_text(item['stars'])} · "
+                            f"**{listings.plain_text(item['reviewer_name'])}**")
+                st.caption(listings.plain_text(item["comment"]))
 
 # --- Saved items ---------------------------------------------------------------
 # The listings this student liked. Tapping ♥ removes one; tapping the price

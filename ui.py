@@ -338,19 +338,21 @@ def price_chart(prices_in_euros: list[float]) -> None:
     st.altair_chart(chart, use_container_width=True)
 
 
-def rating_form(key, who: str):
-    """1 to 5 stars plus an optional written feedback, for a completed deal.
+def rating_form(key, who: str, name: str):
+    """A small "★ Rate <name>" button that opens 1 to 5 stars and a feedback box.
 
     Returns (stars, feedback) when "Send rating" is pressed with stars chosen,
-    otherwise None. `who` is "seller" or "buyer".
+    otherwise None. `who` is "seller" or "buyer"; `name` is already plain text.
     """
-    st.caption(f"How did it go? Your rating shows on the {who}'s profile.")
-    picked = st.feedback("stars", key=f"stars-{key}")  # 0..4, or None
-    feedback = st.text_area("Feedback (optional)", key=f"feedback-{key}", max_chars=500,
-                            height=80, placeholder=f"What was it like to deal with this {who}?")
-    if st.button("Send rating", key=f"rate-{key}", type="primary"):
-        if picked is None:
-            st.error("Choose from 1 to 5 stars first.")
-            return None
-        return picked + 1, feedback
+    first_name = (name or "").split(" ")[0] or who
+    with st.popover(f"★ Rate {first_name}"):
+        st.caption(f"How did it go? Your rating shows on the {who}'s profile.")
+        picked = st.feedback("stars", key=f"stars-{key}")  # 0..4, or None
+        feedback = st.text_area("Feedback (optional)", key=f"feedback-{key}", max_chars=500,
+                                height=80, placeholder=f"What was it like to deal with {first_name}?")
+        if st.button("Send rating", key=f"rate-{key}", type="primary"):
+            if picked is None:
+                st.error("Choose from 1 to 5 stars first.")
+                return None
+            return picked + 1, feedback
     return None

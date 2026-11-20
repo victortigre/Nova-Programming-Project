@@ -67,17 +67,14 @@ except Exception:  # the reviews table isn't in the database yet
     my_ratings, rating_ready = {}, False
 
 
-def rate_the_seller(request_id: int) -> None:
+def rate_the_seller(request_id: int, seller_name: str) -> None:
     """1 to 5 stars and optional feedback for a completed deal, or the rating already given."""
     if not rating_ready:
         return
     if request_id in my_ratings:
-        given = my_ratings[request_id]
-        st.caption(f"You rated this seller {reviews.star_text(given['stars'])}")
-        if given["comment"]:
-            st.caption(f"“{listings.plain_text(given['comment'])}”")
+        st.caption(f"You rated {seller_name} {reviews.star_text(my_ratings[request_id]['stars'])}")
         return
-    sent = ui.rating_form(request_id, "seller")
+    sent = ui.rating_form(request_id, "seller", seller_name)
     if sent:
         act(reviews.leave_review, request_id, "Thanks for rating!", *sent)
 
@@ -161,7 +158,8 @@ def show_deal(deal: dict) -> None:
 
         elif status == deals.COMPLETED:
             st.markdown(":green[✅ Done — both of you confirmed. Enjoy!]")
-            rate_the_seller(request_id)
+            rate_the_seller(request_id, listings.plain_text(seller["name"]) if seller
+                            else "the seller")
 
         elif status == deals.DECLINED:
             st.markdown(":grey[The seller said no, or chose another buyer.]")
