@@ -223,16 +223,15 @@ with browse_tab:
             ui.price_chart(prices)
             low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=5,
                                   format="€%d", label_visibility="collapsed")
+        # One tick box per line, like "Sort by". Several can be ticked; none = all.
         with ui.card("location"):
             st.markdown("**Location**")
-            st.caption("Where you can pick it up. Choose none to see all.")
-            pickup_areas = st.pills("Location", listings.PICKUP_AREAS, selection_mode="multi",
-                                    default=[], label_visibility="collapsed")
+            pickup_areas = [area for area in listings.PICKUP_AREAS
+                            if st.checkbox(area, key=f"location-{area}")]
         with ui.card("condition"):
             st.markdown("**Condition**")
-            st.caption("Choose none to see all.")
-            conditions = st.pills("Condition", listings.CONDITIONS, selection_mode="multi",
-                                  default=[], label_visibility="collapsed")
+            conditions = [condition for condition in listings.CONDITIONS
+                          if st.checkbox(condition, key=f"condition-{condition}")]
         with ui.card("sort"):
             st.markdown("**Sort by**")
             sort_label = st.radio("Sort by", list(browsing.SORTS),
