@@ -14,6 +14,7 @@ never add links, images or scripts.
 """
 
 import html
+from datetime import date
 
 import altair as alt
 import pandas as pd
@@ -294,10 +295,13 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
         condition = item.get("condition", "")
         details = " · ".join(part for part in
                              [listings.category_label(item), condition, place] if part)
+        note = listings.availability_text(item, date.today())
+        later = f'<div class="nm-meta">📅 {html.escape(note)}</div>' if note else ""
         st.html(
             f'<div class="nm-photo">{picture}{_badge(item)}</div>'
             f'<div class="nm-title" title="{html.escape(item["title"])}">{html.escape(item["title"])}</div>'
             f'<div class="nm-meta">{html.escape(details)}</div>'
+            f'{later}'
         )
         if saved is not None:
             # The heart itself is drawn by the CSS above; the label is for screen readers.
