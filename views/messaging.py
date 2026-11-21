@@ -93,24 +93,35 @@ def show_inbox() -> None:
                     with left:
                         messaging_ui.inbox_summary(row, last)
                     with right:
-                        with st.container(key=f"inbox-time-{row['id']}"):
-                            show_time((last.get("activity_at") or last["created_at"])
-                                      if last else row["created_at"])
-                        with st.container(horizontal_alignment="right"):
-                            if st.button("Open chat", key=f"chat_{row['id']}", type="secondary"):
-                                st.session_state.messaging_selected = row["id"]
-                                st.session_state.messaging_history_limit = 50
-                                st.rerun()  # Keep navigation as a whole-page rerun.
+                        with st.container(key=f"inbox-actions-{row['id']}", horizontal_alignment="right"):
+                            with st.container(key=f"inbox-time-{row['id']}"):
+                                st.caption(messaging_ui.inbox_timestamp(
+                                    (last.get("activity_at") or last["created_at"])
+                                    if last else row["created_at"]))
+                            with st.container(horizontal_alignment="right"):
+                                if st.button("Open chat", key=f"chat_{row['id']}", type="secondary"):
+                                    st.session_state.messaging_selected = row["id"]
+                                    st.session_state.messaging_history_limit = 50
+                                    st.rerun()  # Keep navigation as a whole-page rerun.
                 if index < len(rows) - 1:
                     st.divider()
 
 
 @st.fragment
 def show_chat(selected: str) -> None:
-    if st.button("← Back to Inbox"):
-        st.session_state.pop("messaging_selected", None)
-        st.rerun()  # The whole page: it switches back to the inbox.
-    st.button("Refresh chat")
+    with st.container(key="chat-toolbar"):
+        st.html("<style>.st-key-chat-toolbar [data-testid='stHorizontalBlock'] "
+                "{flex-wrap:nowrap;gap:8px;} "
+                ".st-key-chat-toolbar [data-testid='stColumn'] "
+                "{flex:1 1 0!important;min-width:0;}</style>")
+        back, refresh = st.columns(2)
+        with back:
+            if st.button("← Back to Inbox"):
+                st.session_state.pop("messaging_selected", None)
+                st.rerun()  # The whole page: it switches back to the inbox.
+        with refresh:
+            with st.container(horizontal_alignment="right"):
+                st.button("Refresh chat")
     limit = st.session_state.get("messaging_history_limit", 50)
     try:
         with st.spinner("Loading chat…"), repository.checked_once():
@@ -131,10 +142,12 @@ def show_chat(selected: str) -> None:
         reason = {"reserved": "This listing is reserved.", "sold": "This listing has been sold.",
                   "unknown": "Listing availability could not be verified. Refresh chat to try again."}.get(
             row.get("listing_status"), "Listing no longer available.")
-        st.info(reason + " Negotiation is unavailable; you can still exchange messages and view offer history.")
-    st.subheader(row["other_name"])
-    with st.container(border=True):
-        show_listing(row)
+        notice = reason + " Negotiation is unavailable; you can still exchange messages and view offer history."
+        if row.get("listing_status") == "reserved":
+            st.caption(notice)
+        else:
+            st.info(notice)
+    messaging_ui.chat_header(row)
     if not history:
         st.info("No messages yet. Send the first message below.")
     if len(history) == limit and limit < 100:
@@ -144,8 +157,13 @@ def show_chat(selected: str) -> None:
     elif len(history) == 100:
         st.caption("Showing the latest 100 chat events.")
     current = latest_offers[0] if latest_offers else None
-    for message in history:
-        with messaging_ui.message_bubble(message, row) as own:
+    for message, separator, show_avatar in messaging_ui.chat_event_groups(history):
+        if separator:
+            messaging_ui.date_separator(separator)
+        protected_buy_now = (message["type"] == "offer" and message["status"] == "accepted"
+                             and row["own_profile_id"] == row["buyer_id"])
+        with messaging_ui.message_bubble(message, row, compact=not protected_buy_now,
+                                         show_avatar=show_avatar) as own:
             if message["type"] == "offer":
                 st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
                 accepted = message["status"] == "accepted"
@@ -154,7 +172,9 @@ def show_chat(selected: str) -> None:
                 with st.container(key=f"dm-original-price-{message['id']}"):
                     st.caption(f"Original listing price: {format_price(row['price_cents'])}")
                 st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
-                show_time(message["created_at"])
+                if protected_buy_now:
+                    # Keep the accepted Buy Now card's original layout exactly.
+                    show_time(message["created_at"])
                 if message.get("note"):
                     st.text(message["note"])
                 if accepted:
@@ -167,9 +187,11 @@ def show_chat(selected: str) -> None:
                 if (current and current["id"] == message["id"] and message["status"] == "pending"
                         and not own and negotiation_available):
                     offer_ui.response_buttons(selected, message)
+                if not protected_buy_now:
+                    messaging_ui.chat_timestamp(message)
             else:
                 st.text(message["body"])
-                show_time(message["created_at"])
+                messaging_ui.chat_timestamp(message)
     if (row["own_profile_id"] == row["buyer_id"] and negotiation_available
             and (not current or current["status"] == "declined")):
         with st.expander("Make an Offer"):

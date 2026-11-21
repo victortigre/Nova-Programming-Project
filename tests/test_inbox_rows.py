@@ -3,7 +3,7 @@ import pytest
 
 import database
 import messaging_repository as repository
-from messaging_ui import inbox_activity_preview
+from messaging_ui import inbox_activity_preview, inbox_timestamp
 from test_messaging_ui import ui, ROW, CID
 
 SECOND = '22222222-2222-4222-8222-222222222222'
@@ -66,7 +66,8 @@ def test_repository_chronology_and_compact_preview(ui, monkeypatch, sender, newe
     assert [b.key for b in app.button if b.label == 'Open chat'] == ['chat_' + CID, 'chat_' + SECOND]
     assert ('Latest text' in markup(app)) == newer_message
     assert ('Offer: €25.00 · Accepted' in markup(app)) == (not newer_message)
-    assert any(('12:00' if newer_message else '11:00') in c.value for c in app.caption)
+    expected = inbox_timestamp(message['created_at'] if newer_message else offer['responded_at'])
+    assert any(c.value == expected for c in app.caption)
 
 
 @pytest.mark.parametrize('status,parent,expected', [
