@@ -186,6 +186,29 @@ button[data-variant="pills"][data-selected="true"] p {{
     font-size: 2.6rem; font-weight: 600; color: {VIOLET};
 }}
 .nm-muted {{ color: {GREY_TEXT}; font-size: 0.85rem; }}
+/* notice(): "what needs your attention" cards at the top of Browse. */
+[class*="st-key-notice-"] {{
+    background: #FFFFFF; border-radius: 16px; padding: 14px 18px 14px 16px;
+    border-left: 5px solid {VIOLET}; box-shadow: 0 2px 12px rgba(27, 27, 41, 0.07);
+    margin-bottom: 4px;
+}}
+[class*="st-key-notice-warm-"] {{ border-left-color: #F2A93B; background: #FFFBF2; }}
+[class*="st-key-notice-green-"] {{ border-left-color: #2E9E6B; background: #F5FCF8; }}
+.nm-notice {{ display: flex; align-items: center; gap: 14px; }}
+.nm-notice-icon {{
+    flex: 0 0 44px; height: 44px; border-radius: 50%; background: #EEEBFF;
+    display: flex; align-items: center; justify-content: center; font-size: 1.35rem;
+}}
+[class*="st-key-notice-warm-"] .nm-notice-icon {{ background: #FFEFD1; }}
+[class*="st-key-notice-green-"] .nm-notice-icon {{ background: #DDF3E8; }}
+.nm-notice-title {{ font-weight: 600; font-size: 1rem; color: #1B1B29; line-height: 1.3; }}
+.nm-notice-text {{ font-size: 0.9rem; color: #5C5C70; margin-top: 2px; }}
+[class*="st-key-notice-"] [data-testid="stPageLink"] {{ display: flex; justify-content: flex-end; }}
+[class*="st-key-notice-"] [data-testid="stPageLink"] a {{
+    background: {VIOLET}; border-radius: 999px; padding: 6px 16px; width: auto;
+}}
+[class*="st-key-notice-"] [data-testid="stPageLink"] a * {{ color: #FFFFFF !important; }}
+[class*="st-key-notice-"] [data-testid="stPageLink"] a:hover {{ background: #4B32D9; }}
 /* even_text(): every text inside is the same size (e.g. the refund form). */
 [class*="st-key-even-"] p, [class*="st-key-even-"] label,
 [class*="st-key-even-"] textarea, [class*="st-key-even-"] button {{
@@ -265,6 +288,21 @@ LANDING_CSS = """
 def apply_style() -> None:
     """Add the extra CSS to the page. app.py calls this once on every visit."""
     st.html(CSS)
+
+
+def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
+           tone: str = "violet") -> None:
+    """A card at the top of Browse: something waits for this student, with a button.
+
+    tone: "violet" (selling), "green" (buying) or "warm" (refunds).
+    title and text are our own words (never typed by students), so html is safe here.
+    """
+    with st.container(key=f"notice-{tone}-{key}"):
+        words, button = st.columns([4, 1.3], vertical_alignment="center")
+        words.html(f'<div class="nm-notice"><div class="nm-notice-icon">{emoji}</div>'
+                   f'<div><div class="nm-notice-title">{title}</div>'
+                   f'<div class="nm-notice-text">{text}</div></div></div>')
+        button.page_link(page, label=label, icon=":material/arrow_forward:")
 
 
 def even_text(key: str):
