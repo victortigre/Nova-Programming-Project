@@ -108,7 +108,7 @@ if profile is not None:
 
 # --- My ratings (reviews.py) ----------------------------------------------------
 # What other students said about you after finished deals. You rate others
-# from "My purchases" and "Sales".
+# from "My purchases" and "My listings".
 if profile is not None:
     try:
         rating = reviews.summary(database, profile["id"])

@@ -361,11 +361,17 @@ def my_sales(db, seller_email: str, statuses=(COMPLETED,)) -> list[dict]:
 
 
 def live_requests_by_listing(db, seller_email: str) -> dict[int, list[dict]]:
-    """{listing id: its live requests}, for all of the seller's listings at once."""
+    """{listing id: its live requests}, for all of the seller's listings at once.
+
+    Each request has "buyer_name" added. Two requests to the database in total.
+    """
     seller = _profile(db, seller_email)
+    rows = db.requests_for_seller(seller["id"], list(LIVE))
+    names = db.names_of([row["buyer_id"] for row in rows])
     out = {}
-    for row in db.requests_for_seller(seller["id"], list(LIVE)):
-        out.setdefault(row["listing_id"], []).append(row)
+    for row in rows:
+        out.setdefault(row["listing_id"], []).append(
+            {**row, "buyer_name": names.get(row["buyer_id"], "A student")})
     return out
 
 
@@ -377,7 +383,7 @@ def to_do(db, email: str) -> dict[str, int]:
         answer            buyers asked for your item; accept or decline
         confirm_sale      the buyer confirmed they got it; now you confirm
         confirm_received  a seller accepted you; meet them, then confirm
-        sales, purchases  the totals for the "Sales" and "My purchases" pages
+        sales, purchases  the totals for the "My listings" and "My purchases" pages
     """
     me = _profile(db, email)
     release_overdue(db, email)  # 48 hours passed on a hand-over? Pay the seller now.

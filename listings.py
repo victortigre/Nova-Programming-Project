@@ -359,13 +359,13 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
 # --- listings with a buyer (see deals.py) -----------------------------------------
 # A buyer can ask to buy a listing through the app ("Request to buy"). Once the
 # seller accepted one, that deal decides the status: the seller confirms or
-# cancels it on the Sales page, not with the buttons on My listings. Otherwise
+# cancels the deal, and can't use the Reserve, Sold, Relist or Delete buttons. Otherwise
 # the buyer would still see "Accepted" for an item that is back on sale.
 # (The names are the same as in deals.py, which can't be imported here:
 # deals.py imports this file.)
 _WAITING, _ACCEPTED = "requested", "accepted"
 DEAL_IN_PROGRESS = ("This item is reserved for a buyer who asked through the app. "
-                    "Confirm or cancel that deal on the Sales page.")
+                    "Confirm or cancel that deal first.")
 
 
 def _refuse_if_deal_in_progress(db, listing_id: int) -> list[dict]:

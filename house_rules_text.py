@@ -38,7 +38,7 @@ def show_house_rules() -> None:
     st.subheader("Meeting and messaging")
     st.markdown(
         """
-    - Meet on campus or in a busy public place.
+    - Be careful when you meet someone to hand over an item.
     - Be respectful in messages. No insults, threats or spam.
     """
     )
