@@ -65,7 +65,7 @@ def test_chat_header_toolbar_refresh_and_back_preserve_state(ui, photo):
     assert right.button[0].label == 'Refresh chat'
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
     assert header.subheader[0].value == ROW['other_name']
-    assert [c.value for c in header.caption] == [ROW['listing_title_snapshot'], '€20.00']
+    assert not header.caption
     assert 'data:image/svg+xml,' in markup(app)
     if photo:
         assert photo in markup(app)

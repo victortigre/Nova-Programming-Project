@@ -129,7 +129,7 @@ def test_retry_recovers_committed_offer_after_listing_deletion(offer_flow):
     click(app, "Retry offer action")
     assert len(records) == 1
     assert app.chat_input
-    assert any(item.value == "Listing no longer available" for item in app.caption)
+    assert any("Listing no longer available" in item.value for item in app.info)
 
 
 def open_chat(ui, offer=OFFER):

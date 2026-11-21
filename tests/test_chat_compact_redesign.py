@@ -37,7 +37,7 @@ def test_compact_header_shares_toolbar_with_controls_and_white_surface(ui, photo
     assert columns[-1].button[0].label == 'Refresh chat'
     header = next(c for c in toolbar.get('flex_container') if c.key == 'chat-participant-header')
     assert header.subheader[0].value == ROW['other_name']
-    assert [c.value for c in header.caption] == [ROW['listing_title_snapshot'], '€20.00']
+    assert not header.caption
     assert 'data:image/svg+xml,' in html(app)
     if photo:
         assert photo in html(app)
@@ -146,14 +146,44 @@ def test_header_text_resets_caption_compensation_for_compact_spacing(ui, name, t
     assert not app.exception
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
     assert header.subheader[0].value == name
-    assert [c.value for c in header.caption] == [title, '€20.00']
+    assert not header.caption
     styles = html(app)
     assert ".st-key-chat-participant-header [data-testid='stCaptionContainer'] {color:#737985;margin:0;}" in styles
     assert ".st-key-chat-participant-header [data-testid='stCaptionContainer'] p {margin:0;line-height:1.4;}" in styles
-    # Name, listing and price remain separate flow elements alongside the photo.
+    # The single name element stays centered alongside the photo.
     photo, details = header.get('column')
     assert not photo.subheader and details.subheader[0].value == name
-    assert len(details.caption) == 2
+    assert not details.caption
     toolbar = next(c for c in app.get('flex_container') if c.key == 'chat-toolbar')
     assert toolbar.get('column')[0].button[0].label == '← Back to Inbox'
     assert toolbar.get('column')[-1].button[0].label == 'Refresh chat'
+
+
+def test_name_only_header_is_centered_and_preserves_inbox_and_offer_details(ui):
+    from streamlit.proto.Block_pb2 import Block
+    app, mocks, _ = ui
+    mocks['get_inbox'].return_value = [{**ROW, 'last_activity': OFFER, 'unread': True}]
+    mocks['get_chat_events'].return_value = [OFFER]
+    mocks['get_offers'].return_value = [OFFER]
+    app.run()
+    assert not app.exception
+    before = html(app)
+    assert ROW['listing_title_snapshot'] in before
+    assert 'Offer: €15.00 · Pending' in before
+    assert '🔵' in before
+    # The existing Inbox omits asking prices; preserve that, along with offer prices.
+    assert '€20.00' not in before
+    app.button(key='chat_' + CID).click().run()
+    assert not app.exception
+    header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
+    photo, details = header.get('column')
+    assert photo.proto.vertical_alignment == details.proto.vertical_alignment == Block.Column.CENTER
+    assert [h.value for h in header.subheader] == [ROW['other_name']]
+    assert not header.caption
+    assert 'data:image/svg+xml,' in html(app)
+    assert any(c.value == 'Original listing price: €20.00' for c in app.caption)
+    assert any(h.value == '€15.00' for h in app.subheader)
+    assert any(c.value == 'COUNTEROFFER' or c.value == 'PRICE OFFER' for c in app.caption)
+    next(b for b in app.button if b.label == '← Back to Inbox').click().run()
+    assert not app.exception
+    assert html(app) == before
