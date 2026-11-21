@@ -112,62 +112,17 @@ def show_deal(deal: dict) -> None:
                 st.markdown(":orange[You confirmed. Waiting for the seller to confirm too…]")
                 if price:
                     st.caption(f"{listings.format_price(price)} went to the seller.")
-            elif deal.get("return_disputed_at"):
-                # The seller says it came back in a worse condition: an admin decides.
-                st.warning("The seller says the item came back **not in the same "
-                           "condition**. An admin will look at it and decide"
-                           + (f" who gets the {listings.format_price(price)}." if price
-                              else "."), icon=":material/gavel:")
-            elif deal.get("given_back_at"):
-                # Given back: the seller has 48 hours to check it.
-                st.markdown(":orange[You gave the item back. The seller is checking it…]")
-                st.caption("If the seller doesn't answer, "
-                           + (f"you get {listings.format_price(price)} back"
-                              if price else "the deal is called off")
-                           + f" automatically on {deals.refund_text(deal)}.")
-            elif deal.get("returned_at"):
-                # Refund asked: meet the seller to give it back (14 days).
-                st.caption(f"Your reason: {listings.plain_text(deals.refund_reason_text(deal))}")
-                st.info(f"You asked for a refund. Message the seller to agree where to meet "
-                        f"and give the item back by **{deals.give_back_text(deal)}**. If it "
-                        "isn't given back by then, the payment goes to the seller.",
-                        icon=":material/undo:")
-                with st.popover("I gave it back"), ui.even_text(f"gave-{request_id}"):
-                    st.write("Only press this once the seller **has the item back**. They "
-                             "then have 48 hours to check it is in the same condition.")
-                    if st.button("Yes, I gave it back", key=f"gave-{request_id}",
-                                 type="primary"):
-                        act(deals.give_back, request_id,
-                            "Noted. The seller has 48 hours to check the item.")
             elif deal.get("seller_confirmed_at"):
-                # Handed over: 48 hours to confirm or return. No simple cancel any more.
-                st.warning(f"The seller says they handed it over. Check the item and confirm, "
-                           f"or ask for a refund, by **{deals.due_text(deal)}**. After that, "
-                           "the payment goes to the seller automatically.",
+                # Handed over: 48 hours to confirm. No cancelling any more.
+                st.warning(f"The seller says they handed it over. Check the item and confirm "
+                           f"by **{deals.due_text(deal)}**. After that, the payment goes to "
+                           "the seller automatically.",
                            icon=":material/schedule:")
-                columns = st.columns(2)
-                if columns[0].button("I received it, all OK", key=f"recv-{request_id}",
-                                     type="primary"):
+                if st.button("I received it, all OK", key=f"recv-{request_id}",
+                             type="primary"):
                     act(deals.confirm_received, request_id,
                         "Thanks! " + (f"{listings.format_price(price)} went to the seller."
                                       if price else "Enjoy!"))
-                with columns[1].popover("Ask for a refund"), ui.even_text(f"refund-{request_id}"):
-                    st.write(f"Not happy with the item? Tell the seller what's wrong. Then "
-                             f"you agree by message where to meet and give it back (you have "
-                             f"{deals.GIVE_BACK_DAYS} days). The seller checks it is in the "
-                             "same condition, and you get your Nova credits back.")
-                    reason = st.radio("What is the problem?", deals.REFUND_REASONS,
-                                      index=None, key=f"reason-{request_id}")
-                    other = reason == deals.REFUND_OTHER
-                    details = st.text_area(
-                        "Describe the problem" if other else "Anything to add? (optional)",
-                        key=f"details-{request_id}", max_chars=deals.MAX_REFUND_DETAILS,
-                        height=80, placeholder="For example: the left pedal is broken.")
-                    if st.button("Ask for a refund", key=f"return-{request_id}",
-                                 type="primary"):
-                        act(deals.return_item, request_id,
-                            "Refund asked. Message the seller to arrange giving it back.",
-                            reason, details)
             else:
                 st.markdown(":green[Accepted! Meet the seller to collect it, then confirm below.]")
                 if price:

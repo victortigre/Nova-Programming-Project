@@ -337,20 +337,6 @@ def requests_for_seller(seller_id: int, statuses: list[str]) -> list[dict]:
     )
 
 
-def disputed_returns() -> list[dict]:
-    """Deals where the seller said the item came back in a worse condition, oldest first.
-
-    Each has its listing attached as row["listings"]. Only admin.py uses this.
-    """
-    return (
-        _client().table("purchase_requests")
-        .select("*, listings!inner(seller_id, title, price_cents)")
-        .eq("status", "accepted").not_.is_("return_disputed_at", "null")
-        .order("created_at").order("id")
-        .execute().data
-    )
-
-
 @st.cache_data(ttl=TO_DO_MEMORY_SECONDS, show_spinner=False)
 def live_deals_of(profile_id: int) -> dict[str, list[dict]]:
     """This student's live deals, for the counts in the menu (remembered briefly).

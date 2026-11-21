@@ -216,11 +216,6 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 [class*="st-key-notice-"] .stButton button * {{ color: #FFFFFF !important; }}
 [class*="st-key-notice-"] .stButton button:hover {{ background: #4B32D9; }}
-/* even_text(): every text inside is the same size (e.g. the refund form). */
-[class*="st-key-even-"] p, [class*="st-key-even-"] label,
-[class*="st-key-even-"] textarea, [class*="st-key-even-"] button {{
-    font-size: 0.9rem !important;
-}}
 </style>
 """
 
@@ -317,11 +312,6 @@ def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
             st.session_state.messaging_selected = open_chat
             st.session_state.messaging_history_limit = 50
             st.switch_page(page)
-
-
-def even_text(key: str):
-    """A box where all the text has the same size. Use it with `with ui.even_text("name"):`."""
-    return st.container(key=f"even-{key}")
 
 
 def card(key: str):
