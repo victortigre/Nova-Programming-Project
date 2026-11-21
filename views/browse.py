@@ -15,14 +15,18 @@ import browsing
 import database
 import deals
 import listings
+import messaging_repository
+import messaging_ui
+import offer_ui
 import ui
 import wallet
-from accounts import verified_nova_email
+from accounts import logged_in_user, verified_nova_email
+from profiles import DONE, onboarding_step
 
 FEED_LIMIT = 500  # the marketplace is small; fetch the newest listings and filter here
 
-email = verified_nova_email(st.user.to_dict())
-if email is None:
+email = verified_nova_email(logged_in_user())
+if email is None or not st.user.is_logged_in:
     st.error("Please sign in with your @novasbe.pt email first.")
     st.stop()
 
@@ -32,6 +36,8 @@ if me is None:
     st.page_link("views/profile.py", label="Fill in my profile")
     st.stop()
 my_id = me["id"]
+offer_ui.sync_account(email)
+messaging_ui.apply_listing_action_styles()
 
 # Saving needs the favorites table. If it isn't in the database yet, the rest of
 # Browse still works and saving is quietly turned off with a clear note.
@@ -89,6 +95,7 @@ if viewing is not None:
     if item is None:
         close_listing()
         st.rerun()
+    offer_ui.retry_panel()
     st.button("Back to results", icon=":material/arrow_back:", type="tertiary",
               on_click=close_listing)
     with ui.card("detail"):
@@ -131,22 +138,55 @@ if viewing is not None:
                                    f"{wallet.euros(wallet.my_balance(database, email))}")
                     except Exception:  # credits aren't set up in the database yet
                         pass
-                if item["status"] == listings.ACTIVE:
-                    if st.button("Request to buy", key=f"buy-{item['id']}",
-                                 type="primary", icon=":material/shopping_bag:"):
-                        try:
-                            deals.request_to_buy(database, item["id"], email)
-                            st.session_state["deal_message"] = (
-                                "Request sent! Track it in My purchases.")
-                        except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
-                            st.session_state["deal_error"] = (
-                                exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
-                        except Exception:
-                            st.session_state["deal_error"] = (
-                                "Buying isn't set up yet. Please try again later.")
-                        st.rerun()
-                elif item["status"] == listings.RESERVED:
-                    st.caption("This item is reserved for another buyer.")
+                can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
+                               and seller and not seller.get("blocked_at")
+                               and onboarding_step(seller) == DONE)
+                with st.container(key="listing-actions"):
+                    if can_contact:
+                        offer_column, contact_column = st.columns(2)
+                        if item["status"] == listings.ACTIVE:
+                            if offer_column.button("Make an Offer", key=f"offer-{item['id']}",
+                                                   type="secondary", icon=":material/local_offer:", width="stretch"):
+                                st.session_state.messaging_offer_browse = item["id"]
+                        if contact_column.button("Contact Seller", key=f"contact-{item['id']}",
+                                     type="secondary", icon=":material/chat:", width="stretch"):
+                            try:
+                                with st.spinner("Opening conversation…"):
+                                    conversation = messaging_repository.get_or_create_conversation(item["id"])
+                            except ValueError as exc:
+                                st.warning(str(exc))
+                            except Exception:
+                                st.error("Messaging is not available right now. It may still need database setup. Please try again later.")
+                            else:
+                                # Establish account ownership before the Messages
+                                # page runs its account-change reset. Never carry
+                                # another account's pending message into this chat.
+                                if st.session_state.get("messaging_account") != email:
+                                    st.session_state.pop("messaging_pending", None)
+                                st.session_state["messaging_account"] = email
+                                st.session_state["messaging_selected"] = conversation["id"]
+                                st.session_state["messaging_history_limit"] = 50
+                                st.switch_page("views/messaging.py")
+                    if item["status"] == listings.ACTIVE:
+                        if st.button("Request to Purchase", key=f"buy-{item['id']}",
+                                     type="primary", icon=":material/shopping_bag:", width="stretch"):
+                            try:
+                                deals.request_to_buy(database, item["id"], email)
+                                st.session_state["deal_message"] = (
+                                    "Request sent! Track it in My purchases.")
+                            except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
+                                st.session_state["deal_error"] = (
+                                    exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
+                            except Exception:
+                                st.session_state["deal_error"] = (
+                                    "Buying isn't set up yet. Please try again later.")
+                            st.rerun()
+                    elif item["status"] == listings.RESERVED:
+                        st.caption("This item is reserved for another buyer.")
+                    if (can_contact and item["status"] == listings.ACTIVE
+                            and st.session_state.get("messaging_offer_browse") == item["id"]):
+                        st.caption("Send a price offer directly to the chat. A personal message is optional.")
+                        offer_ui.show_form(f"browse-{item['id']}", default_cents=item["price_cents"], listing_id=item["id"])
                 save_button(item["id"], where="detail")
                 st.page_link("views/public_profile.py",
                              label="View the seller's profile to get in touch",

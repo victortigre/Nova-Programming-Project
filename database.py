@@ -15,6 +15,7 @@ import uuid
 from datetime import date, datetime, timezone
 
 import streamlit as st
+from postgrest.exceptions import APIError
 from supabase import Client, create_client
 
 PHOTO_BUCKET = "profile-photos"
@@ -531,6 +532,88 @@ def listing_photo_urls(paths: list[str]) -> dict[str, str]:
     return _signed_urls(LISTING_PHOTO_BUCKET, paths)
 
 
+# --- Messaging transport ------------------------------------------------------
+# Internal helpers for messaging_repository.py. That module authenticates the
+# current Streamlit user before calling these; pages must use the repository.
+# No global caching of private rows or per-user changes to the shared client.
+
+
+def messaging_actor_profile(email: str) -> dict | None:
+    """Uncached authorization state; blocking must apply on the next operation.
+
+    Kept separate from the profile-display cache used by the rest of the app.
+    """
+    rows = (_client().table("profiles")
+            .select("id,email,blocked_at,rules_accepted_at")
+            .eq("email", email).limit(1).execute().data)
+    return rows[0] if rows else None
+
+
+def messaging_conversation(conversation_id: str, actor_id: int) -> dict | None:
+    rows = (_client().table("conversations").select("*")
+            .eq("id", conversation_id)
+            .or_(f"buyer_id.eq.{actor_id},seller_id.eq.{actor_id}")
+            .limit(1).execute().data)
+    return rows[0] if rows else None
+
+
+def messaging_conversations(actor_id: int) -> list[dict]:
+    # Read in bounded batches so a recently active, older conversation isn't
+    # excluded before the repository sorts by latest message activity.
+    rows = []
+    while True:
+        batch = (_client().table("conversations").select("*")
+                 .or_(f"buyer_id.eq.{actor_id},seller_id.eq.{actor_id}")
+                 .order("created_at", desc=True).order("id", desc=True)
+                 .range(len(rows), len(rows) + 99).execute().data)
+        rows.extend(batch)
+        if len(batch) < 100:
+            return rows
+
+
+def messaging_messages(conversation_id: str, limit: int, offset: int) -> list[dict]:
+    return (_client().table("messages").select("*")
+            .eq("conversation_id", conversation_id)
+            .order("created_at", desc=True).order("id", desc=True)
+            .range(offset, offset + limit - 1).execute().data)
+
+
+def messaging_insert_message(payload: dict) -> dict:
+    try:
+        return _client().table("messages").insert(payload).execute().data[0]
+    except APIError as error:
+        if error.code != "23505":
+            raise
+        rows = (_client().table("messages").select("*")
+                .eq("conversation_id", payload["conversation_id"])
+                .eq("client_message_id", payload["client_message_id"])
+                .limit(1).execute().data)
+        if not rows:
+            raise
+        return rows[0]  # Repository checks sender/body before accepting a retry.
+
+
+def messaging_insert_conversation(payload: dict) -> dict:
+    try:
+        return _client().table("conversations").insert(payload).execute().data[0]
+    except APIError as error:
+        if error.code != "23505":
+            raise
+        rows = (_client().table("conversations").select("*")
+                .eq("original_listing_id", payload["listing_id"])
+                .eq("buyer_id", payload["buyer_id"]).limit(1).execute().data)
+        if not rows:
+            raise
+        return rows[0]
+
+
+def messaging_conversation_for_listing(listing_id: int, buyer_id: int) -> dict | None:
+    rows = (_client().table("conversations").select("*")
+            .eq("original_listing_id", listing_id).eq("buyer_id", buyer_id)
+            .limit(1).execute().data)
+    return rows[0] if rows else None
+
+
 # --- Wallet (Nova credits, see wallet.py) ---------------------------------------
 # The rules are in wallet.py. The two steps that must never run twice or spend
 # the same credits twice (hold, settle) are database functions in
@@ -564,3 +647,14 @@ def wallet_settle(request_id: int, kind: str, profile_id: int) -> bool:
     return bool(_client().rpc("wallet_settle", {
         "p_request": request_id, "p_kind": kind, "p_profile": profile_id,
     }).execute().data)
+
+
+def messaging_offers(conversation_id: str, limit: int, offset: int) -> list[dict]:
+    return (_client().table("offers").select("*").eq("conversation_id", conversation_id)
+            .order("created_at", desc=True).order("id", desc=True)
+            .range(offset, offset + limit - 1).execute().data)
+
+
+def messaging_offer_action(payload: dict) -> dict:
+    """One atomic database transaction; only the trusted repository calls this."""
+    return _client().rpc("messaging_offer_action", payload).execute().data
