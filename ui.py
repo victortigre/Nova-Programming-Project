@@ -186,6 +186,11 @@ button[data-variant="pills"][data-selected="true"] p {{
     font-size: 2.6rem; font-weight: 600; color: {VIOLET};
 }}
 .nm-muted {{ color: {GREY_TEXT}; font-size: 0.85rem; }}
+/* even_text(): every text inside is the same size (e.g. the refund form). */
+[class*="st-key-even-"] p, [class*="st-key-even-"] label,
+[class*="st-key-even-"] textarea, [class*="st-key-even-"] button {{
+    font-size: 0.9rem !important;
+}}
 </style>
 """
 
@@ -260,6 +265,11 @@ LANDING_CSS = """
 def apply_style() -> None:
     """Add the extra CSS to the page. app.py calls this once on every visit."""
     st.html(CSS)
+
+
+def even_text(key: str):
+    """A box where all the text has the same size. Use it with `with ui.even_text("name"):`."""
+    return st.container(key=f"even-{key}")
 
 
 def card(key: str):

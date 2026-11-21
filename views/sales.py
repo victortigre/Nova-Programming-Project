@@ -87,7 +87,7 @@ def request_row(request: dict, price: int = 0) -> None:
                 act(deals.confirm_return, rid,
                     "Return confirmed. The buyer got their credits back and the item "
                     "is active again.")
-            with columns[1].popover("Not in the same condition"):
+            with columns[1].popover("Not in the same condition"), ui.even_text(f"bad-{rid}"):
                 st.write("Is the item damaged or different from when you sold it? An "
                          "admin will look at it and decide who gets the money. Until then "
                          "it stays held.")
