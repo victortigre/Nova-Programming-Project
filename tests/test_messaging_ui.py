@@ -41,7 +41,7 @@ def test_navigation_and_send(ui):
     app, mocks, _ = ui
     app.run()
     assert not app.exception
-    assert any(item.value == "Test listing snapshot" for item in app.text)
+    assert any("Test listing snapshot" in item.proto.body for item in app.get("html"))
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
     assert app.chat_input
@@ -145,7 +145,7 @@ def test_deleted_listing_keeps_snapshot_and_chat_input(ui):
     mocks["get_inbox"].return_value = [deleted]
     mocks["get_conversation_details"].return_value = deleted
     app.run()
-    assert any(item.value == "Listing no longer available" for item in app.caption)
+    assert any("Listing no longer available" in item.proto.body for item in app.get("html"))
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
     assert any(item.value == "Listing no longer available" for item in app.caption)
@@ -156,14 +156,14 @@ def test_deleted_listing_keeps_snapshot_and_chat_input(ui):
 
 
 @pytest.mark.parametrize("cents,display", [(0, "Free"), (1, "€0.01"), (1234, "€12.34"), (500000, "€5,000.00")])
-def test_integer_cent_snapshots_display_in_inbox_and_deleted_chat(ui, cents, display):
+def test_integer_cent_snapshots_hidden_in_inbox_but_preserved_in_deleted_chat(ui, cents, display):
     app, mocks, _ = ui
     snapshot = {**ROW, "price_cents": cents, "listing_id": None}
     mocks["get_inbox"].return_value = [snapshot]
     mocks["get_conversation_details"].return_value = snapshot
     app.run()
     assert not app.exception
-    assert any(item.value == display for item in app.caption)
+    assert not any(item.value == display for item in app.caption)
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
     assert any(item.value == display for item in app.caption)
@@ -179,5 +179,5 @@ def test_inbox_offer_only_preview(ui, status):
     }}]
     app.run()
     assert not app.exception
-    assert any(item.value == f"Offer: €25.00 · {status.title()}" for item in app.text)
+    assert any(f"Offer: €25.00 · {status.title()}" in item.proto.body for item in app.get("html"))
     assert not any(item.value == "No messages yet" for item in app.caption)

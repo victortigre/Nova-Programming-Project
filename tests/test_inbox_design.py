@@ -65,7 +65,8 @@ def test_unified_inbox_uses_one_real_actor_for_buying_and_selling(ui, monkeypatc
     app.run()
     assert not app.exception
     assert len([b for b in app.button if b.label == 'Open chat']) == 2
-    assert {h.value for h in app.subheader} == {'Buyer', 'Seller'}
+    assert '<strong>Buyer</strong>' in html_content(app)
+    assert '<strong>Seller</strong>' in html_content(app)
     query.assert_called_with(7)
     for cid, other, can_start_offer in [(CID, 'Seller', True), (SECOND, 'Buyer', False)]:
         app.button(key='chat_' + cid).click().run()

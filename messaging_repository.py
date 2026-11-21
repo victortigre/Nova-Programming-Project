@@ -114,11 +114,12 @@ def get_conversation_details(conversation_id: str) -> dict:
     return row
 
 
-def get_inbox() -> list[dict]:
+def get_inbox(*, include_photos: bool = False) -> list[dict]:
     """Participant-only previews including offer creation and responses.
 
     One request for the whole list (database.messaging_inbox), however many
-    chats there are. The newest event decides the order: the last message, or
+    chats there are (optional profile photos add a lookup per participant).
+    The newest event decides the order: the last message, or
     the offer made or answered most recently.
     """
     actor = _actor()
@@ -129,11 +130,23 @@ def get_inbox() -> list[dict]:
     except Exception:
         unread = set()
     summaries = []
+    photos = {}  # Reuse optional lookups for repeated participants in this load.
     for item in database.messaging_inbox(actor):
         row = item["conversation"]
         require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
         summary = {**row, "other_name": item.get("other_name") or "Profile unavailable",
                    "own_profile_id": actor, "unread": row["id"] in unread}
+        if include_photos:
+            other_id = row["seller_id"] if actor == row["buyer_id"] else row["buyer_id"]
+            if other_id not in photos:
+                photos[other_id] = None
+                try:
+                    other = database.get_profile_by_id(other_id)
+                    if other and other.get("photo_path"):
+                        photos[other_id] = database.photo_url(other["photo_path"])
+                except Exception:
+                    pass  # Optional photos must never hide authorized conversations.
+            summary["other_photo_url"] = photos[other_id]
         latest = item.get("last_message")
         summary["last_message"] = latest
         events = []

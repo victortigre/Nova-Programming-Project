@@ -72,38 +72,37 @@ def try_send(pending: dict) -> None:
 
 @st.fragment
 def show_inbox() -> None:
-    st.button("Refresh inbox")
+    messaging_ui.apply_inbox_styles()
+    with st.container(key="inbox-toolbar", horizontal_alignment="right"):
+        st.button("Refresh inbox")
     try:
         with st.spinner("Loading conversations…"), repository.checked_once():
-            rows = repository.get_inbox()
+            rows = repository.get_inbox(include_photos=True)
     except Exception as error:
         report_error(error)
         return
     if not rows:
         st.subheader("Your inbox is empty")
         st.info("Your conversations will appear here when you contact someone or receive a message or offer.")
-    for row in rows:
-        with st.container(border=True):
-            # Unread chats stand out with a blue dot, like WhatsApp or Instagram.
-            if row.get("unread"):
-                st.subheader(f"🔵 {row['other_name']}")
-            else:
-                st.subheader(row["other_name"])
-            show_listing(row)
-            last = row.get("last_activity", row["last_message"])
-            if last:
-                prefix = "You: " if last["sender_id"] == row["own_profile_id"] else ""
-                if last.get("type") == "offer":
-                    st.text(prefix + f"Offer: {format_price(last['amount_cents'])} · {OFFER_STATUS_LABELS[last['status']]}")
-                else:
-                    st.text(prefix + last["body"][:120] + ("…" if len(last["body"]) > 120 else ""))
-                show_time(last.get("activity_at", last["created_at"]))
-            else:
-                st.caption("No messages yet")
-            if st.button("Open chat", key=f"chat_{row['id']}"):
-                st.session_state.messaging_selected = row["id"]
-                st.session_state.messaging_history_limit = 50
-                st.rerun()  # The whole page: it switches from the inbox to the chat.
+    if rows:
+        with st.container(key="inbox-list"):
+            for index, row in enumerate(rows):
+                with st.container(key=f"inbox-row-{row['id']}"):
+                    left, right = st.columns([4, 1], gap="small", vertical_alignment="center")
+                    last = row.get("last_activity") or row.get("last_message")
+                    with left:
+                        messaging_ui.inbox_summary(row, last)
+                    with right:
+                        with st.container(key=f"inbox-time-{row['id']}"):
+                            show_time((last.get("activity_at") or last["created_at"])
+                                      if last else row["created_at"])
+                        with st.container(horizontal_alignment="right"):
+                            if st.button("Open chat", key=f"chat_{row['id']}", type="secondary"):
+                                st.session_state.messaging_selected = row["id"]
+                                st.session_state.messaging_history_limit = 50
+                                st.rerun()  # Keep navigation as a whole-page rerun.
+                if index < len(rows) - 1:
+                    st.divider()
 
 
 @st.fragment
