@@ -201,3 +201,75 @@ def accepted_offer_description(offer: dict, conversation: dict) -> str:
                 else "You have accepted the seller's counteroffer.")
     return ("You have accepted the buyer's offer." if buyer_proposal
             else "The buyer has accepted your offer.")
+
+
+INBOX_CSS = """
+.st-key-inbox-list {
+    background: #FFFFFF;
+    border-radius: 18px;
+    padding: 8px 20px;
+    gap: 0 !important;
+}
+.st-key-inbox-list [class*="st-key-inbox-row-"] { padding: 12px 0; }
+.st-key-inbox-list hr { margin: 0; border-color: #ECEEF2; }
+.st-key-inbox-list .inbox-heading,
+.st-key-inbox-list .inbox-preview {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+    line-height: 1.5;
+}
+.st-key-inbox-list .inbox-heading { color: #202433; }
+.st-key-inbox-list .inbox-listing { color: #737985; font-size: 0.85rem; }
+.st-key-inbox-list .inbox-preview { color: #626975; font-size: 0.85rem; margin-top: 4px; }
+.st-key-inbox-list [data-testid="stColumn"] { min-width: 0; }
+.st-key-inbox-list [class*="st-key-inbox-time-"] { text-align: right; }
+.st-key-inbox-list [data-testid="stCaptionContainer"] { color: #737985; font-size: 0.72rem; }
+.st-key-inbox-list button[kind="secondary"] {
+    background: #F0F1F4; color: #464C57; border: 1px solid #E5E7EB;
+    min-height: 1.8rem; padding: 3px 10px; border-radius: 8px;
+}
+.st-key-inbox-list button[kind="secondary"] p { font-size: 0.78rem; }
+@media (max-width: 640px) {
+    .st-key-inbox-list { padding: 6px 12px; }
+    .st-key-inbox-list [data-testid="stHorizontalBlock"] { flex-wrap: nowrap; gap: 8px; }
+    .st-key-inbox-list [data-testid="stColumn"]:first-child { flex: 1 1 0 !important; }
+    .st-key-inbox-list [data-testid="stColumn"]:last-child { flex: 0 0 105px !important; }
+}
+"""
+
+
+def apply_inbox_styles() -> None:
+    st.html("<style>" + INBOX_CSS + "</style>")
+
+
+def inbox_activity_preview(activity: dict | None, actor: int) -> str:
+    """Describe the repository-selected chronological activity, without writes."""
+    if not activity:
+        return "No messages yet"
+    own = activity["sender_id"] == actor
+    if activity.get("type") != "offer":
+        return ("You: " if own else "") + activity["body"]
+    from listings import format_price
+    from offers import OFFER_STATUS_LABELS
+    status = activity["status"]
+    kind = "Counteroffer" if activity.get("parent_offer_id") else "Offer"
+    # The card sender is not the responder: avoid attributing acceptance/decline
+    # to the original offer sender. The authoritative status describes the event.
+    prefix = "You: " if own and status not in ("accepted", "declined") else ""
+    return f"{prefix}{kind}: {format_price(activity['amount_cents'])} · {OFFER_STATUS_LABELS[status]}"
+
+
+def inbox_summary(row: dict, activity: dict | None) -> None:
+    """Escaped compact name/listing and one-line preview; no photos or actions."""
+    name = html.escape(row["other_name"])
+    title = html.escape(row["listing_title_snapshot"])
+    preview = html.escape(inbox_activity_preview(activity, row["own_profile_id"]))
+    dot = "🔵 " if row.get("unread") else ""  # Preserve the existing unread indicator.
+    unavailable = " · Listing no longer available" if row["listing_id"] is None else ""
+    st.html(
+        f'<div class="inbox-heading"><strong>{dot}{name}</strong>'
+        f'<span class="inbox-listing"> · {title}{unavailable}</span></div>'
+        f'<p class="inbox-preview" title="{preview}">{preview}</p>'
+    )
