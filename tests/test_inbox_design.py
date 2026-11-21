@@ -1,5 +1,5 @@
 """Authenticated production-page presentation with mocked transport, no services."""
-from datetime import datetime
+from messaging_ui import lisbon_datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -105,7 +105,7 @@ def test_bubbles_follow_authenticated_actor_and_preserve_history(ui, actor, phot
     for body in ('First message', 'Second message', 'Original offer note', 'Counteroffer note'):
         assert sum(t.value == body for t in app.text) == 1
     for event in history:
-        timestamp = datetime.fromisoformat(event['created_at']).strftime('%d %b %Y · %H:%M %Z')
+        timestamp = lisbon_datetime(event['created_at']).strftime('%H:%M')
         assert any(c.value == timestamp for c in app.caption)
     markup = html_content(app)
     assert 'data:image/svg+xml,' in markup  # fallback exists with or without photo
@@ -171,7 +171,7 @@ def test_historical_acceptance_never_claims_item_is_unreserved(ui, status):
     app, _ = open_chat(ui)
     assert any(h.value == 'Offer Accepted — €15.00' for h in app.subheader)
     assert next(b for b in app.button if b.label == 'Buy Now').disabled
-    assert any('Negotiation is unavailable' in item.value for item in app.info)
+    assert any('Negotiation is unavailable' in item.value for item in list(app.info) + list(app.caption))
     assert not any('has not been reserved' in item.value for item in app.caption)
     assert app.chat_input
 

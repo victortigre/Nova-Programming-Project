@@ -149,7 +149,7 @@ def test_deleted_listing_keeps_snapshot_and_chat_input(ui):
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
     assert any(item.value == "Listing no longer available" for item in app.caption)
-    assert any(item.value == ROW["listing_title_snapshot"] for item in app.text)
+    assert any(item.value == ROW["listing_title_snapshot"] for item in app.caption)
     app.chat_input[0].set_value("Can we still meet?").run()
     assert not app.exception
     assert mocks["send_message"].call_args.args[:2] == (CID, "Can we still meet?")

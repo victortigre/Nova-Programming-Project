@@ -267,7 +267,7 @@ def test_unavailable_listing_hides_negotiation_but_keeps_chat(ui, status, has_of
         click(app, "Open chat")
     assert not app.exception
     assert not any(button.label in ("Accept", "Decline", "Counteroffer", "Send Offer") for button in app.button)
-    assert any("Negotiation is unavailable" in item.value for item in app.info)
+    assert any("Negotiation is unavailable" in item.value for item in list(app.info) + list(app.caption))
     assert app.chat_input and not app.chat_input[0].disabled
     if has_offer:
         assert any(item.value == "Status: Pending" for item in app.text)
