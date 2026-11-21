@@ -58,9 +58,9 @@ def test_messages_added_without_removing_existing_navigation(navigation):
     assert not app.exception
     assert [page.title for page in pages] == [
         "Browse", "Sell an item", "My listings", "My purchases (1)", "Sales (2)",
-        "Messages", "My profile", "House rules", "Student profile", "Report", "Welcome",
+        "Inbox", "My profile", "House rules", "Student profile", "Report", "Welcome",
     ]
-    messages = next(page for page in pages if page.title == "Messages")
+    messages = next(page for page in pages if page.title == "Inbox")
     assert messages.path == "views/messaging.py"
     assert nav.call_args.kwargs == {"position": "top"}
     assert identity.called
@@ -94,5 +94,5 @@ def test_admin_navigation_is_preserved(navigation):
     user.to_dict = lambda: {"email": "admin@novasbe.pt", "email_verified": True}
     app.run()
     assert not app.exception
-    assert any(page.title == "Messages" for page in pages)
+    assert any(page.title == "Inbox" for page in pages)
     assert any(page.title == "Admin" for page in pages)

@@ -189,9 +189,9 @@ def test_offer_response_updates_card_and_never_reserves_or_pays(ui, monkeypatch,
     assert response.call_args.args[:2] == (CID, OID)
     assert any(item.value == f"Status: {status.title()}" for item in app.text)
     if status == "accepted":
-        assert app.success
+        assert any(item.value == "Offer Accepted — €15.00" for item in app.subheader)
         assert next(button for button in app.button if "Buy Now" in button.label).disabled
-        assert any("has not reserved" in item.value for item in app.caption)
+        assert any(item.value == "Accepting this offer does not reserve or pay for the item." for item in app.caption)
     assert app.chat_input
 
 
@@ -217,7 +217,7 @@ def test_offer_and_normal_message_remain_distinct(ui, actor):
         "created_at": "2026-11-20T10:02:00+00:00",
     }]
     app.run()
-    assert len(app.chat_message) == 1
+    assert sum(item.value == "A regular message" for item in app.text) == 1
     assert any(item.value == "A regular message" for item in app.text)
     app.chat_input[0].set_value("Another message").run()
     mocks["send_message"].assert_called_once()
@@ -279,7 +279,7 @@ def test_agreement_preview_error_does_not_block_offers_or_sending(ui):
     assert not app.exception
     assert any(item.value == "Status: Pending" for item in app.text)
     assert any(button.label == "Accept" for button in app.button)
-    assert any("Agreement preview is temporarily unavailable" in item.value for item in app.caption)
+    mocks["get_buy_now_agreement"].assert_not_called()
     assert not any("private provider detail" in item.value for item in app.caption)
     app.chat_input[0].set_value("Still working").run()
     assert mocks["send_message"].call_args.args[1] == "Still working"

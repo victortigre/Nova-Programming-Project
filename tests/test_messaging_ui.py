@@ -52,7 +52,7 @@ def test_navigation_and_send(ui):
     assert len(args[2]) == 36
     next(button for button in app.button if button.label == "← Back to Inbox").click().run()
     assert not app.exception
-    assert app.subheader[0].value == "Inbox"
+    assert app.title[0].value == "Inbox"
 
 
 def test_signed_out_never_calls_repository(ui):
@@ -74,7 +74,8 @@ def test_missing_configuration_and_empty_inbox(ui):
     mocks["is_configured"].return_value = True
     mocks["get_inbox"].return_value = []
     app.run()
-    assert "No conversations" in app.info[0].value
+    assert app.subheader[0].value == "Your inbox is empty"
+    assert app.info[0].value == "Your conversations will appear here when you contact someone or receive a message or offer."
     assert not app.exception
 
 
@@ -122,7 +123,7 @@ def test_account_change_clears_chat_and_pending_text(ui):
     app.session_state["messaging_pending"] = {"body": "Private draft"}
     user.to_dict = lambda: {"email": "another@novasbe.pt", "email_verified": True}
     app.run()
-    assert app.subheader[0].value == "Inbox"
+    assert app.title[0].value == "Inbox"
     assert "messaging_pending" not in app.session_state
     assert not app.exception
 

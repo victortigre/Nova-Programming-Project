@@ -80,7 +80,7 @@ def flow(monkeypatch):
 def test_contact_opens_chat_on_first_visit_and_repeated_contact_reuses_it(flow):
     app = flow.app.run()
     assert not app.exception
-    assert any(button.label == "Request to buy" for button in app.button)
+    assert any(button.label == "Request to Purchase" for button in app.button)
     assert any(link.label == "Report this listing" for link in app.get("page_link"))
     app.button(key="contact-10").click().run()
     assert not app.exception
@@ -196,7 +196,7 @@ def test_reserved_listing_keeps_contact_without_purchase_action(flow):
     flow.item["status"] = "reserved"
     flow.app.run()
     assert not flow.app.exception
-    assert not any(button.label == "Request to buy" for button in flow.app.button)
+    assert not any(button.label == "Request to Purchase" for button in flow.app.button)
     flow.app.button(key="contact-10").click().run()
     assert not flow.app.exception
     assert flow.app.chat_input
@@ -230,4 +230,25 @@ def test_wallet_caption_and_regular_purchase_survive_offer_integration(flow):
     assert any(button.label == "Make an Offer" for button in app.button)
     app.button(key="buy-10").click().run()
     flow.purchase.assert_called_once_with(database, 10, "buyer@novasbe.pt")
+    flow.creation.assert_not_called()
+
+
+def test_final_three_listing_actions_preserve_purchase_callback(flow):
+    app = flow.app.run()
+    assert not app.exception
+    labels = [b.label for b in app.button if b.key in ('offer-10', 'contact-10', 'buy-10')]
+    assert labels == ["Make an Offer", "Contact Seller", "Request to Purchase"]
+    assert app.button(key='offer-10').proto.type == 'secondary'
+    assert app.button(key='contact-10').proto.type == 'secondary'
+    assert app.button(key='buy-10').proto.type == 'primary'
+    assert not any(app.button(key=key).disabled for key in ('offer-10', 'contact-10', 'buy-10'))
+    actions = next(c for c in app.get('flex_container') if c.key == 'listing-actions')
+    columns = actions.get('column')
+    assert len(columns) == 2
+    assert columns[0].button[0].label == 'Make an Offer'
+    assert columns[1].button[0].label == 'Contact Seller'
+    assert all(b.label != 'Request to Purchase' for c in columns for b in c.button)
+    app.button(key='buy-10').click().run()
+    assert not app.exception
+    flow.purchase.assert_called_once_with(database, 10, 'buyer@novasbe.pt')
     flow.creation.assert_not_called()

@@ -12,12 +12,13 @@ from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
 from listings import format_price
 import messaging_repository as repository
+import messaging_ui
 import offer_ui
 from offers import OFFER_STATUS_LABELS
 
 email = verified_nova_email(logged_in_user())
 if email is None or not st.user.is_logged_in:
-    st.info("Please sign in with your verified @novasbe.pt account to open Messages.")
+    st.info("Please sign in with your verified @novasbe.pt account to open Inbox.")
     st.stop()
 
 # Drop navigation and pending text if the logged-in account changes.
@@ -54,8 +55,8 @@ def try_send(pending: dict) -> None:
         st.rerun()
 
 
-st.title("Messages")
-st.caption("Keep your marketplace conversations together.")
+messaging_ui.apply_chat_styles()
+st.title("Inbox")
 try:
     configured = repository.is_configured()
     if configured:
@@ -71,7 +72,6 @@ offer_ui.retry_panel()
 
 selected = st.session_state.get("messaging_selected")
 if selected is None:
-    st.subheader("Inbox")
     st.button("Refresh inbox")
     try:
         with st.spinner("Loading conversations…"):
@@ -80,7 +80,8 @@ if selected is None:
         report_error(error)
         st.stop()
     if not rows:
-        st.info("No conversations yet. Conversations will appear here when you contact a seller or a buyer contacts you.")
+        st.subheader("Your inbox is empty")
+        st.info("Your conversations will appear here when you contact someone or receive a message or offer.")
     for row in rows:
         with st.container(border=True):
             st.subheader(row["other_name"])
@@ -113,11 +114,6 @@ else:
     except Exception as error:
         report_error(error)
         st.stop()
-    agreement = None
-    try:
-        agreement = repository.get_buy_now_agreement(selected)
-    except Exception:
-        st.caption("Agreement preview is temporarily unavailable. You can still message and view offers.")
     negotiation_available = row["listing_id"] is not None and row.get("listing_status") == "active"
     if not negotiation_available:
         reason = {"reserved": "This listing is reserved.", "sold": "This listing has been sold.",
@@ -127,10 +123,6 @@ else:
     st.subheader(row["other_name"])
     with st.container(border=True):
         show_listing(row)
-    if agreement:
-        st.success(f"Price agreed: {format_price(agreement['amount_cents'])}. Buy Now will be available at this price when checkout is enabled.")
-        st.button("Buy Now — checkout coming soon", disabled=True)
-        st.caption("This agreement has not reserved the item. No payment has been made.")
     if not history:
         st.info("No messages yet. Send the first message below.")
     if len(history) == limit and limit < 100:
@@ -141,23 +133,29 @@ else:
         st.caption("Showing the latest 100 chat events.")
     current = latest_offers[0] if latest_offers else None
     for message in history:
-        own = message["sender_id"] == row["own_profile_id"]
-        if message["type"] == "offer":
-            with st.container(border=True):
+        with messaging_ui.message_bubble(message, row) as own:
+            if message["type"] == "offer":
                 st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
-                st.subheader(format_price(message["amount_cents"]))
-                st.caption(f"Original listing price: {format_price(row['price_cents'])}")
-                st.text(f"From: {'You' if own else row['other_name']}")
+                accepted = message["status"] == "accepted"
+                st.subheader(f"Offer Accepted — {format_price(message['amount_cents'])}" if accepted
+                             else format_price(message["amount_cents"]))
+                with st.container(key=f"dm-original-price-{message['id']}"):
+                    st.caption(f"Original listing price: {format_price(row['price_cents'])}")
                 st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
                 show_time(message["created_at"])
                 if message.get("note"):
                     st.text(message["note"])
+                if accepted:
+                    st.text(messaging_ui.accepted_offer_description(message, row))
+                    if row["own_profile_id"] == row["buyer_id"]:
+                        # Presentation only. No checkout callback or purchase write.
+                        st.button("Buy Now", key=f"buy_now_{message['id']}",
+                                  type="primary", disabled=True, width="stretch")
+                    st.caption("Accepting this offer does not reserve or pay for the item.")
                 if (current and current["id"] == message["id"] and message["status"] == "pending"
                         and not own and negotiation_available):
                     offer_ui.response_buttons(selected, message)
-        else:
-            with st.chat_message("user" if own else "assistant"):
-                st.caption("You" if own else row["other_name"])
+            else:
                 st.text(message["body"])
                 show_time(message["created_at"])
     if (row["own_profile_id"] == row["buyer_id"] and negotiation_available

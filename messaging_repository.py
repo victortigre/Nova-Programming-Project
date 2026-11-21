@@ -28,17 +28,28 @@ def is_configured() -> bool:
     return database.database_is_set_up()
 
 
-def _details(row: dict, actor: int) -> dict:
+def _details(row: dict, actor: int, *, include_photo: bool = False) -> dict:
     require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
     other_id = row["seller_id"] if actor == row["buyer_id"] else row["buyer_id"]
     other = database.get_profile_by_id(other_id)
-    return {**row, "other_name": other["name"] if other else "Profile unavailable",
-            "own_profile_id": actor}
+    details = {**row, "other_name": other["name"] if other else "Profile unavailable",
+               "own_profile_id": actor}
+    if include_photo:
+        # Photos are optional presentation data. Authorize the conversation first,
+        # use the existing private-photo helper, and never let signing failures
+        # prevent participants from reading or sending messages.
+        details["other_photo_url"] = None
+        if other and other.get("photo_path"):
+            try:
+                details["other_photo_url"] = database.photo_url(other["photo_path"])
+            except Exception:
+                pass
+    return details
 
 
 def get_conversation_details(conversation_id: str) -> dict:
     actor = _actor()
-    row = _details(_authorized(conversation_id, actor), actor)
+    row = _details(_authorized(conversation_id, actor), actor, include_photo=True)
     # Membership and identity above remain mandatory. Availability is optional:
     # fail closed for negotiation without hiding an authorized chat's history.
     try:

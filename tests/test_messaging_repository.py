@@ -338,3 +338,64 @@ def test_listing_fallback_does_not_bypass_membership(context, monkeypatch):
     with pytest.raises(ValueError, match="Conversation unavailable"):
         repo.get_conversation_details(CID)
     lookup.assert_not_called()
+
+
+@pytest.mark.parametrize("actor,other", [(7, 8), (8, 7)])
+def test_chat_photo_belongs_to_authenticated_participant_other_side(context, monkeypatch, actor, other):
+    context[2].return_value["id"] = actor
+    context[3]["listing_id"] = 10
+    profile = MagicMock(return_value={"id": other, "name": "Other participant", "photo_path": f"profile-{other}.jpg"})
+    photo = MagicMock(return_value=f"https://photos.example.invalid/{other}.jpg")
+    monkeypatch.setattr(database, "get_profile_by_id", profile)
+    monkeypatch.setattr(database, "photo_url", photo)
+    monkeypatch.setattr(database, "get_listing", lambda lid: {"status": "active"})
+    row = repo.get_conversation_details(CID)
+    assert row["own_profile_id"] == actor
+    assert row["other_photo_url"] == f"https://photos.example.invalid/{other}.jpg"
+    profile.assert_called_once_with(other)
+    photo.assert_called_once_with(f"profile-{other}.jpg")
+
+
+@pytest.mark.parametrize("profile", [None, {"name": "Participant"}, {"name": "Participant", "photo_path": None}])
+def test_chat_missing_photo_uses_fallback_without_storage_lookup(context, monkeypatch, profile):
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: profile)
+    photo = MagicMock(side_effect=AssertionError("No photo to sign"))
+    monkeypatch.setattr(database, "photo_url", photo)
+    assert repo.get_conversation_details(CID)["other_photo_url"] is None
+    photo.assert_not_called()
+
+
+def test_chat_photo_signing_failure_is_nonblocking_and_sanitized(context, monkeypatch):
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": "Participant", "photo_path": "profile.jpg"})
+    monkeypatch.setattr(database, "photo_url", MagicMock(side_effect=RuntimeError("private provider detail")))
+    row = repo.get_conversation_details(CID)
+    assert row["other_photo_url"] is None
+    assert row["other_name"] == "Participant"
+    assert "private provider detail" not in str(row)
+
+
+def test_unauthorized_conversation_never_loads_profile_photo(context, monkeypatch):
+    context[4].return_value = {"buyer_id": 90, "seller_id": 91}
+    photo = MagicMock()
+    profile = MagicMock()
+    monkeypatch.setattr(database, "photo_url", photo)
+    monkeypatch.setattr(database, "get_profile_by_id", profile)
+    with pytest.raises(ValueError, match="Conversation unavailable"):
+        repo.get_conversation_details(CID)
+    photo.assert_not_called()
+    profile.assert_not_called()
+
+
+def test_one_authenticated_profile_has_buying_and_selling_conversations(context, monkeypatch):
+    buying = {"id": CID, "buyer_id": 7, "seller_id": 8, "created_at": "2026-11-20T10:00:00+00:00"}
+    selling = {"id": MID, "buyer_id": 9, "seller_id": 7, "created_at": "2026-11-20T11:00:00+00:00"}
+    query = MagicMock(return_value=[buying, selling])
+    monkeypatch.setattr(database, "messaging_conversations", query)
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": {8: "Seller", 9: "Buyer"}[pid], "photo_path": "profile.jpg"})
+    monkeypatch.setattr(database, "messaging_messages", lambda *args: [])
+    photo = MagicMock()
+    monkeypatch.setattr(database, "photo_url", photo)
+    rows = repo.get_inbox()
+    assert [(r["id"], r["other_name"], r["own_profile_id"]) for r in rows] == [(MID, "Buyer", 7), (CID, "Seller", 7)]
+    query.assert_called_once_with(7)
+    photo.assert_not_called()  # No photo-signing requests per Inbox row.
