@@ -106,6 +106,52 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 .nm-photo img {{ width: 100%; height: 100%; object-fit: cover; border-radius: 16px; }}
 .nm-photo .nm-empty {{ font-size: 3rem; opacity: 0.5; }}
+/* The frame is always the same size and shows the whole photo on a light grey
+   background, so nothing jumps when you click through the photos. */
+.st-key-photo-frame {{ position: relative; }}
+.st-key-photo-big [data-testid="stFullScreenFrame"] > div,
+.st-key-photo-big [data-testid="stImage"],
+.st-key-photo-big [data-testid="stImageContainer"] {{ width: 100% !important; }}
+.st-key-photo-big img {{
+    width: 100% !important; aspect-ratio: 1 / 1; max-height: 60vh;
+    object-fit: contain; background: #F1F2F6; border-radius: 16px;
+}}
+/* The round arrows lie on the photo, left and right, halfway down. */
+[class*="st-key-photo-back-"], [class*="st-key-photo-next-"] {{
+    position: absolute; top: 50%; transform: translateY(-50%); width: auto; z-index: 2;
+}}
+[class*="st-key-photo-back-"] {{ left: 12px; }}
+[class*="st-key-photo-next-"] {{ right: 12px; }}
+[class*="st-key-photo-back-"] button, [class*="st-key-photo-next-"] button {{
+    width: 40px; height: 40px; min-height: 0; padding: 0; border-radius: 999px;
+    border: none; background: #FFFFFF; box-shadow: 0 2px 8px rgba(27, 27, 41, 0.25);
+}}
+[class*="st-key-photo-back-"] button:hover, [class*="st-key-photo-next-"] button:hover {{
+    background: #F1EEFF; color: {VIOLET};
+}}
+/* "2 / 5" in the bottom right corner of the photo. */
+.st-key-photo-count {{ position: absolute; right: 12px; bottom: 12px; width: auto; z-index: 2; }}
+.nm-photo-count {{
+    padding: 2px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+    background: rgba(27, 27, 41, 0.7); color: #FFFFFF;
+}}
+/* The small photos below: square, and the one on show has a violet edge. */
+[class*="st-key-thumb-"] {{ position: relative; }}
+[class*="st-key-thumb-"] [data-testid="stFullScreenFrame"] > div,
+[class*="st-key-thumb-"] [data-testid="stImage"],
+[class*="st-key-thumb-"] [data-testid="stImageContainer"] {{ width: 100% !important; }}
+[class*="st-key-thumb-"] img {{
+    width: 100% !important; aspect-ratio: 1 / 1; object-fit: cover;
+    border-radius: 10px; opacity: 0.75;
+}}
+[class*="st-key-thumb-"]:hover img {{ opacity: 1; }}
+[class*="st-key-thumb-on-"] img {{ opacity: 1; outline: 3px solid {VIOLET}; outline-offset: -3px; }}
+[class*="st-key-thumb-"] [data-testid="stElementToolbar"] {{ display: none; }}
+/* An invisible button covers each small photo, so a click on it counts. */
+[class*="st-key-thumbpick-"] {{ position: absolute; inset: 0; z-index: 2; }}
+[class*="st-key-thumbpick-"] .stButton, [class*="st-key-thumbpick-"] button {{
+    width: 100%; height: 100%; min-height: 0; opacity: 0;
+}}
 .nm-badge {{
     position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%);
     padding: 2px 12px; border-radius: 999px; font-size: 0.78rem; font-weight: 600;

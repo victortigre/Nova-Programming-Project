@@ -71,6 +71,40 @@ def close_listing() -> None:
     st.session_state.pop("view_listing", None)
 
 
+def turn_photo(listing_id: int, step: int) -> None:
+    key = f"photo-number-{listing_id}"
+    st.session_state[key] = st.session_state.get(key, 0) + step
+
+
+def pick_photo(listing_id: int, number: int) -> None:
+    st.session_state[f"photo-number-{listing_id}"] = number
+
+
+@st.fragment  # a click redraws only the photos, not the whole page
+def photo_viewer(listing_id: int, urls: list[str]) -> None:
+    """Show one photo large; arrows and small photos switch to the others."""
+    # After the last photo comes the first one again, and the other way round.
+    number = st.session_state.get(f"photo-number-{listing_id}", 0) % len(urls)
+    with st.container(key="photo-frame"):
+        with st.container(key="photo-big"):
+            st.image(urls[number], width="stretch")
+        if len(urls) > 1:
+            st.button("", icon=":material/chevron_left:", key=f"photo-back-{listing_id}",
+                      on_click=turn_photo, args=(listing_id, -1))
+            st.button("", icon=":material/chevron_right:", key=f"photo-next-{listing_id}",
+                      on_click=turn_photo, args=(listing_id, 1))
+            with st.container(key="photo-count"):
+                st.html(f'<span class="nm-photo-count">{number + 1} / {len(urls)}</span>')
+    if len(urls) > 1:
+        with st.container(horizontal=True, key="photo-thumbs"):
+            for place, url in enumerate(urls):
+                state = "on" if place == number else "off"
+                with st.container(key=f"thumb-{state}-{place}", width=84):
+                    st.image(url, width="stretch")
+                    st.button(f"Photo {place + 1}", key=f"thumbpick-{listing_id}-{place}",
+                              on_click=pick_photo, args=(listing_id, place))
+
+
 def flip_saved(listing_id: int) -> None:
     browsing.toggle_saved(database, my_id, listing_id)
 
@@ -105,10 +139,7 @@ if viewing is not None:
             links = database.listing_photo_urls(item["photo_paths"])
             urls = [links[path] for path in item["photo_paths"] if path in links]
             if urls:
-                st.image(urls[0], width="stretch")
-                if len(urls) > 1:
-                    for column, url in zip(st.columns(4), urls[1:5]):
-                        column.image(url, width="stretch")
+                photo_viewer(item["id"], urls)
             else:
                 st.html('<div class="nm-photo"><span class="nm-empty">🛍️</span></div>')
         with info_col:

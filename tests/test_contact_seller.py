@@ -252,3 +252,28 @@ def test_final_three_listing_actions_preserve_purchase_callback(flow):
     assert not app.exception
     flow.purchase.assert_called_once_with(database, 10, 'buyer@novasbe.pt')
     flow.creation.assert_not_called()
+
+
+def test_arrows_click_through_the_photos_of_a_listing(flow, monkeypatch):
+    flow.item["photo_paths"] = ["a.jpg", "b.jpg", "c.jpg"]
+    monkeypatch.setattr(database, "listing_photo_urls",
+                        lambda paths: {path: f"https://example.invalid/{path}" for path in paths})
+
+    def large(app):
+        """The address of the large photo: the first picture on the page."""
+        return [picture.url for element in app.get("image") for picture in element.proto.imgs][0]
+
+    app = flow.app.run()
+    assert not app.exception
+    assert large(app) == "https://example.invalid/a.jpg"
+    app.button(key="photo-next-10").click().run()
+    assert large(app) == "https://example.invalid/b.jpg"
+    # Going back from the first photo shows the last one.
+    app.button(key="photo-back-10").click().run()
+    app.button(key="photo-back-10").click().run()
+    assert not app.exception
+    assert large(app) == "https://example.invalid/c.jpg"
+    # A click on a small photo shows that photo large.
+    app.button(key="thumbpick-10-1").click().run()
+    assert not app.exception
+    assert large(app) == "https://example.invalid/b.jpg"
