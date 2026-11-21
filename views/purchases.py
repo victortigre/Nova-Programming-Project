@@ -132,7 +132,7 @@ def show_deal(deal: dict) -> None:
                         f"and give the item back by **{deals.give_back_text(deal)}**. If it "
                         "isn't given back by then, the payment goes to the seller.",
                         icon=":material/undo:")
-                with st.popover("I gave it back"):
+                with st.popover("I gave it back"), ui.even_text(f"gave-{request_id}"):
                     st.write("Only press this once the seller **has the item back**. They "
                              "then have 48 hours to check it is in the same condition.")
                     if st.button("Yes, I gave it back", key=f"gave-{request_id}",
@@ -151,11 +151,11 @@ def show_deal(deal: dict) -> None:
                     act(deals.confirm_received, request_id,
                         "Thanks! " + (f"{listings.format_price(price)} went to the seller."
                                       if price else "Enjoy!"))
-                with columns[1].popover("Ask for a refund"):
+                with columns[1].popover("Ask for a refund"), ui.even_text(f"refund-{request_id}"):
                     st.write(f"Not happy with the item? Tell the seller what's wrong. Then "
                              f"you agree by message where to meet and give it back (you have "
                              f"{deals.GIVE_BACK_DAYS} days). The seller checks it is in the "
-                             "same condition, and you get your credits back.")
+                             "same condition, and you get your Nova credits back.")
                     reason = st.radio("What is the problem?", deals.REFUND_REASONS,
                                       index=None, key=f"reason-{request_id}")
                     other = reason == deals.REFUND_OTHER
