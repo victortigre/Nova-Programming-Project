@@ -184,7 +184,7 @@ def message_bubble(event: dict, conversation: dict, *, compact: bool = False, sh
     row_key = f"dm-event-{side}-{suffix}"
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", row_key):
         raise ValueError("Invalid chat event reference.")
-    # The Buy Now card passes compact=False: no new wrapper or compact CSS.
+    # Layout wrappers do not alter any message or action widget keys.
     with st.container(key=f"chat-compact-{suffix}") if compact else nullcontext():
         with st.container(key=row_key):
             if not own:
@@ -330,7 +330,7 @@ def inbox_timestamp(value: str, *, now: datetime | None = None) -> str:
     return f"{local.day:02d} {_MONTHS[local.month - 1]}"
 
 
-def chat_header(row: dict) -> None:
+def chat_header(row: dict, *, divider: bool = True) -> None:
     """Participant photo and immutable listing details; no new data reads."""
     from listings import format_price
     with st.container(key="chat-participant-header"):
@@ -357,11 +357,12 @@ def chat_header(row: dict) -> None:
             st.caption(format_price(row["price_cents"]))
             if row["listing_id"] is None:
                 st.caption("Listing no longer available")
-    st.divider()
+    if divider:
+        st.divider()
 
 
-# New compact rules only match explicit wrappers. Accepted cards containing Buy
-# Now never receive these wrappers; their original CSS and widget are untouched.
+# Compact rules only match explicit layout wrappers. Button styling remains
+# in the existing base stylesheet; no callbacks or state are managed here.
 COMPACT_CHAT_CSS = """
 [class*="st-key-chat-compact-"] { gap: 0 !important; }
 [class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
@@ -442,3 +443,64 @@ def date_separator(label: str) -> None:
 def chat_timestamp(event: dict) -> None:
     with st.container(key=f"chat-time-{event['type']}-{event['id']}"):
         st.caption(lisbon_datetime(event["created_at"]).strftime("%H:%M"))
+
+
+# Applied only by the open-chat fragment; no Inbox, navigation or button rules.
+OPEN_CHAT_CSS = """
+.st-key-open-chat-surface {
+    background: #FFFFFF; border-radius: 16px; padding: 14px 18px;
+    gap: 0.65rem !important; min-width: 0;
+}
+.st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap; align-items: center; gap: 12px;
+}
+.st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    min-width: 0;
+}
+.st-key-open-chat-surface .st-key-chat-participant-header h3 {
+    font-size: 1rem !important; line-height: 1.3; padding: 0; margin: 0;
+}
+.st-key-open-chat-surface .st-key-chat-participant-header [data-testid="stCaptionContainer"] {
+    font-size: 0.78rem; line-height: 1.3; overflow-wrap: anywhere;
+}
+.st-key-open-chat-surface .st-key-chat-header-divider hr {
+    border-color: #E5E7EB; margin: 0 0 4px;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-other-"] {
+    padding: 8px 12px !important; max-width: min(66%, 460px) !important;
+    border-radius: 18px !important;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-own-offer-"],
+.st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-other-offer-"] {
+    width: 62% !important; max-width: 500px !important;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] [data-testid="stText"] {
+    font-size: 0.88rem; line-height: 1.4;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] h3 {
+    font-size: 1.15rem !important; line-height: 1.3;
+}
+.st-key-open-chat-surface [class*="st-key-chat-time-"] { text-align: right; }
+@media (max-width: 700px) {
+    .st-key-open-chat-surface { padding: 10px; }
+    .st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap; gap: 8px;
+    }
+    .st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {
+        flex: 1 1 45% !important;
+    }
+    .st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
+    .st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-other-"] {
+        max-width: 100% !important;
+    }
+    .st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-own-offer-"],
+    .st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-other-offer-"] {
+        width: 100% !important; max-width: 100% !important;
+    }
+}
+"""
+
+
+def apply_open_chat_styles() -> None:
+    st.html("<style>" + OPEN_CHAT_CSS + "</style>")
