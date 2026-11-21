@@ -340,8 +340,12 @@ def chat_header(row: dict, *, divider: bool = True) -> None:
                 "{flex:0 0 46px!important;min-width:46px;} "
                 ".st-key-chat-participant-header [data-testid='stColumn']:last-child "
                 "{flex:1 1 0!important;min-width:0;} "
+                # Streamlit captions compensate paragraph spacing with a negative
+                # bottom margin. Reset both margins before using our compact gap.
                 ".st-key-chat-participant-header [data-testid='stCaptionContainer'] "
-                "{color:#737985;} "
+                "{color:#737985;margin:0;} "
+                ".st-key-chat-participant-header [data-testid='stCaptionContainer'] p "
+                "{margin:0;line-height:1.4;} "
                 ".st-key-chat-participant-header [data-testid='stVerticalBlock'] "
                 "{gap:0.25rem;}</style>")
         photo, details = st.columns([1, 10], gap="small", vertical_alignment="center")
