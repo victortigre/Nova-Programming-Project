@@ -84,7 +84,11 @@ def show_inbox() -> None:
         st.info("Your conversations will appear here when you contact someone or receive a message or offer.")
     for row in rows:
         with st.container(border=True):
-            st.subheader(row["other_name"])
+            # Unread chats stand out with a blue dot, like WhatsApp or Instagram.
+            if row.get("unread"):
+                st.subheader(f"🔵 {row['other_name']}")
+            else:
+                st.subheader(row["other_name"])
             show_listing(row)
             last = row.get("last_activity", row["last_message"])
             if last:
@@ -117,6 +121,12 @@ def show_chat(selected: str) -> None:
     except Exception as error:
         report_error(error)
         return
+    # Opening the chat marks it read, so it drops off the Inbox unread badge.
+    # Best-effort: a failure here must never stop the chat from showing.
+    try:
+        repository.mark_read(selected)
+    except Exception:
+        pass
     negotiation_available = row["listing_id"] is not None and row.get("listing_status") == "active"
     if not negotiation_available:
         reason = {"reserved": "This listing is reserved.", "sold": "This listing has been sold.",

@@ -122,12 +122,18 @@ def get_inbox() -> list[dict]:
     the offer made or answered most recently.
     """
     actor = _actor()
+    # One lookup of this student's unread chats, so each preview can show a dot.
+    # Empty if read-tracking isn't set up yet, so the inbox still loads.
+    try:
+        unread = set(database.messaging_unread_conversations(actor))
+    except Exception:
+        unread = set()
     summaries = []
     for item in database.messaging_inbox(actor):
         row = item["conversation"]
         require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
         summary = {**row, "other_name": item.get("other_name") or "Profile unavailable",
-                   "own_profile_id": actor}
+                   "own_profile_id": actor, "unread": row["id"] in unread}
         latest = item.get("last_message")
         summary["last_message"] = latest
         events = []
@@ -200,6 +206,20 @@ def _authorized(conversation_id: str, actor: int) -> dict:
 
 def get_conversation(conversation_id: str) -> dict:
     return _authorized(conversation_id, _actor())
+
+
+def mark_read(conversation_id: str) -> None:
+    """Record that the signed-in student just opened this chat, so its messages
+    stop counting towards the Inbox unread badge."""
+    actor = _actor()
+    _authorized(conversation_id, actor)  # only a participant may mark it read
+    database.messaging_mark_read(_uuid(conversation_id), actor)
+
+
+def unread_conversations() -> set[str]:
+    """Ids of the signed-in student's chats that have messages they haven't opened.
+    Powers both the Inbox badge count and the unread dot in the inbox list."""
+    return set(database.messaging_unread_conversations(_actor()))
 
 
 def list_conversations() -> list[dict]:

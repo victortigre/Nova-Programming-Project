@@ -56,6 +56,7 @@ def test_unified_inbox_uses_one_real_actor_for_buying_and_selling(ui, monkeypatc
     monkeypatch.setattr(repository, 'get_conversation_details', REAL_DETAILS)
     monkeypatch.setattr(database, 'messaging_actor_profile', lambda email: {'id': 7, 'rules_accepted_at': 'accepted'})
     monkeypatch.setattr(database, 'messaging_inbox', query)
+    monkeypatch.setattr(database, 'messaging_unread_conversations', lambda actor: [])
     monkeypatch.setattr(database, 'messaging_conversation', lambda cid, actor: rows.get(cid))
     monkeypatch.setattr(database, 'get_profile_by_id', lambda pid: {'name': {8: 'Seller', 9: 'Buyer'}[pid]})
     monkeypatch.setattr(database, 'get_listing', lambda lid: {'status': 'active'})

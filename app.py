@@ -12,6 +12,7 @@ import streamlit as st
 
 import database
 import deals
+import messaging_repository
 import ui
 from accounts import (admin_emails, email_is_verified, is_admin, logged_in_user, may_resend,
                       nova_email, resend_verification_email)
@@ -161,6 +162,13 @@ try:
 except Exception:
     to_do = {"sales": 0, "purchases": 0}
 
+# The Inbox count: chats with messages this student hasn't opened yet, like the
+# number on Instagram's direct messages. 0 (no badge) if messaging isn't set up.
+try:
+    unread_inbox = len(messaging_repository.unread_conversations())
+except Exception:
+    unread_inbox = 0
+
 
 def with_count(title: str, count: int) -> str:
     return f"{title} ({count})" if count else title
@@ -175,7 +183,8 @@ pages = [
             icon=":material/inventory_2:"),
     st.Page("views/purchases.py", title=with_count("My purchases", to_do["purchases"]),
             icon=":material/shopping_bag:"),
-    st.Page("views/messaging.py", title="Inbox", icon=":material/chat:"),
+    st.Page("views/messaging.py", title=with_count("Inbox", unread_inbox),
+            icon=":material/chat:"),
     st.Page("views/profile.py", title="My profile", icon=":material/person:"),
     # Linked from "My profile" and "Sell an item", so it is not shown in the menu.
     st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:",
