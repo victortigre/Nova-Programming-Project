@@ -109,102 +109,99 @@ def show_inbox() -> None:
 
 @st.fragment
 def show_chat(selected: str) -> None:
-    with st.container(key="chat-toolbar"):
-        st.html("<style>.st-key-chat-toolbar [data-testid='stHorizontalBlock'] "
-                "{flex-wrap:nowrap;gap:8px;} "
-                ".st-key-chat-toolbar [data-testid='stColumn'] "
-                "{flex:1 1 0!important;min-width:0;}</style>")
-        back, refresh = st.columns(2)
-        with back:
-            if st.button("← Back to Inbox"):
-                st.session_state.pop("messaging_selected", None)
-                st.rerun()  # The whole page: it switches back to the inbox.
-        with refresh:
-            with st.container(horizontal_alignment="right"):
-                st.button("Refresh chat")
-    limit = st.session_state.get("messaging_history_limit", 50)
-    try:
-        with st.spinner("Loading chat…"), repository.checked_once():
-            row = repository.get_conversation_details(selected)
-            history = repository.get_chat_events(selected, limit=limit)
-            latest_offers = repository.get_offers(selected, limit=1)
-    except Exception as error:
-        report_error(error)
-        return
-    # Opening the chat marks it read, so it drops off the Inbox unread badge.
-    # Best-effort: a failure here must never stop the chat from showing.
-    try:
-        repository.mark_read(selected)
-    except Exception:
-        pass
-    negotiation_available = row["listing_id"] is not None and row.get("listing_status") == "active"
-    if not negotiation_available:
-        reason = {"reserved": "This listing is reserved.", "sold": "This listing has been sold.",
-                  "unknown": "Listing availability could not be verified. Refresh chat to try again."}.get(
-            row.get("listing_status"), "Listing no longer available.")
-        notice = reason + " Negotiation is unavailable; you can still exchange messages and view offer history."
-        if row.get("listing_status") == "reserved":
-            st.caption(notice)
-        else:
-            st.info(notice)
-    messaging_ui.chat_header(row)
-    if not history:
-        st.info("No messages yet. Send the first message below.")
-    if len(history) == limit and limit < 100:
-        if st.button("Show more history"):
-            st.session_state.messaging_history_limit = 100
-            rerun_this_part()
-    elif len(history) == 100:
-        st.caption("Showing the latest 100 chat events.")
-    current = latest_offers[0] if latest_offers else None
-    for message, separator, show_avatar in messaging_ui.chat_event_groups(history):
-        if separator:
-            messaging_ui.date_separator(separator)
-        protected_buy_now = (message["type"] == "offer" and message["status"] == "accepted"
-                             and row["own_profile_id"] == row["buyer_id"])
-        with messaging_ui.message_bubble(message, row, compact=not protected_buy_now,
-                                         show_avatar=show_avatar) as own:
-            if message["type"] == "offer":
-                st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
-                accepted = message["status"] == "accepted"
-                st.subheader(f"Offer Accepted — {format_price(message['amount_cents'])}" if accepted
-                             else format_price(message["amount_cents"]))
-                with st.container(key=f"dm-original-price-{message['id']}"):
-                    st.caption(f"Original listing price: {format_price(row['price_cents'])}")
-                st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
-                if protected_buy_now:
-                    # Keep the accepted Buy Now card's original layout exactly.
-                    show_time(message["created_at"])
-                if message.get("note"):
-                    st.text(message["note"])
-                if accepted:
-                    st.text(messaging_ui.accepted_offer_description(message, row))
-                    if row["own_profile_id"] == row["buyer_id"]:
-                        # Presentation only. No checkout callback or purchase write.
-                        st.button("Buy Now", key=f"buy_now_{message['id']}",
-                                  type="primary", disabled=True, width="stretch")
-                    st.caption("Accepting this offer does not reserve or pay for the item.")
-                if (current and current["id"] == message["id"] and message["status"] == "pending"
-                        and not own and negotiation_available):
-                    offer_ui.response_buttons(selected, message)
-                if not protected_buy_now:
-                    messaging_ui.chat_timestamp(message)
+    messaging_ui.apply_open_chat_styles()
+    with st.container(key="open-chat-surface"):
+        with st.container(key="chat-toolbar"):
+            back, participant, refresh = st.columns([1.8, 6.4, 1.8], gap="small", vertical_alignment="center")
+            with back:
+                if st.button("← Back to Inbox"):
+                    st.session_state.pop("messaging_selected", None)
+                    st.rerun()  # The whole page: it switches back to the inbox.
+            with participant:
+                participant_header = st.empty()
+            with refresh:
+                with st.container(horizontal_alignment="right"):
+                    st.button("Refresh chat")
+        with st.container(key="chat-header-divider"):
+            st.divider()
+        limit = st.session_state.get("messaging_history_limit", 50)
+        try:
+            with st.spinner("Loading chat…"), repository.checked_once():
+                row = repository.get_conversation_details(selected)
+                history = repository.get_chat_events(selected, limit=limit)
+                latest_offers = repository.get_offers(selected, limit=1)
+        except Exception as error:
+            report_error(error)
+            return
+        # Opening the chat marks it read, so it drops off the Inbox unread badge.
+        # Best-effort: a failure here must never stop the chat from showing.
+        try:
+            repository.mark_read(selected)
+        except Exception:
+            pass
+        negotiation_available = row["listing_id"] is not None and row.get("listing_status") == "active"
+        if not negotiation_available:
+            reason = {"reserved": "This listing is reserved.", "sold": "This listing has been sold.",
+                      "unknown": "Listing availability could not be verified. Refresh chat to try again."}.get(
+                row.get("listing_status"), "Listing no longer available.")
+            notice = reason + " Negotiation is unavailable; you can still exchange messages and view offer history."
+            if row.get("listing_status") == "reserved":
+                st.caption(notice)
             else:
-                st.text(message["body"])
-                messaging_ui.chat_timestamp(message)
-    if (row["own_profile_id"] == row["buyer_id"] and negotiation_available
-            and (not current or current["status"] == "declined")):
-        with st.expander("Make an Offer"):
-            offer_ui.show_form(f"chat-{selected}", default_cents=row["price_cents"], conversation_id=selected)
-    pending = st.session_state.get("messaging_pending")
-    if pending and pending["conversation_id"] == selected:
-        st.warning("Your last send was not confirmed. Retry uses the same message ID to avoid duplicates.")
-        st.text(pending["body"])
-        if st.button("Retry message"):
-            try_send(pending)
-        if st.button("Dismiss pending message"):
-            st.session_state.pop("messaging_pending", None)
-            rerun_this_part()
+                st.info(notice)
+        with participant_header.container():
+            messaging_ui.chat_header(row, divider=False)
+        if not history:
+            st.info("No messages yet. Send the first message below.")
+        if len(history) == limit and limit < 100:
+            if st.button("Show more history"):
+                st.session_state.messaging_history_limit = 100
+                rerun_this_part()
+        elif len(history) == 100:
+            st.caption("Showing the latest 100 chat events.")
+        current = latest_offers[0] if latest_offers else None
+        for message, separator, show_avatar in messaging_ui.chat_event_groups(history):
+            if separator:
+                messaging_ui.date_separator(separator)
+            with messaging_ui.message_bubble(message, row, compact=True,
+                                             show_avatar=show_avatar) as own:
+                if message["type"] == "offer":
+                    st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
+                    accepted = message["status"] == "accepted"
+                    st.subheader(f"Offer Accepted — {format_price(message['amount_cents'])}" if accepted
+                                 else format_price(message["amount_cents"]))
+                    with st.container(key=f"dm-original-price-{message['id']}"):
+                        st.caption(f"Original listing price: {format_price(row['price_cents'])}")
+                    st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
+                    if message.get("note"):
+                        st.text(message["note"])
+                    if accepted:
+                        st.text(messaging_ui.accepted_offer_description(message, row))
+                        if row["own_profile_id"] == row["buyer_id"]:
+                            # Presentation only. No checkout callback or purchase write.
+                            st.button("Buy Now", key=f"buy_now_{message['id']}",
+                                      type="primary", disabled=True, width="stretch")
+                        st.caption("Accepting this offer does not reserve or pay for the item.")
+                    if (current and current["id"] == message["id"] and message["status"] == "pending"
+                            and not own and negotiation_available):
+                        offer_ui.response_buttons(selected, message)
+                    messaging_ui.chat_timestamp(message)
+                else:
+                    st.text(message["body"])
+                    messaging_ui.chat_timestamp(message)
+        if (row["own_profile_id"] == row["buyer_id"] and negotiation_available
+                and (not current or current["status"] == "declined")):
+            with st.expander("Make an Offer"):
+                offer_ui.show_form(f"chat-{selected}", default_cents=row["price_cents"], conversation_id=selected)
+        pending = st.session_state.get("messaging_pending")
+        if pending and pending["conversation_id"] == selected:
+            st.warning("Your last send was not confirmed. Retry uses the same message ID to avoid duplicates.")
+            st.text(pending["body"])
+            if st.button("Retry message"):
+                try_send(pending)
+            if st.button("Dismiss pending message"):
+                st.session_state.pop("messaging_pending", None)
+                rerun_this_part()
     body = st.chat_input("Write a message…", max_chars=MAX_MESSAGE_LENGTH,
                          disabled=pending is not None, key=f"compose_{selected}")
     if pending and pending["conversation_id"] != selected:
@@ -216,7 +213,8 @@ def show_chat(selected: str) -> None:
 
 
 messaging_ui.apply_chat_styles()
-st.title("Inbox")
+if st.session_state.get("messaging_selected") is None:
+    st.title("Inbox")
 # One page load = one check of the signed-in student, shared by everything below.
 with repository.checked_once():
     try:

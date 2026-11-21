@@ -60,7 +60,7 @@ def test_chat_header_toolbar_refresh_and_back_preserve_state(ui, photo):
     app.button(key='chat_' + CID).click().run()
     assert not app.exception
     toolbar = next(c for c in app.get('flex_container') if c.key == 'chat-toolbar')
-    left, right = toolbar.get('column')
+    left, right = toolbar.get('column')[0], toolbar.get('column')[-1]
     assert left.button[0].label == '← Back to Inbox'
     assert right.button[0].label == 'Refresh chat'
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')

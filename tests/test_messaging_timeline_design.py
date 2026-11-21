@@ -105,16 +105,17 @@ def test_pending_offer_actions_still_belong_only_to_recipient(ui, actor):
         assert any(b.label == 'Send Counteroffer' for b in app.button)
 
 
-def test_buy_now_card_has_original_layout_and_button_without_compact_wrapper(ui):
+def test_buy_now_card_keeps_widget_and_places_compact_timestamp_last(ui):
     accepted = {**OFFER, 'status': 'accepted', 'sender_id': 8, 'note': 'Agreed note'}
     app, _ = open_chat(ui, [accepted])
     keys = [c.key for c in app.get('flex_container') if c.key]
-    assert 'chat-compact-offer-' + OID not in keys
-    assert 'chat-time-offer-' + OID not in keys
+    assert 'chat-compact-offer-' + OID in keys
+    assert 'chat-time-offer-' + OID in keys
     card = next(c for c in app.get('flex_container') if c.key == 'dm-other-offer-' + OID)
     assert [t.value for t in card.text] == [ROW['other_name'], 'Status: Accepted', 'Agreed note', "You have accepted the seller's counteroffer."]
-    # Protected card retains its original timestamp placement, width and padding.
-    assert any('2026' in t.value and '·' in t.value for t in card.caption)
+    # The newly approved redesign includes accepted cards, but not button logic.
+    assert not any('2026' in t.value or '·' in t.value for t in card.caption)
+    assert card.get('flex_container')[-1].key == 'chat-time-offer-' + OID
     buy = app.button(key='buy_now_' + OID)
     assert buy.disabled and buy.proto.type == 'primary'
     with pytest.raises(AppTestError, match='disabled button'):
