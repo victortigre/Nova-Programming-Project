@@ -331,8 +331,7 @@ def inbox_timestamp(value: str, *, now: datetime | None = None) -> str:
 
 
 def chat_header(row: dict, *, divider: bool = True) -> None:
-    """Participant photo and immutable listing details; no new data reads."""
-    from listings import format_price
+    """Name and photo only inside an open chat; no new data reads."""
     with st.container(key="chat-participant-header"):
         st.html("<style>.st-key-chat-participant-header [data-testid='stHorizontalBlock'] "
                 "{flex-wrap:nowrap;gap:12px;} "
@@ -357,10 +356,6 @@ def chat_header(row: dict, *, divider: bool = True) -> None:
                     f'background-position:center;background-image:{background}"></div>')
         with details:
             st.subheader(row["other_name"])
-            st.caption(row["listing_title_snapshot"])
-            st.caption(format_price(row["price_cents"]))
-            if row["listing_id"] is None:
-                st.caption("Listing no longer available")
     if divider:
         st.divider()
 
