@@ -132,3 +132,28 @@ def test_new_css_is_open_chat_scoped_and_does_not_restyle_buttons_or_inbox():
     assert 'width: 62%' in css and 'font-size: 0.88rem' in css
     assert 'border-color: #E5E7EB' in css and '@media (max-width: 700px)' in css
     assert 'button' not in css and 'inbox' not in css and 'stAppViewContainer' not in css
+
+
+@pytest.mark.parametrize('name,title', [
+    ('Jonathan', 'Surfboard'),
+    ('Jonathan with a longer participant name', 'A long listing title that wraps on a narrow screen'),
+])
+def test_header_text_resets_caption_compensation_for_compact_spacing(ui, name, title):
+    app, mocks, _ = ui
+    mocks['get_conversation_details'].return_value = {**ROW, 'other_name': name, 'listing_title_snapshot': title}
+    app.run()
+    app.button(key='chat_' + CID).click().run()
+    assert not app.exception
+    header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
+    assert header.subheader[0].value == name
+    assert [c.value for c in header.caption] == [title, '€20.00']
+    styles = html(app)
+    assert ".st-key-chat-participant-header [data-testid='stCaptionContainer'] {color:#737985;margin:0;}" in styles
+    assert ".st-key-chat-participant-header [data-testid='stCaptionContainer'] p {margin:0;line-height:1.4;}" in styles
+    # Name, listing and price remain separate flow elements alongside the photo.
+    photo, details = header.get('column')
+    assert not photo.subheader and details.subheader[0].value == name
+    assert len(details.caption) == 2
+    toolbar = next(c for c in app.get('flex_container') if c.key == 'chat-toolbar')
+    assert toolbar.get('column')[0].button[0].label == '← Back to Inbox'
+    assert toolbar.get('column')[-1].button[0].label == 'Refresh chat'
