@@ -69,11 +69,18 @@ def test_add_credits_with_the_buttons(db, amount):
     assert bal(db, BUYER) == amount
 
 
-@pytest.mark.parametrize("amount", [0, -1000, 999, 123_456])
-def test_other_amounts_are_refused(db, amount):
+@pytest.mark.parametrize("amount", [0, -1000])
+def test_zero_or_negative_is_refused(db, amount):
     with pytest.raises(wallet.WalletError):
         wallet.add_credits(db, BUYER, amount)
     assert bal(db, BUYER) == 0
+
+
+@pytest.mark.parametrize("amount", [999, 123_456, 400_000])
+def test_any_typed_amount_is_added(db, amount):
+    # Not only the fixed button amounts: a student can top up any amount.
+    wallet.add_credits(db, BUYER, amount)
+    assert bal(db, BUYER) == amount
 
 
 def test_balance_has_a_maximum(db):

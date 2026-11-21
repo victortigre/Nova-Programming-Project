@@ -95,12 +95,13 @@ def not_enough_message(db, profile_id: int, price_cents: int) -> str:
 # --- the student: add credits --------------------------------------------------
 
 def add_credits(db, email: str, amount_cents: int) -> None:
-    """The demo top-up: only the fixed amounts, and never above the maximum balance."""
+    """The demo top-up: any whole amount above zero (a quick button or a typed
+    one), never taking the balance above the maximum."""
     profile = _profile(db, email)
     if profile.get("blocked_at"):
         raise NotAllowed("Your account has been blocked.")
-    if amount_cents not in TOP_UP_AMOUNTS:
-        raise WalletError("Choose one of the amounts on the buttons.")
+    if type(amount_cents) is not int or amount_cents <= 0:
+        raise WalletError("Enter an amount to add, like 40 or 4000.")
     if balance_of(db, profile["id"]) + amount_cents > MAX_BALANCE_CENTS:
         raise WalletError(f"A balance can be at most {format_price(MAX_BALANCE_CENTS)}.")
     db.wallet_add_entry({"profile_id": profile["id"], "amount_cents": amount_cents,
