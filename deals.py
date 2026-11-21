@@ -1,5 +1,5 @@
-"""Buying: a buyer asks to buy a listing, the seller accepts, then BOTH sides
-confirm the hand-over before it counts as sold.
+"""Buying: a buyer asks to buy a listing, the seller accepts, they meet, and the
+BUYER confirms they got the item. That finishes the deal: it counts as sold.
 
 Like listings.py, every function takes `db` first (the pages pass the real
 `database` module, the tests pass the in-memory fake). Permissions are checked
@@ -9,10 +9,10 @@ seller only their own listing.
 Money (see wallet.py): when the seller accepts, the price is held from the
 buyer's Nova credits; when the buyer confirms they got the item, it goes to the
 seller; if the deal is called off before that, it goes back to the buyer.
-After the buyer has confirmed, the deal can no longer be cancelled.
-Once the seller confirms the hand-over, the buyer has 48 hours to confirm
-(money to the seller). Without an answer, the money goes to the seller
-automatically. After the hand-over the deal is final: there are no refunds.
+The seller doesn't need to confirm anything. They MAY tap "I handed it over":
+then, if the buyer forgets to confirm, the money goes to the seller
+automatically after 48 hours. After the hand-over the deal is final: there
+are no refunds.
 Before the hand-over, either side can simply cancel and the buyer is refunded
 at once.
 
@@ -21,7 +21,7 @@ A deal (purchase request) moves through these states:
     accepted   the seller picked this buyer; the listing is now Reserved
     declined   the seller said no (or another request was accepted)
     cancelled  either side called it off; the listing goes back to Active
-    completed  both sides confirmed the hand-over; the listing is Sold
+    completed  the buyer confirmed they got it (or 48 hours passed); Sold
 
 Changing a status safely: two clicks can arrive at the same moment (a double
 click, two browser tabs, the buyer cancelling while the seller accepts). So a
@@ -172,18 +172,21 @@ def decline_request(db, request_id: int, seller_email: str) -> None:
 # --- the two confirmations ----------------------------------------------------
 
 def confirm_sold(db, request_id: int, seller_email: str) -> None:
-    """The seller confirms they handed the item over."""
+    """The seller says they handed the item over (optional).
+
+    It starts the 48 hours: if the buyer doesn't confirm by then, the seller is
+    paid automatically.
+    """
     request, listing, seller = _my_request(db, request_id, seller_email)
     if request["status"] != ACCEPTED:
         raise ListingError(["There's no accepted buyer to confirm with."])
     if not db.update_request(request_id, {"seller_confirmed_at": _now()},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal isn't active any more."])
-    _complete_if_both(db, request_id)
 
 
 def confirm_received(db, request_id: int, buyer_email: str) -> None:
-    """The buyer confirms they received the item."""
+    """The buyer confirms they received the item: the seller is paid, the deal is done."""
     buyer = _profile(db, buyer_email)
     request = db.get_request(request_id)
     if request is None:
@@ -195,17 +198,15 @@ def confirm_received(db, request_id: int, buyer_email: str) -> None:
     if not db.update_request(request_id, {"buyer_confirmed_at": _now()},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal isn't active any more."])
-    # The buyer is happy: the held money goes to the seller.
+    # The buyer is happy: the held money goes to the seller, and the deal is done.
     wallet.release(db, request, db.get_listing(request["listing_id"]))
-    _complete_if_both(db, request_id)
+    _complete(db, request_id)
 
 
-def _complete_if_both(db, request_id: int) -> None:
-    """Once BOTH sides have confirmed, mark the deal completed and the listing Sold."""
+def _complete(db, request_id: int) -> None:
+    """Mark the deal completed and the listing Sold (after the buyer confirmed)."""
     request = db.get_request(request_id)
-    if not (request["seller_confirmed_at"] and request["buyer_confirmed_at"]):
-        return
-    # If both confirm at the same moment, only one of them completes the deal.
+    # Only if it is still accepted: a double click completes it once.
     if db.update_request(request_id, {"status": COMPLETED}, only_if_status=ACCEPTED):
         listing = db.get_listing(request["listing_id"])
         if listing is not None:
@@ -253,7 +254,7 @@ def _pay_seller(db, request: dict) -> bool:
                              only_if_status=ACCEPTED):
         return False
     wallet.release(db, request, db.get_listing(request["listing_id"]))
-    _complete_if_both(db, request["id"])
+    _complete(db, request["id"])
     return True
 
 
@@ -381,7 +382,6 @@ def to_do(db, email: str) -> dict[str, int]:
     """How many deals are waiting for this student to do something.
 
         answer            buyers asked for your item; accept or decline
-        confirm_sale      the buyer confirmed they got it; now you confirm
         confirm_received  a seller accepted you; meet them, then confirm
         sales, purchases  the totals for the "My listings" and "My purchases" pages
     """
@@ -389,11 +389,7 @@ def to_do(db, email: str) -> dict[str, int]:
     release_overdue(db, email)  # 48 hours passed on a hand-over? Pay the seller now.
     live = db.live_deals_of(me["id"])
     answer = sum(1 for r in live["selling"] if r["status"] == REQUESTED)
-    confirm_sale = sum(1 for r in live["selling"]
-                       if r["status"] == ACCEPTED and r["buyer_confirmed_at"]
-                       and not r["seller_confirmed_at"])
     confirm_received = sum(1 for r in live["buying"]
                            if r["status"] == ACCEPTED and not r["buyer_confirmed_at"])
-    return {"answer": answer, "confirm_sale": confirm_sale,
-            "confirm_received": confirm_received,
-            "sales": answer + confirm_sale, "purchases": confirm_received}
+    return {"answer": answer, "confirm_received": confirm_received,
+            "sales": answer, "purchases": confirm_received}

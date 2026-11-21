@@ -60,9 +60,7 @@ def run(action, item_id: int, done_message: str, *extra) -> None:
 
 def needs_me(request: dict) -> bool:
     """Is this request waiting for the seller? The same rule as the number in the menu."""
-    if request["status"] == deals.REQUESTED:
-        return True
-    return bool(request["buyer_confirmed_at"] and not request["seller_confirmed_at"])
+    return request["status"] == deals.REQUESTED
 
 
 def listing_buttons(listing: dict, has_buyer: bool, waiting: int) -> None:
@@ -107,25 +105,27 @@ def request_row(request: dict, price: int) -> None:
         if columns[1].button("Decline", key=f"decline-{rid}"):
             run(deals.decline_request, rid, "Request declined.")
         return
-    # Accepted: the item is reserved for this buyer.
-    if request["buyer_confirmed_at"] and price:
-        st.caption(f"The buyer confirmed they got it: {listings.format_price(price)} "
-                   "is in your Nova credits.")
-    elif price:
+    # Accepted: the item is reserved for this buyer. The buyer's confirmation
+    # finishes the deal; the seller doesn't have to do anything.
+    if price:
         st.caption(f"{listings.format_price(price)} is held from the buyer's credits. "
-                   "You get it when they confirm they received the item.")
+                   "You get it as soon as they confirm they received the item.")
     if request["seller_confirmed_at"]:
-        st.markdown(":orange[You confirmed. Waiting for the buyer to confirm too…]")
+        st.markdown(":orange[Handed over. Waiting for the buyer to confirm…]")
         if price and (due := deals.due_text(request)):
             st.caption(f"If the buyer doesn't answer, you get "
                        f"{listings.format_price(price)} automatically on {due}.")
     else:
-        st.markdown(":green[Reserved for this buyer. Meet them, then confirm the hand-over.]")
-        if st.button("I handed it over — confirm sold", key=f"handed-{rid}", type="primary"):
+        st.markdown(":green[Reserved for this buyer. Meet them and hand it over. "
+                    "Once they confirm, it's sold.]")
+        if st.button("I handed it over", key=f"handed-{rid}",
+                     help="Optional. If the buyer forgets to confirm, you are paid "
+                          "automatically 48 hours after this."):
             run(deals.confirm_sold, rid,
-                "Confirmed. Once the buyer confirms too, it's marked sold.")
+                "Noted. If the buyer doesn't confirm within 48 hours, you're paid "
+                "automatically.")
     # Cancelling is only possible before the hand-over.
-    if (not request["buyer_confirmed_at"] and not request["seller_confirmed_at"]
+    if (not request["seller_confirmed_at"]
             and st.button("Cancel deal", key=f"cancel-{rid}")):
         run(deals.cancel_deal, rid, "Deal cancelled. The item is active again"
             + (" and the buyer got their credits back." if price else "."))

@@ -132,7 +132,6 @@ def test_accept_fails_if_the_buyer_spent_the_credits_meanwhile(db):
 def test_free_items_never_touch_the_wallet(db):
     request_id = deal(db, sell(db, 0))
     deals.confirm_received(db, request_id, BUYER)
-    deals.confirm_sold(db, request_id, SELLER)
     assert bal(db, BUYER) == 0 and bal(db, SELLER) == 0
     assert db.wallet == []
 
@@ -145,9 +144,7 @@ def test_buyer_confirming_pays_the_seller(db):
     deals.confirm_received(db, request_id, BUYER)
     assert bal(db, SELLER) == 2_000
     assert bal(db, BUYER) == 3_000
-    deals.confirm_sold(db, request_id, SELLER)
-    assert db.get_request(request_id)["status"] == deals.COMPLETED
-    assert bal(db, SELLER) == 2_000  # paid once, not again on completion
+    assert db.get_request(request_id)["status"] == deals.COMPLETED  # done at once
 
 
 def test_seller_confirming_first_does_not_pay_yet(db):
@@ -192,7 +189,7 @@ def test_after_the_buyer_confirmed_the_deal_cannot_be_called_off(db):
     for call_off in (lambda: deals.cancel_deal(db, request_id, SELLER),
                      lambda: deals.cancel_deal(db, request_id, BUYER),
                      lambda: deals.decline_request(db, request_id, SELLER)):
-        with pytest.raises(ListingError, match="already confirmed"):
+        with pytest.raises(ListingError):
             call_off()
     assert bal(db, SELLER) == 2_000 and bal(db, BUYER) == 3_000
 

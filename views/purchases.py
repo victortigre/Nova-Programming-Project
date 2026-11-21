@@ -2,7 +2,7 @@
 
 A buyer sees every deal they're in, cancels a request, and — once the seller has
 accepted and you've met — confirms you received the item. The item is only marked
-sold when BOTH you and the seller have confirmed. After that, you rate the seller.
+sold as soon as you confirm you got it. After that, you rate the seller.
 Requests that ended without a sale (declined, cancelled) stay visible under
 "Closed", so a buyer always learns what happened.
 """
@@ -108,11 +108,7 @@ def show_deal(deal: dict) -> None:
                 act(deals.cancel_deal, request_id, "Request cancelled.")
 
         elif status == deals.ACCEPTED:
-            if deal["buyer_confirmed_at"]:
-                st.markdown(":orange[You confirmed. Waiting for the seller to confirm too…]")
-                if price:
-                    st.caption(f"{listings.format_price(price)} went to the seller.")
-            elif deal.get("seller_confirmed_at"):
+            if deal.get("seller_confirmed_at"):
                 # Handed over: 48 hours to confirm. No cancelling any more.
                 st.warning(f"The seller says they handed it over. Check the item and confirm "
                            f"by **{deals.due_text(deal)}**. After that, the payment goes to "
@@ -131,18 +127,19 @@ def show_deal(deal: dict) -> None:
                                "you have the item.")
                 if st.button("I received the item", key=f"recv-{request_id}", type="primary"):
                     act(deals.confirm_received, request_id,
-                        "Thanks! Waiting for the seller to confirm too.")
+                        "Thanks! " + (f"{listings.format_price(price)} went to the seller."
+                                      if price else "Enjoy!"))
             if listing.get("seller_id"):
                 st.page_link("views/public_profile.py", label="View the seller's profile",
                              icon=":material/person:", query_params={"id": listing["seller_id"]})
             # Cancelling is only possible before the hand-over.
-            if (not deal["buyer_confirmed_at"] and not deal.get("seller_confirmed_at")
+            if (not deal.get("seller_confirmed_at")
                     and st.button("Cancel deal", key=f"cancel-{request_id}")):
                 act(deals.cancel_deal, request_id,
                     "Deal cancelled." + (" Your credits are back." if price else ""))
 
         elif status == deals.COMPLETED:
-            st.markdown(":green[✅ Done — both of you confirmed. Enjoy!]")
+            st.markdown(":green[✅ Done — you confirmed you got it. Enjoy!]")
             rate_the_seller(request_id, listings.plain_text(seller["name"]) if seller
                             else "the seller")
 
