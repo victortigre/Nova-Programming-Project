@@ -375,7 +375,7 @@ def names_of(profile_ids: list[int]) -> dict[int, str]:
 
 # --- Reviews ------------------------------------------------------------------
 #
-# After a completed deal, buyer and seller each rate the other once (👍 or 👎).
+# After a completed deal, buyer and seller each rate the other once (1 to 5 stars, plus optional feedback).
 # The rules are in reviews.py; here we only store.
 
 
@@ -612,3 +612,38 @@ def messaging_conversation_for_listing(listing_id: int, buyer_id: int) -> dict |
             .eq("original_listing_id", listing_id).eq("buyer_id", buyer_id)
             .limit(1).execute().data)
     return rows[0] if rows else None
+
+
+# --- Wallet (Nova credits, see wallet.py) ---------------------------------------
+# The rules are in wallet.py. The two steps that must never run twice or spend
+# the same credits twice (hold, settle) are database functions in
+# database_setup.sql, so the check and the change happen in one step.
+
+
+def wallet_entries_of(profile_id: int) -> list[dict]:
+    """Every wallet line of one student, newest first."""
+    return (
+        _client().table("wallet_entries").select("*").eq("profile_id", profile_id)
+        .order("created_at", desc=True).order("id", desc=True)
+        .execute().data
+    )
+
+
+def wallet_add_entry(row: dict) -> dict:
+    """Store one wallet line (only used for added credits)."""
+    return _client().table("wallet_entries").insert(row).execute().data[0]
+
+
+def wallet_hold(profile_id: int, request_id: int, amount_cents: int, note: str | None) -> bool:
+    """Hold money for a deal if the balance is enough (one step, in the database)."""
+    return bool(_client().rpc("wallet_hold", {
+        "p_profile": profile_id, "p_request": request_id,
+        "p_amount": amount_cents, "p_note": note,
+    }).execute().data)
+
+
+def wallet_settle(request_id: int, kind: str, profile_id: int) -> bool:
+    """Release a deal's held money to the seller, or refund it to the buyer (once)."""
+    return bool(_client().rpc("wallet_settle", {
+        "p_request": request_id, "p_kind": kind, "p_profile": profile_id,
+    }).execute().data)

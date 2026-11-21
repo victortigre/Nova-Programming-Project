@@ -12,6 +12,7 @@ import database
 import deals
 import listings
 import reviews
+import ui
 from accounts import logged_in_user, verified_nova_email
 
 email = verified_nova_email(logged_in_user())
@@ -44,7 +45,7 @@ def act(action, request_id: int, done_message: str, *extra) -> None:
         st.rerun()
 
 
-def request_row(request: dict) -> None:
+def request_row(request: dict, price: int = 0) -> None:
     rid = request["id"]
     st.divider()
     st.write(f"**{request['buyer_name']}** wants to buy this.")
@@ -55,15 +56,36 @@ def request_row(request: dict) -> None:
         if columns[1].button("Decline", key=f"decline-{rid}"):
             act(deals.decline_request, rid, "Request declined.")
     elif request["status"] == deals.ACCEPTED:
-        if request["seller_confirmed_at"]:
+        if request["buyer_confirmed_at"] and price:
+            st.caption(f"The buyer confirmed they got it: {listings.format_price(price)} "
+                       "is in your Nova credits.")
+        elif price:
+            st.caption(f"{listings.format_price(price)} is held from the buyer's credits. "
+                       "You get it when they confirm they received the item.")
+        if request.get("returned_at"):
+            st.warning(f"The buyer says they **gave the item back**. Check it and confirm "
+                       f"by **{deals.refund_text(request)}**. After that, the buyer is "
+                       "refunded automatically.", icon=":material/undo:")
+            if st.button("I got it back, refund the buyer", key=f"return-ok-{rid}",
+                         type="primary"):
+                act(deals.confirm_return, rid,
+                    "Return confirmed. The buyer got their credits back and the item "
+                    "is active again.")
+        elif request["seller_confirmed_at"]:
             st.markdown(":orange[You confirmed. Waiting for the buyer to confirm too…]")
+            if price and (due := deals.due_text(request)):
+                st.caption(f"If the buyer doesn't answer or return it, you get "
+                           f"{listings.format_price(price)} automatically on {due}.")
         else:
             st.markdown(":green[Reserved for this buyer. Meet them, then confirm the hand-over.]")
             if st.button("I handed it over — confirm sold", key=f"sold-{rid}", type="primary"):
                 act(deals.confirm_sold, rid,
                     "Confirmed. Once the buyer confirms too, it's marked sold.")
-        if st.button("Cancel deal", key=f"cancel-{rid}"):
-            act(deals.cancel_deal, rid, "Deal cancelled. The item is active again.")
+        # Cancelling is only possible before the hand-over.
+        if (not request["buyer_confirmed_at"] and not request["seller_confirmed_at"]
+                and st.button("Cancel deal", key=f"cancel-{rid}")):
+            act(deals.cancel_deal, rid, "Deal cancelled. The item is active again"
+                + (" and the buyer got their credits back." if price else "."))
 
 
 # Only active/reserved listings can have live requests.
@@ -81,7 +103,7 @@ try:
             st.markdown(f"### {listings.plain_text(listing['title'])}")
             st.caption(f"{listings.format_price(listing['price_cents'])} · {listing['status']}")
             for request in requests:
-                request_row(request)
+                request_row(request, listing.get("price_cents") or 0)
 except Exception:
     st.info("Buying isn't set up in the database yet. Check back soon.")
     st.stop()
@@ -111,11 +133,9 @@ for sale in completed:
         if not rating_ready:
             continue
         if rid in my_ratings:
-            st.caption(f"You rated this buyer {'👍' if my_ratings[rid] else '👎'}.")
+            st.caption(f"You rated {listings.plain_text(sale['buyer_name'])} "
+                       f"{reviews.star_text(my_ratings[rid]['stars'])}")
             continue
-        st.caption("How did it go? Your rating shows on the buyer's profile.")
-        up, down, _ = st.columns([1, 1, 4])
-        if up.button("👍 Good", key=f"up-{rid}"):
-            act(reviews.leave_review, rid, "Thanks for rating!", True)
-        if down.button("👎 Bad", key=f"down-{rid}"):
-            act(reviews.leave_review, rid, "Thanks for rating!", False)
+        sent = ui.rating_form(rid, "buyer", listings.plain_text(sale["buyer_name"]))
+        if sent:
+            act(reviews.leave_review, rid, "Thanks for rating!", *sent)

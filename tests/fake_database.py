@@ -16,6 +16,7 @@ class FakeDatabase:
         self.favorites = []  # (profile_id, listing_id), in the order they were saved
         self.reports = {}  # id -> report
         self.requests = {}  # id -> purchase request
+        self.wallet = []  # wallet lines, oldest first
         self.reviews = []  # every review, in the order they were left
         self._numbers = itertools.count(1)
 
@@ -159,7 +160,8 @@ class FakeDatabase:
     def insert_request(self, row):
         request = {**row, "id": next(self._numbers),
                    "status": row.get("status", "requested"),
-                   "seller_confirmed_at": None, "buyer_confirmed_at": None}
+                   "seller_confirmed_at": None, "buyer_confirmed_at": None,
+                   "returned_at": None}
         request["created_at"] = request["id"]  # a higher number means newer
         self.requests[request["id"]] = request
         return dict(request)
@@ -220,7 +222,10 @@ class FakeDatabase:
         for review in self.reviews:
             if (review["request_id"], review["reviewer_id"]) == (row["request_id"], row["reviewer_id"]):
                 raise ValueError("duplicate review")
-        review = {**row, "id": next(self._numbers)}
+        stars = row.get("stars")
+        if stars is not None and not 1 <= stars <= 5:  # like the check in the database
+            raise ValueError("stars must be 1 to 5")
+        review = {"stars": None, "comment": None, **row, "id": next(self._numbers)}
         self.reviews.append(review)
         return dict(review)
 
@@ -229,3 +234,40 @@ class FakeDatabase:
 
     def reviews_by(self, reviewer_id):
         return [dict(r) for r in self.reviews if r["reviewer_id"] == reviewer_id]
+
+
+    # --- wallet (same rules as the two database functions) -------------------
+
+    def wallet_entries_of(self, profile_id):
+        rows = [dict(e) for e in self.wallet if e["profile_id"] == profile_id]
+        return list(reversed(rows))  # newest first
+
+    def wallet_add_entry(self, row):
+        entry = {**row, "id": next(self._numbers)}
+        self.wallet.append(entry)
+        return dict(entry)
+
+    def _wallet_line(self, request_id, kind):
+        return next((e for e in self.wallet
+                     if e["request_id"] == request_id and e["kind"] == kind), None)
+
+    def wallet_hold(self, profile_id, request_id, amount_cents, note):
+        if self._wallet_line(request_id, "hold"):
+            return True
+        available = sum(e["amount_cents"] for e in self.wallet if e["profile_id"] == profile_id)
+        if available < amount_cents:
+            return False
+        self.wallet_add_entry({"profile_id": profile_id, "amount_cents": -amount_cents,
+                               "kind": "hold", "request_id": request_id, "note": note})
+        return True
+
+    def wallet_settle(self, request_id, kind, profile_id):
+        assert kind in ("release", "refund")
+        held = self._wallet_line(request_id, "hold")
+        if held is None:
+            return False
+        if self._wallet_line(request_id, "release") or self._wallet_line(request_id, "refund"):
+            return False
+        self.wallet_add_entry({"profile_id": profile_id, "amount_cents": -held["amount_cents"],
+                               "kind": kind, "request_id": request_id, "note": held["note"]})
+        return True
