@@ -236,32 +236,68 @@ try:
 except Exception:  # buying isn't set up in the database yet
     to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0}
 SALES, PURCHASES = "views/my_listings.py", "views/purchases.py"
-if to_do["answer"]:
-    ui.notice("answer", "🛍️",
-              f"{plural(to_do['answer'], 'buyer wants', 'buyers want')} to buy your items",
-              "Accept or decline the request on My listings.", SALES, "Answer")
-if to_do["confirm_sale"]:
-    ui.notice("confirm-sale", "✅",
-              f"{plural(to_do['confirm_sale'], 'buyer', 'buyers')} got the item",
-              "Confirm the hand-over too, so it counts as sold.", SALES, "Confirm")
-# Offers and counteroffers waiting for an answer (Inbox). Hidden if messaging
+
+# Offers and counteroffers waiting for an answer (Inbox). Empty if messaging
 # isn't set up in the database yet.
 try:
     offers_waiting = messaging_repository.offers_to_answer()
 except Exception:
     offers_waiting = []
+
+# Build every card that applies, in order. The count (or an offer's amount) is
+# part of each key, so a card that was dismissed comes back when there is new
+# activity (another buyer, a new offer).
+notices = []
+if to_do["answer"]:
+    notices.append(dict(
+        key=f"answer-{to_do['answer']}", emoji="🛍️",
+        title=f"{plural(to_do['answer'], 'buyer wants', 'buyers want')} to buy your items",
+        text="Accept or decline the request on My listings.", page=SALES, label="Answer"))
+if to_do["confirm_sale"]:
+    notices.append(dict(
+        key=f"confirm-sale-{to_do['confirm_sale']}", emoji="✅",
+        title=f"{plural(to_do['confirm_sale'], 'buyer', 'buyers')} got the item",
+        text="Confirm the hand-over too, so it counts as sold.", page=SALES, label="Confirm"))
 for item in offers_waiting:
     kind = "a counteroffer" if item["counter"] else "an offer"
-    ui.notice(f"offer-{item['conversation_id']}", "💬",
-              f"{html.escape(item['sender_name'])} sent you {kind}: "
+    notices.append(dict(
+        key=f"offer-{item['conversation_id']}-{item['amount_cents']}", emoji="💬",
+        title=f"{html.escape(item['sender_name'])} sent you {kind}: "
               f"{listings.format_price(item['amount_cents'])}",
-              f"For {html.escape(item['listing_title'])}. Accept, decline or counter in your Inbox.",
-              "views/messaging.py", "See offer", open_chat=item["conversation_id"])
+        text=f"For {html.escape(item['listing_title'])}. "
+             "Accept, decline or counter in your Inbox.",
+        page="views/messaging.py", label="See offer", open_chat=item["conversation_id"]))
 if to_do["confirm_received"]:
-    ui.notice("confirm-received", "🤝",
-              f"{plural(to_do['confirm_received'], 'seller', 'sellers')} accepted your request",
-              "Meet them, then confirm you got the item.", PURCHASES, "Open",
-              tone="green")
+    notices.append(dict(
+        key=f"confirm-received-{to_do['confirm_received']}", emoji="🤝",
+        title=f"{plural(to_do['confirm_received'], 'seller', 'sellers')} accepted your request",
+        text="Meet them, then confirm you got the item.", page=PURCHASES, label="Open",
+        tone="green"))
+
+# Dismissals last for this session only; the task itself is unchanged.
+dismissed = st.session_state.setdefault("dismissed_notices", set())
+visible = [card for card in notices if card["key"] not in dismissed]
+
+
+def dismiss_notice(key: str) -> None:
+    st.session_state["dismissed_notices"].add(key)
+
+
+def show_notice(card: dict) -> None:
+    ui.notice(card["key"], card["emoji"], card["title"], card["text"], card["page"],
+              card["label"], tone=card.get("tone", "violet"),
+              open_chat=card.get("open_chat"), on_dismiss=dismiss_notice)
+
+
+# Show the first two; keep the rest behind an "expand" toggle, so a long list
+# doesn't take over the whole page.
+NOTICES_SHOWN = 2
+for card in visible[:NOTICES_SHOWN]:
+    show_notice(card)
+if len(visible) > NOTICES_SHOWN:
+    with st.expander(f"Show {len(visible) - NOTICES_SHOWN} more notification(s)"):
+        for card in visible[NOTICES_SHOWN:]:
+            show_notice(card)
 
 
 # --- Browse and Saved tabs ----------------------------------------------------
@@ -278,15 +314,11 @@ with browse_tab:
     filters_col, grid_col = st.columns([1, 3], gap="medium")
 
     with filters_col:
-        prices = [item["price_cents"] / 100 for item in feed]
-        # Always €0 to the highest price a listing may have (€5,000), so the
-        # range is the same for everyone, whatever is on sale right now.
+        # Always €0 to the highest price a listing may have, so the range is the
+        # same for everyone, whatever is on sale right now.
         max_euros = listings.MAX_PRICE_CENTS // 100
         with ui.card("price-range"):
             st.markdown("**Price range**")
-            if prices:
-                st.caption(f"The average price is €{sum(prices) / len(prices):,.0f}")
-            ui.price_chart(prices)
             low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=10,
                                   format="€%d", label_visibility="collapsed")
         with ui.card("sort"):
