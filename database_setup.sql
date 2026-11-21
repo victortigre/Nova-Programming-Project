@@ -482,6 +482,61 @@ grant execute on function public.messaging_reject_conversation_update() to servi
 revoke all on function public.messaging_capture_listing() from public, anon, authenticated;
 grant execute on function public.messaging_capture_listing() to service_role;
 
+-- Read receipts for the Inbox unread badge. One row per (conversation, student):
+-- the time that student last opened that chat. A missing row means "never opened".
+create table if not exists public.conversation_reads (
+    conversation_id uuid not null references public.conversations(id) on delete cascade,
+    profile_id bigint not null references public.profiles(id) on delete cascade,
+    last_read_at timestamptz not null default now(),
+    primary key (conversation_id, profile_id)
+);
+create index if not exists conversation_reads_profile_idx
+    on public.conversation_reads (profile_id);
+
+-- Locked like the other messaging tables: no direct end-user access. Writes go
+-- through the SECURITY DEFINER function below; service_role may only read.
+alter table public.conversation_reads enable row level security;
+revoke all on public.conversation_reads from public, anon, authenticated, service_role;
+grant select on public.conversation_reads to service_role;
+
+-- Mark a chat as read now. Only a participant may; upsert keeps one row per pair.
+-- Fixed search_path and fully-qualified names prevent name substitution.
+create or replace function public.messaging_mark_read(p_conversation uuid, p_actor bigint)
+returns void language plpgsql security definer set search_path = ''
+as $$
+begin
+    if not exists (select 1 from public.conversations c
+                   where c.id = p_conversation and p_actor in (c.buyer_id, c.seller_id)) then
+        return;  -- not a participant: do nothing
+    end if;
+    insert into public.conversation_reads (conversation_id, profile_id, last_read_at)
+    values (p_conversation, p_actor, now())
+    on conflict (conversation_id, profile_id) do update set last_read_at = now();
+end;
+$$;
+revoke all on function public.messaging_mark_read(uuid, bigint) from public, anon, authenticated;
+grant execute on function public.messaging_mark_read(uuid, bigint) to service_role;
+
+-- The student's chats with a message from the OTHER person that is newer than
+-- they last opened the chat (never opened = every such message counts). One
+-- source of truth for both the Inbox badge (how many) and the per-chat unread dot.
+create or replace function public.messaging_unread_conversations(p_actor bigint)
+returns table(conversation_id uuid) language sql security definer set search_path = ''
+as $$
+    select c.id from public.conversations c
+    where p_actor in (c.buyer_id, c.seller_id)
+      and exists (
+          select 1 from public.messages m
+          where m.conversation_id = c.id and m.sender_id <> p_actor
+            and m.created_at > coalesce(
+                (select r.last_read_at from public.conversation_reads r
+                 where r.conversation_id = c.id and r.profile_id = p_actor),
+                '-infinity'::timestamptz)
+      );
+$$;
+revoke all on function public.messaging_unread_conversations(bigint) from public, anon, authenticated;
+grant execute on function public.messaging_unread_conversations(bigint) to service_role;
+
 -- Use INSERT, not update-based UPSERT. A buyer/listing unique conflict is read
 -- back and validated by the repository; the immutable original ID remains unique
 -- even after the live FK becomes NULL. There is no FK on original_listing_id.

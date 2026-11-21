@@ -668,3 +668,16 @@ def messaging_offers(conversation_id: str, limit: int, offset: int) -> list[dict
 def messaging_offer_action(payload: dict) -> dict:
     """One atomic database transaction; only the trusted repository calls this."""
     return _client().rpc("messaging_offer_action", payload).execute().data
+
+
+def messaging_mark_read(conversation_id: str, actor_id: int) -> None:
+    """Remember that this student just opened this chat (for the unread badge)."""
+    _client().rpc("messaging_mark_read",
+                  {"p_conversation": conversation_id, "p_actor": actor_id}).execute()
+
+
+def messaging_unread_conversations(actor_id: int) -> list[str]:
+    """The ids of chats with a message this student hasn't opened yet."""
+    rows = _client().rpc("messaging_unread_conversations",
+                         {"p_actor": actor_id}).execute().data or []
+    return [row["conversation_id"] for row in rows]

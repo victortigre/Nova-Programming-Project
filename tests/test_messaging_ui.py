@@ -31,7 +31,7 @@ def ui(monkeypatch):
     for name, result in (("is_configured", True), ("require_access", None), ("get_inbox", [ROW]),
                          ("get_conversation_details", ROW), ("get_chat_events", []),
                          ("get_offers", []), ("get_buy_now_agreement", None),
-                         ("send_message", {"id": 1})):
+                         ("send_message", {"id": 1}), ("mark_read", None)):
         mocks[name] = MagicMock(return_value=result)
         monkeypatch.setattr(repository, name, mocks[name])
     return AppTest.from_file(PAGE), mocks, user

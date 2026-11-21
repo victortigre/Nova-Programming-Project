@@ -208,6 +208,49 @@ def test_inbox_sorts_by_message_activity_and_uses_profile_name(context, monkeypa
     assert "email" not in rows[0]
 
 
+def test_inbox_flags_unread_chats(context, monkeypatch):
+    first = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
+    second = {**first, "id": MID}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
+        inbox_row(first), inbox_row(second),
+    ])
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID])
+    rows = {row["id"]: row for row in repo.get_inbox()}
+    assert rows[CID]["unread"] is True
+    assert rows[MID]["unread"] is False
+
+
+def test_inbox_still_loads_when_read_tracking_is_missing(context, monkeypatch):
+    row = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(row)])
+    monkeypatch.setattr(database, "messaging_unread_conversations",
+                        MagicMock(side_effect=RuntimeError("function not set up yet")))
+    rows = repo.get_inbox()  # must not raise
+    assert rows[0]["unread"] is False
+
+
+def test_unread_conversations_returns_the_set(context, monkeypatch):
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID, MID, CID])
+    assert repo.unread_conversations() == {CID, MID}
+
+
+def test_mark_read_records_for_the_signed_in_student(context, monkeypatch):
+    marker = MagicMock()
+    monkeypatch.setattr(database, "messaging_mark_read", marker)
+    repo.mark_read(CID)
+    marker.assert_called_once_with(CID, 7)  # (conversation id, the actor's profile id)
+
+
+def test_mark_read_refuses_a_chat_you_are_not_in(context, monkeypatch):
+    monkeypatch.setattr(database, "messaging_conversation",
+                        lambda conversation_id, actor: {"id": CID, "buyer_id": 8, "seller_id": 9})
+    marker = MagicMock()
+    monkeypatch.setattr(database, "messaging_mark_read", marker)
+    with pytest.raises(ValueError):
+        repo.mark_read(CID)
+    marker.assert_not_called()
+
+
 @pytest.mark.parametrize("operation", [
     lambda: repo.get_inbox(), lambda: repo.get_conversation_details(CID),
     lambda: repo.get_messages(CID), lambda: repo.send_message(CID, "Hello", MID),
