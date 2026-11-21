@@ -98,12 +98,20 @@ def test_both_confirmations_mark_it_sold_seller_first(db):
     assert db.get_request(rid)["status"] == COMPLETED
 
 
-def test_both_confirmations_mark_it_sold_buyer_first(db):
+def test_the_buyer_confirming_alone_marks_it_sold(db):
     lid, rid = _accepted_deal(db)
-    deals.confirm_received(db, rid, BUYER)        # order doesn't matter
-    deals.confirm_sold(db, rid, SELLER)
+    deals.confirm_received(db, rid, BUYER)        # the seller doesn't need to confirm
     assert db.get_listing(lid)["status"] == SOLD
     assert db.get_request(rid)["status"] == COMPLETED
+    with pytest.raises(ListingError):             # nothing left for the seller to do
+        deals.confirm_sold(db, rid, SELLER)
+
+
+def test_the_seller_saying_handed_over_does_not_finish_the_deal(db):
+    lid, rid = _accepted_deal(db)
+    deals.confirm_sold(db, rid, SELLER)
+    assert db.get_request(rid)["status"] == ACCEPTED
+    assert db.get_listing(lid)["status"] == RESERVED
 
 
 def test_only_the_buyer_can_confirm_received(db):
@@ -231,10 +239,7 @@ def test_to_do_counts_what_each_side_must_do(db):
 
     deals.confirm_received(db, req["id"], BUYER)
     assert deals.to_do(db, BUYER)["purchases"] == 0
-    assert deals.to_do(db, SELLER)["confirm_sale"] == 1   # buyer confirmed, now you
-
-    deals.confirm_sold(db, req["id"], SELLER)
-    assert deals.to_do(db, SELLER)["sales"] == 0
+    assert deals.to_do(db, SELLER)["sales"] == 0          # done: nothing for the seller
 
 
 # --- history ------------------------------------------------------------------

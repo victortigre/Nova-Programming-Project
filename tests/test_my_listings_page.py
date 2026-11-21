@@ -63,7 +63,7 @@ def test_requests_and_sales_show_inside_the_listing_cards(db):
     assert "Sold to Marta" in text
     labels = [button.label for button in page.button]
     assert "Accept" in labels and "Decline" in labels
-    assert "I handed it over — confirm sold" in labels and "Cancel deal" in labels
+    assert "I handed it over" in labels and "Cancel deal" in labels
     # With an accepted buyer, the deal decides: no Reserve/Sold/Relist on the bike.
     assert f"sold-{bike}" not in [button.key for button in page.button]
 

@@ -265,7 +265,7 @@ def plural(count: int, one: str, many: str) -> str:
 try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
-    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0}
+    to_do = {"answer": 0, "confirm_received": 0}
 SALES, PURCHASES = "views/my_listings.py", "views/purchases.py"
 
 # Offers and counteroffers waiting for an answer (Inbox). Empty if messaging
@@ -284,11 +284,6 @@ if to_do["answer"]:
         key=f"answer-{to_do['answer']}", emoji="🛍️",
         title=f"{plural(to_do['answer'], 'buyer wants', 'buyers want')} to buy your items",
         text="Accept or decline the request on My listings.", page=SALES, label="Answer"))
-if to_do["confirm_sale"]:
-    notices.append(dict(
-        key=f"confirm-sale-{to_do['confirm_sale']}", emoji="✅",
-        title=f"{plural(to_do['confirm_sale'], 'buyer', 'buyers')} got the item",
-        text="Confirm the hand-over too, so it counts as sold.", page=SALES, label="Confirm"))
 for item in offers_waiting:
     kind = "a counteroffer" if item["counter"] else "an offer"
     notices.append(dict(
