@@ -117,6 +117,9 @@ if viewing is not None:
             seller = database.get_profile_by_id(item["seller_id"])
             if seller and my_id != item["seller_id"]:
                 st.markdown(f"Sold by **{plain(seller['name'])}**")
+            listed_note = listings.listed_text(item)
+            if listed_note:
+                st.caption(f"🗓️ {listed_note}")
             st.write(plain(item["description"]))
             if message := st.session_state.pop("deal_message", None):
                 st.success(message)

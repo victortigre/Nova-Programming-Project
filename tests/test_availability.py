@@ -34,6 +34,22 @@ def test_accepts_a_date_object_too():
     assert out == "Available from 10 Dec 2026"
 
 
+# --- listed_text (pure) -------------------------------------------------------
+def test_listed_text_from_an_iso_timestamp():
+    # created_at comes back from the database as a full ISO timestamp.
+    out = listings.listed_text({"created_at": "2026-11-20T15:13:51.123456+00:00"})
+    assert out == "Listed on 20 Nov 2026"
+
+
+def test_listed_text_accepts_a_date_object():
+    assert listings.listed_text({"created_at": date(2026, 11, 20)}) == "Listed on 20 Nov 2026"
+
+
+def test_listed_text_is_empty_without_a_date():
+    assert listings.listed_text({}) == ""
+    assert listings.listed_text({"created_at": None}) == ""
+
+
 # --- create_listing stores the date -------------------------------------------
 def photo() -> bytes:
     out = BytesIO()

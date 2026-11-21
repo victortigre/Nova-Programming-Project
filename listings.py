@@ -199,6 +199,17 @@ def availability_text(listing: dict, today: date) -> str:
     return f"Available from {when.day} {when:%b %Y}"
 
 
+def listed_text(listing: dict) -> str:
+    """'Listed on 20 Nov 2026' from the row's created_at; '' if it's missing.
+    created_at comes back from the database as an ISO timestamp string, so we
+    keep just the date part (everything before the 'T')."""
+    value = listing.get("created_at")
+    if not value:
+        return ""
+    when = date.fromisoformat(value[:10]) if isinstance(value, str) else value
+    return f"Listed on {when.day} {when:%b %Y}"
+
+
 def category_label(listing: dict) -> str:
     """What to show as the category: 'Furniture', or the typed text for 'Other'."""
     return (listing.get("category_other") if listing.get("category") == OTHER
