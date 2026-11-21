@@ -4,6 +4,8 @@ No UI-supplied actor IDs or emails are accepted. Every call rechecks st.user.
 Nothing connects on import. The standalone session-state demo does not use this.
 """
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from uuid import UUID
 
@@ -22,6 +24,55 @@ from messaging import (
 )
 
 
+# --- One check per page load ---------------------------------------------------
+# A page asks several questions in a row (who is signed in, may they open this
+# chat, the messages, the offers). Each answer is a trip to Supabase, so asking
+# "who is signed in" four times made every click slower. Inside
+# `with checked_once():` the answers are kept until the page has finished
+# loading, then thrown away. The next click asks again, so a block still counts
+# right away. Sending and offer actions always ask afresh (see _actor_now).
+_page_load: ContextVar = ContextVar("messaging_page_load", default=None)
+
+
+@contextmanager
+def checked_once():
+    """Ask Supabase each question once while the page loads (reads only)."""
+    if _page_load.get() is not None:  # Already inside one: share it.
+        yield
+        return
+    token = _page_load.set({})
+    try:
+        yield
+    finally:
+        _page_load.reset(token)
+
+
+def _remember(key, load):
+    memory = _page_load.get()
+    if memory is None:
+        return load()
+    if key not in memory:
+        memory[key] = load()
+    return memory[key]
+
+
+def _remember_names(names: dict) -> None:
+    memory = _page_load.get()
+    if memory is not None:
+        memory.setdefault("names", {}).update(names)
+
+
+def _names(profile_ids: list) -> dict:
+    """{profile id: name}; names seen earlier in this page load need no request."""
+    memory = _page_load.get()
+    known = memory.get("names", {}) if memory is not None else {}
+    names = {pid: known[pid] for pid in profile_ids if pid in known}
+    missing = sorted({pid for pid in profile_ids if pid not in known and pid is not None})
+    if missing:
+        names.update(database.names_of(missing))
+    return names
+
+
 def is_configured() -> bool:
     """Check local configuration only; never opens a database connection."""
     if not st.user.is_logged_in or verified_nova_email(logged_in_user()) is None:
@@ -33,6 +84,8 @@ def _details(row: dict, actor: int, *, include_photo: bool = False) -> dict:
     require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
     other_id = row["seller_id"] if actor == row["buyer_id"] else row["buyer_id"]
     other = database.get_profile_by_id(other_id)
+    if other and other.get("name"):
+        _remember_names({other_id: other["name"]})
     details = {**row, "other_name": other["name"] if other else "Profile unavailable",
                "own_profile_id": actor}
     if include_photo:
@@ -62,26 +115,29 @@ def get_conversation_details(conversation_id: str) -> dict:
 
 
 def get_inbox() -> list[dict]:
-    """Participant-only previews including offer creation and responses."""
+    """Participant-only previews including offer creation and responses.
+
+    One request for the whole list (database.messaging_inbox), however many
+    chats there are. The newest event decides the order: the last message, or
+    the offer made or answered most recently.
+    """
     actor = _actor()
     summaries = []
-    for row in database.messaging_conversations(actor):
-        summary = _details(row, actor)
-        latest = database.messaging_messages(row["id"], 1, 0)
-        summary["last_message"] = latest[0] if latest else None
-        events = [{**message, "type": "message", "activity_at": message["created_at"]}
-                  for message in latest]
-        # Response time can be newer than creation time. Inspect every offer,
-        # rather than assuming the most recently created card is most active.
-        offset = 0
-        while True:
-            batch = database.messaging_offers(row["id"], 100, offset)
-            events.extend({**offer, "type": "offer", "activity_at": max(
+    for item in database.messaging_inbox(actor):
+        row = item["conversation"]
+        require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
+        summary = {**row, "other_name": item.get("other_name") or "Profile unavailable",
+                   "own_profile_id": actor}
+        latest = item.get("last_message")
+        summary["last_message"] = latest
+        events = []
+        if latest:
+            events.append({**latest, "type": "message", "activity_at": latest["created_at"]})
+        offer = item.get("last_offer")
+        if offer:
+            events.append({**offer, "type": "offer", "activity_at": max(
                 (offer["created_at"], offer.get("responded_at") or offer["created_at"]),
-                key=datetime.fromisoformat)} for offer in batch)
-            if len(batch) < 100:
-                break
-            offset += len(batch)
+                key=datetime.fromisoformat)})
         activity = max(events, key=lambda event: (
             datetime.fromisoformat(event["activity_at"]), event["type"], str(event["id"])
         ), default=None)
@@ -94,6 +150,14 @@ def get_inbox() -> list[dict]:
 
 
 def _actor() -> int:
+    """The signed-in student's profile id; asked once per page load (reads)."""
+    if not st.user.is_logged_in:
+        raise ValueError("Please sign in with a verified Nova account.")
+    return _remember("actor", _actor_now)
+
+
+def _actor_now() -> int:
+    """Always asks Supabase. Used before every send or offer action."""
     if not st.user.is_logged_in:
         raise ValueError("Please sign in with a verified Nova account.")
     email = verified_nova_email(logged_in_user())
@@ -106,6 +170,8 @@ def _actor() -> int:
         raise ValueError("Your account has been blocked.")
     if onboarding_step(profile) != DONE:
         raise ValueError("Finish the Welcome steps before using messages.")
+    if profile.get("name"):
+        _remember_names({profile["id"]: profile["name"]})
     return profile["id"]
 
 
@@ -122,7 +188,10 @@ def _uuid(value: str) -> str:
 
 
 def _authorized(conversation_id: str, actor: int) -> dict:
-    row = database.messaging_conversation(_uuid(conversation_id), actor)
+    # Who is in a chat never changes, so this may be remembered for the page load.
+    cid = _uuid(conversation_id)
+    row = _remember(("conversation", cid, actor),
+                    lambda: database.messaging_conversation(cid, actor))
     if row is None:
         raise ValueError("Conversation unavailable.")
     require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
@@ -153,7 +222,7 @@ def get_messages(conversation_id: str, *, limit: int = 50, offset: int = 0) -> l
 
 def send_message(conversation_id: str, body: str, client_message_id: str) -> dict:
     """Reuse the same client_message_id when retrying an uncertain send."""
-    actor = _actor()
+    actor = _actor_now()
     conversation = _authorized(conversation_id, actor)
     payload = {
         "conversation_id": conversation["id"],
@@ -173,7 +242,7 @@ def get_or_create_conversation(listing_id: int) -> dict:
     A missing listing cannot start/reopen a chat through this operation. Existing
     participants can still open it by conversation ID and continue messaging.
     """
-    actor = _actor()
+    actor = _actor_now()
     conversation_key(listing_id, actor)  # Reject bool, text, negative IDs.
     listing = database.get_listing(listing_id)
     if listing is None:
@@ -200,17 +269,16 @@ def get_or_create_conversation(listing_id: int) -> dict:
 def offers_to_answer() -> list[dict]:
     """Offers and counteroffers waiting for the signed-in student's answer.
 
-    For the notifications on Browse. Each has "sender_name" added.
+    For the notifications on Browse. Each has "sender_name" added. One request
+    for all chats: the same one the Inbox uses.
     """
     actor = _actor()
-
-    def latest(conversation_id):
-        rows = database.messaging_offers(conversation_id, 1, 0)
-        return rows[0] if rows else None
-
-    waiting = offers_waiting_for(actor, database.messaging_conversations(actor), latest)
-    names = database.names_of([item["sender_id"] for item in waiting]) if waiting else {}
-    return [{**item, "sender_name": names.get(item["sender_id"], "A student")}
+    items = database.messaging_inbox(actor)
+    newest = {item["conversation"]["id"]: item.get("newest_offer") for item in items}
+    other_names = {item["conversation"]["id"]: item.get("other_name") for item in items}
+    waiting = offers_waiting_for(actor, [item["conversation"] for item in items], newest.get)
+    # The sender is the other person in that chat, whose name came along.
+    return [{**item, "sender_name": other_names.get(item["conversation_id"]) or "A student"}
             for item in waiting]
 
 
@@ -218,7 +286,23 @@ def get_offers(conversation_id: str, *, limit: int = 50, offset: int = 0) -> lis
     actor = _actor()
     row = _authorized(conversation_id, actor)
     _offer_page(limit, offset)
-    return list(reversed(database.messaging_offers(row["id"], limit, offset)))
+    return list(reversed(_offers_newest_first(row["id"], limit, offset)))
+
+
+def _offers_newest_first(conversation_id: str, limit: int, offset: int) -> list[dict]:
+    """A page of offers. Offers loaded earlier in this page load (by
+    get_chat_events) are reused instead of being asked for again."""
+    memory = _page_load.get()
+    if memory is not None and offset == 0:
+        loaded = memory.get(("offers", conversation_id))
+        if loaded is not None:
+            loaded_limit, rows = loaded
+            if limit <= loaded_limit or len(rows) < loaded_limit:
+                return rows[:limit]
+    rows = database.messaging_offers(conversation_id, limit, offset)
+    if memory is not None and offset == 0:
+        memory[("offers", conversation_id)] = (limit, rows)
+    return rows
 
 
 def _offer_page(limit: int, offset: int) -> None:
@@ -229,7 +313,7 @@ def _offer_page(limit: int, offset: int) -> None:
 def _offer_action(conversation_id: str, action: str, operation_id: str,
                   offer_id: str | None = None, price_cents: int | None = None,
                   note: str | None = None) -> dict:
-    actor = _actor()
+    actor = _actor_now()
     conversation = _authorized(conversation_id, actor)
     # SQL rechecks live listing, both accounts, current offer and recipient under
     # locks. Do not reject retries based on a status already changed by that retry.
@@ -273,10 +357,10 @@ def get_chat_events(conversation_id: str, *, limit: int = 50) -> list[dict]:
     events = [{**message, "type": "message"}
               for message in database.messaging_messages(row["id"], limit, 0)]
     events += [{**offer, "type": "offer", "status_label": OFFER_STATUS_LABELS[offer["status"]]}
-               for offer in database.messaging_offers(row["id"], limit, 0)]
+               for offer in _offers_newest_first(row["id"], limit, 0)]
     events.sort(key=lambda event: (datetime.fromisoformat(event["created_at"]), event["type"], str(event["id"])))
     events = events[-limit:]
-    names = database.names_of([event["sender_id"] for event in events]) if events else {}
+    names = _names([event["sender_id"] for event in events]) if events else {}
     return [{**event, "sender_name": names.get(event["sender_id"], "Profile unavailable")}
             for event in events]
 

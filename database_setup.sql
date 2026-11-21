@@ -664,4 +664,45 @@ revoke all on function public.messaging_offer_action(uuid, bigint, text, uuid, u
 grant execute on function public.messaging_offer_action(uuid, bigint, text, uuid, uuid, integer, text)
     to service_role;
 
+
+-- Inbox in one request ---------------------------------------------------------
+-- The Inbox and the offer notices on Browse need, for every chat of one
+-- student: the other person's name, the last message, the offer made or
+-- answered most recently (for the Inbox order) and the offer made most recently
+-- (for the notices). Asking for these chat by chat took 3+ requests per chat;
+-- this returns all of it at once. It only reads. The server checks who is
+-- signed in (messaging_repository) before passing p_actor_id; only the server
+-- role may run it.
+create or replace function public.messaging_inbox(p_actor_id bigint)
+returns table (conversation jsonb, other_name text, last_message jsonb,
+               last_offer jsonb, newest_offer jsonb)
+language sql stable security invoker set search_path = ''
+as $$
+    select pg_catalog.to_jsonb(c), other.name, message.item, active.item, newest.item
+    from public.conversations as c
+    left join public.profiles as other
+        on other.id = case when c.buyer_id = p_actor_id then c.seller_id else c.buyer_id end
+    left join lateral (
+        select pg_catalog.to_jsonb(m) as item from public.messages as m
+        where m.conversation_id = c.id
+        order by m.created_at desc, m.id desc limit 1
+    ) as message on true
+    left join lateral (
+        select pg_catalog.to_jsonb(o) as item from public.offers as o
+        where o.conversation_id = c.id
+        order by greatest(o.created_at, coalesce(o.responded_at, o.created_at)) desc,
+                 o.id::text desc
+        limit 1
+    ) as active on true
+    left join lateral (
+        select pg_catalog.to_jsonb(o) as item from public.offers as o
+        where o.conversation_id = c.id
+        order by o.created_at desc, o.id desc limit 1
+    ) as newest on true
+    where p_actor_id in (c.buyer_id, c.seller_id)
+    order by c.created_at desc, c.id desc;
+$$;
+revoke all on function public.messaging_inbox(bigint) from public, anon, authenticated;
+grant execute on function public.messaging_inbox(bigint) to service_role;
+
 commit;

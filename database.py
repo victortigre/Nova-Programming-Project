@@ -36,7 +36,7 @@ PHOTO_LINK_REUSE_SECONDS = 50 * 60
 PROFILE_MEMORY_SECONDS = 60
 FEED_MEMORY_SECONDS = 30
 FAVORITES_MEMORY_SECONDS = 60
-# Only for the counts in the menu ("Sales (2)"). A request another student
+# Only for the counts in the menu ("My listings (2)"). A request another student
 # sends shows up in the count at most this many seconds later.
 TO_DO_MEMORY_SECONDS = 20
 
@@ -544,7 +544,7 @@ def messaging_actor_profile(email: str) -> dict | None:
     Kept separate from the profile-display cache used by the rest of the app.
     """
     rows = (_client().table("profiles")
-            .select("id,email,blocked_at,rules_accepted_at")
+            .select("id,email,name,blocked_at,rules_accepted_at")
             .eq("email", email).limit(1).execute().data)
     return rows[0] if rows else None
 
@@ -569,6 +569,16 @@ def messaging_conversations(actor_id: int) -> list[dict]:
         rows.extend(batch)
         if len(batch) < 100:
             return rows
+
+
+def messaging_inbox(actor_id: int) -> list[dict]:
+    """Every chat of this student in one request (database function messaging_inbox).
+
+    Each row: "conversation" (the conversations row), "other_name", and the
+    newest "last_message", "last_offer" (made or answered most recently) and
+    "newest_offer" (made most recently), each None when there is none.
+    """
+    return _client().rpc("messaging_inbox", {"p_actor_id": actor_id}).execute().data or []
 
 
 def messaging_messages(conversation_id: str, limit: int, offset: int) -> list[dict]:

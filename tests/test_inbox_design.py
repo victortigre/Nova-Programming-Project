@@ -49,11 +49,13 @@ def test_unified_inbox_uses_one_real_actor_for_buying_and_selling(ui, monkeypatc
     selling = {**ROW, 'id': SECOND, 'buyer_id': 9, 'seller_id': 7, 'listing_id': 11,
                'listing_title_snapshot': 'My listing', 'other_name': 'Buyer'}
     rows = {CID: buying, SECOND: selling}
-    query = MagicMock(return_value=list(rows.values()))
+    query = MagicMock(return_value=[
+        {'conversation': row, 'other_name': row['other_name'], 'last_message': None,
+         'last_offer': None, 'newest_offer': None} for row in rows.values()])
     monkeypatch.setattr(repository, 'get_inbox', REAL_INBOX)
     monkeypatch.setattr(repository, 'get_conversation_details', REAL_DETAILS)
     monkeypatch.setattr(database, 'messaging_actor_profile', lambda email: {'id': 7, 'rules_accepted_at': 'accepted'})
-    monkeypatch.setattr(database, 'messaging_conversations', query)
+    monkeypatch.setattr(database, 'messaging_inbox', query)
     monkeypatch.setattr(database, 'messaging_conversation', lambda cid, actor: rows.get(cid))
     monkeypatch.setattr(database, 'get_profile_by_id', lambda pid: {'name': {8: 'Seller', 9: 'Buyer'}[pid]})
     monkeypatch.setattr(database, 'get_listing', lambda lid: {'status': 'active'})

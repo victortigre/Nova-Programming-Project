@@ -185,15 +185,21 @@ def test_transport_conversation_create_conflict_fetches_existing(context):
     assert query.eq.call_args_list[1].args == ("buyer_id", 7)
 
 
+def inbox_row(conversation, other_name="Participant", last_message=None,
+              last_offer=None, newest_offer=None):
+    """One row as the messaging_inbox database function returns it."""
+    return {"conversation": conversation, "other_name": other_name, "last_message": last_message,
+            "last_offer": last_offer, "newest_offer": newest_offer}
+
+
 def test_inbox_sorts_by_message_activity_and_uses_profile_name(context, monkeypatch):
     first = {**context[3], "created_at": "2026-11-18T10:00:00+00:00"}
     second = {**first, "id": MID, "created_at": "2026-11-19T10:00:00+00:00"}
-    monkeypatch.setattr(database, "messaging_conversations", lambda actor: [second, first])
-    monkeypatch.setattr(database, "get_profile_by_id", lambda profile_id: {
-        "id": profile_id, "name": "Other participant", "email": "not-returned@novasbe.pt",
-    })
     latest = {"id": 12, "created_at": "2026-11-20T10:00:00+00:00", "body": "Newest"}
-    monkeypatch.setattr(database, "messaging_messages", lambda cid, limit, offset: [latest] if cid == CID else [])
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
+        inbox_row(second, "Other participant"),
+        inbox_row(first, "Other participant", last_message=latest),
+    ])
     rows = repo.get_inbox()
     assert [row["id"] for row in rows] == [CID, MID]
     assert rows[0]["last_message"] == latest
@@ -295,13 +301,12 @@ def test_unmatched_unique_conflict_is_not_treated_as_success(context, table):
 def test_inbox_counts_offer_creation_and_responses(context, monkeypatch, status, response):
     first = {**context[3], "created_at": "2026-11-18T10:00:00+00:00"}
     second = {**first, "id": MID}
-    monkeypatch.setattr(database, "messaging_conversations", lambda actor: [second, first])
-    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": "Participant"})
-    monkeypatch.setattr(database, "messaging_messages", lambda cid, *args: [] if cid == CID else [
-        {"id": 1, "body": "Hello", "created_at": "2026-11-20T09:00:00+00:00"}])
     offer = {"id": MID, "status": status, "amount_cents": 2500, "sender_id": 8,
              "parent_offer_id": CID, "created_at": "2026-11-20T10:00:00+00:00", "responded_at": response}
-    monkeypatch.setattr(database, "messaging_offers", lambda cid, *args: [offer] if cid == CID else [])
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
+        inbox_row(second, last_message={"id": 1, "body": "Hello", "created_at": "2026-11-20T09:00:00+00:00"}),
+        inbox_row(first, last_offer=offer, newest_offer=offer),
+    ])
     rows = repo.get_inbox()
     assert [row["id"] for row in rows] == [CID, MID]
     assert rows[0]["last_activity"]["type"] == "offer"
@@ -389,13 +394,90 @@ def test_unauthorized_conversation_never_loads_profile_photo(context, monkeypatc
 def test_one_authenticated_profile_has_buying_and_selling_conversations(context, monkeypatch):
     buying = {"id": CID, "buyer_id": 7, "seller_id": 8, "created_at": "2026-11-20T10:00:00+00:00"}
     selling = {"id": MID, "buyer_id": 9, "seller_id": 7, "created_at": "2026-11-20T11:00:00+00:00"}
-    query = MagicMock(return_value=[buying, selling])
-    monkeypatch.setattr(database, "messaging_conversations", query)
-    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": {8: "Seller", 9: "Buyer"}[pid], "photo_path": "profile.jpg"})
-    monkeypatch.setattr(database, "messaging_messages", lambda *args: [])
+    query = MagicMock(return_value=[inbox_row(buying, "Seller"), inbox_row(selling, "Buyer")])
+    monkeypatch.setattr(database, "messaging_inbox", query)
+    per_chat = MagicMock(side_effect=AssertionError("The inbox must not ask chat by chat"))
+    for name in ("messaging_conversations", "messaging_messages", "messaging_offers", "get_profile_by_id"):
+        monkeypatch.setattr(database, name, per_chat)
     photo = MagicMock()
     monkeypatch.setattr(database, "photo_url", photo)
     rows = repo.get_inbox()
     assert [(r["id"], r["other_name"], r["own_profile_id"]) for r in rows] == [(MID, "Buyer", 7), (CID, "Seller", 7)]
-    query.assert_called_once_with(7)
+    query.assert_called_once_with(7)  # One request for the whole inbox.
     photo.assert_not_called()  # No photo-signing requests per Inbox row.
+
+
+def test_inbox_rejects_a_row_the_student_is_not_part_of(context, monkeypatch):
+    stranger = {"id": CID, "buyer_id": 90, "seller_id": 91, "created_at": "2026-11-20T10:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(stranger)])
+    with pytest.raises(ValueError):
+        repo.get_inbox()
+
+
+def test_inbox_row_without_a_profile_name_still_shows(context, monkeypatch):
+    row = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(row, None)])
+    assert repo.get_inbox()[0]["other_name"] == "Profile unavailable"
+
+
+def test_offer_notices_use_the_one_inbox_request(context, monkeypatch):
+    mine = {**context[3], "listing_title_snapshot": "Bike"}
+    offer = {"id": MID, "status": "pending", "amount_cents": 4500, "sender_id": 8,
+             "parent_offer_id": None, "created_at": "2026-11-20T10:00:00+00:00"}
+    query = MagicMock(return_value=[inbox_row(mine, "Seller name", newest_offer=offer)])
+    monkeypatch.setattr(database, "messaging_inbox", query)
+    names = MagicMock(side_effect=AssertionError("The name came with the inbox row"))
+    monkeypatch.setattr(database, "names_of", names)
+    assert repo.offers_to_answer() == [{
+        "conversation_id": CID, "amount_cents": 4500, "counter": False, "sender_id": 8,
+        "listing_title": "Bike", "created_at": offer["created_at"], "sender_name": "Seller name",
+    }]
+    query.assert_called_once_with(7)
+
+
+def test_one_page_load_checks_the_student_and_chat_once(context, monkeypatch):
+    _, _, profile, _, conversation = context
+    context[2].return_value = {"id": 7, "name": "Me", "rules_accepted_at": "yes"}
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"id": pid, "name": "Seller"})
+    monkeypatch.setattr(database, "get_listing", lambda lid: None)
+    offer = {"id": MID, "status": "pending", "amount_cents": 900, "sender_id": 8,
+             "created_at": "2026-11-20T10:00:00+00:00"}
+    offers = MagicMock(return_value=[offer])
+    monkeypatch.setattr(database, "messaging_offers", offers)
+    monkeypatch.setattr(database, "messaging_messages", lambda *args: [
+        {"id": 1, "sender_id": 7, "body": "Hi", "created_at": "2026-11-20T09:00:00+00:00"}])
+    names = MagicMock(side_effect=AssertionError("Both names are already known"))
+    monkeypatch.setattr(database, "names_of", names)
+    with repo.checked_once():
+        repo.require_access()
+        repo.get_conversation_details(CID)
+        events = repo.get_chat_events(CID, limit=50)
+        latest = repo.get_offers(CID, limit=1)
+    assert profile.call_count == 1
+    assert conversation.call_count == 1
+    offers.assert_called_once_with(CID, 50, 0)  # get_offers reused the loaded offers.
+    assert latest == [offer]
+    assert {e["sender_id"]: e["sender_name"] for e in events} == {7: "Me", 8: "Seller"}
+    # The next page load asks again, so a block counts on the very next click.
+    with repo.checked_once():
+        repo.require_access()
+    assert profile.call_count == 2
+
+
+def test_sending_always_rechecks_the_student_even_in_a_page_load(context, monkeypatch):
+    profile = context[2]
+    monkeypatch.setattr(database, "messaging_insert_message", lambda payload: payload)
+    with repo.checked_once():
+        repo.require_access()
+        profile.return_value = {"id": 7, "rules_accepted_at": "yes", "blocked_at": "now"}
+        with pytest.raises(ValueError, match="blocked"):
+            repo.send_message(CID, "Hello", MID)
+
+
+def test_get_offers_asks_again_when_more_are_wanted_than_were_loaded(context, monkeypatch):
+    offers = MagicMock(return_value=[{"id": i} for i in range(5)])
+    monkeypatch.setattr(database, "messaging_offers", offers)
+    with repo.checked_once():
+        repo.get_offers(CID, limit=5)
+        repo.get_offers(CID, limit=10)
+    assert offers.call_count == 2

@@ -1,12 +1,18 @@
 """Authenticated Messaging page registered in the main app navigation.
 
 No standalone login or fake data. All operations go through the repository.
+
+Speed: the inbox and the open chat are each an @st.fragment. Clicking inside
+one (sending, Refresh, Show more) reruns only that part, not the whole app.
+Reads run inside repository.checked_once(), so a page load checks the
+signed-in student and the chat once instead of once per question.
 """
 
 from datetime import datetime
 from uuid import uuid4
 
 import streamlit as st
+from streamlit.errors import StreamlitAPIException
 
 from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
@@ -44,6 +50,15 @@ def show_time(value: str) -> None:
     st.caption(datetime.fromisoformat(value).strftime("%d %b %Y · %H:%M %Z"))
 
 
+def rerun_this_part() -> None:
+    """Rerun only the fragment we are in. Streamlit refuses that during a
+    full-page run (the first load), so then the whole page runs again."""
+    try:
+        st.rerun(scope="fragment")
+    except StreamlitAPIException:
+        st.rerun()
+
+
 def try_send(pending: dict) -> None:
     try:
         with st.spinner("Sending message…"):
@@ -52,33 +67,18 @@ def try_send(pending: dict) -> None:
         report_error(error)
     else:
         st.session_state.pop("messaging_pending", None)
-        st.rerun()
+        rerun_this_part()
 
 
-messaging_ui.apply_chat_styles()
-st.title("Inbox")
-try:
-    configured = repository.is_configured()
-    if configured:
-        repository.require_access()
-except Exception as error:
-    report_error(error)
-    st.stop()
-if not configured:
-    st.info("Messaging is not set up yet. The project team needs to configure Supabase and prepare the Messaging tables. Your demo is still available separately.")
-    st.stop()
-
-offer_ui.retry_panel()
-
-selected = st.session_state.get("messaging_selected")
-if selected is None:
+@st.fragment
+def show_inbox() -> None:
     st.button("Refresh inbox")
     try:
-        with st.spinner("Loading conversations…"):
+        with st.spinner("Loading conversations…"), repository.checked_once():
             rows = repository.get_inbox()
     except Exception as error:
         report_error(error)
-        st.stop()
+        return
     if not rows:
         st.subheader("Your inbox is empty")
         st.info("Your conversations will appear here when you contact someone or receive a message or offer.")
@@ -99,21 +99,24 @@ if selected is None:
             if st.button("Open chat", key=f"chat_{row['id']}"):
                 st.session_state.messaging_selected = row["id"]
                 st.session_state.messaging_history_limit = 50
-                st.rerun()
-else:
+                st.rerun()  # The whole page: it switches from the inbox to the chat.
+
+
+@st.fragment
+def show_chat(selected: str) -> None:
     if st.button("← Back to Inbox"):
         st.session_state.pop("messaging_selected", None)
-        st.rerun()
+        st.rerun()  # The whole page: it switches back to the inbox.
     st.button("Refresh chat")
     limit = st.session_state.get("messaging_history_limit", 50)
     try:
-        with st.spinner("Loading chat…"):
+        with st.spinner("Loading chat…"), repository.checked_once():
             row = repository.get_conversation_details(selected)
             history = repository.get_chat_events(selected, limit=limit)
             latest_offers = repository.get_offers(selected, limit=1)
     except Exception as error:
         report_error(error)
-        st.stop()
+        return
     negotiation_available = row["listing_id"] is not None and row.get("listing_status") == "active"
     if not negotiation_available:
         reason = {"reserved": "This listing is reserved.", "sold": "This listing has been sold.",
@@ -128,7 +131,7 @@ else:
     if len(history) == limit and limit < 100:
         if st.button("Show more history"):
             st.session_state.messaging_history_limit = 100
-            st.rerun()
+            rerun_this_part()
     elif len(history) == 100:
         st.caption("Showing the latest 100 chat events.")
     current = latest_offers[0] if latest_offers else None
@@ -170,7 +173,7 @@ else:
             try_send(pending)
         if st.button("Dismiss pending message"):
             st.session_state.pop("messaging_pending", None)
-            st.rerun()
+            rerun_this_part()
     body = st.chat_input("Write a message…", max_chars=MAX_MESSAGE_LENGTH,
                          disabled=pending is not None, key=f"compose_{selected}")
     if pending and pending["conversation_id"] != selected:
@@ -179,3 +182,27 @@ else:
         pending = {"conversation_id": selected, "body": body, "id": str(uuid4())}
         st.session_state.messaging_pending = pending
         try_send(pending)
+
+
+messaging_ui.apply_chat_styles()
+st.title("Inbox")
+# One page load = one check of the signed-in student, shared by everything below.
+with repository.checked_once():
+    try:
+        configured = repository.is_configured()
+        if configured:
+            repository.require_access()
+    except Exception as error:
+        report_error(error)
+        st.stop()
+    if not configured:
+        st.info("Messaging is not set up yet. The project team needs to configure Supabase and prepare the Messaging tables. Your demo is still available separately.")
+        st.stop()
+
+    offer_ui.retry_panel()
+
+    selected = st.session_state.get("messaging_selected")
+    if selected is None:
+        show_inbox()
+    else:
+        show_chat(selected)
