@@ -9,6 +9,7 @@ import streamlit as st
 
 import admin
 import database
+import listings
 from accounts import admin_emails, is_admin, logged_in_user, verified_nova_email
 
 # Who is using this page? The email always comes from the login, never from a form.
@@ -73,3 +74,46 @@ if not open_reports:
     st.info("No open reports.")
 for report in open_reports:
     report_box(report)
+
+
+# --- Returns the seller reported ------------------------------------------------
+# The buyer asked for a refund and gave the item back, but the seller says it is
+# not in the same condition. The money stays held until an admin decides.
+def when(value) -> str:
+    return str(value)[:16].replace("T", " ") if value else "-"
+
+
+try:
+    disputes = admin.disputed_returns(database, email)
+except admin.NotAllowed:
+    raise
+except Exception:  # the new columns aren't in the database yet
+    disputes = []
+
+st.header("Admin: reported returns")
+if not disputes:
+    st.info("No reported returns.")
+for item in disputes:
+    rid = item["id"]
+    with st.container(border=True):
+        st.text(f"{item['title']} · {listings.format_price(item['price_cents'])}")
+        st.caption("Buyer")
+        st.text(item["buyer"])
+        st.caption("Seller")
+        st.text(item["seller"])
+        st.caption(f"Refund asked {when(item['asked_at'])} · given back "
+                   f"{when(item['given_back_at'])} · reported {when(item['reported_at'])}")
+        if item["reason"]:
+            st.caption("Why the buyer asked for a refund")
+            st.text(item["reason"])
+        st.write("The seller says the item came back **not in the same condition**. "
+                 "Talk to both, then decide who gets the held credits.")
+        buttons = st.columns(2)
+        if buttons[0].button("Refund the buyer", key=f"settle-refund-{rid}"):
+            run(lambda db, admin_email, request_id: admin.settle_return(
+                db, admin_email, request_id, True), rid,
+                "Buyer refunded. The listing is active again.")
+        if buttons[1].button("Pay the seller", key=f"settle-pay-{rid}"):
+            run(lambda db, admin_email, request_id: admin.settle_return(
+                db, admin_email, request_id, False), rid,
+                "Seller paid. The listing is marked sold.")

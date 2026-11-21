@@ -6,6 +6,8 @@ Feature (area 5 of the MVP, Trust & safety):
     block_user       block the reported student (for a listing: its seller)
                      and call off every deal they are in
     dismiss_report   close the report without doing anything else
+    disputed_returns refunds where the seller says the item came back damaged
+    settle_return    decide one: refund the buyer, or pay the seller
 
 Rules that keep this safe:
 * Only admins may do any of this. Who is an admin is written in
@@ -159,3 +161,37 @@ def dismiss_report(db, admin_email: str, report_id: int) -> None:
     _check_admin(admin_email)
     _open_report(db, report_id)
     db.close_reports([report_id], DISMISSED)
+
+
+# --- returns the seller reported (the item came back in a worse condition) -------
+
+def disputed_returns(db, admin_email: str) -> list[dict]:
+    """Every reported return, oldest first, with what the page needs to show it.
+
+    Each item has: id, title, price_cents, buyer, seller, asked_at (refund asked),
+    given_back_at, reported_at and reason (why the buyer asked for a refund).
+    """
+    _check_admin(admin_email)
+    rows = db.disputed_returns()
+    names = db.names_of([r["buyer_id"] for r in rows] + [r["listings"]["seller_id"] for r in rows])
+    return [{
+        "id": r["id"],
+        "title": r["listings"].get("title", ""),
+        "price_cents": r["listings"].get("price_cents", 0),
+        "buyer": names.get(r["buyer_id"], "(student removed)"),
+        "seller": names.get(r["listings"]["seller_id"], "(student removed)"),
+        "asked_at": r.get("returned_at"),
+        "given_back_at": r.get("given_back_at"),
+        "reported_at": r.get("return_disputed_at"),
+        "reason": deals.refund_reason_text(r),
+    } for r in rows]
+
+
+def settle_return(db, admin_email: str, request_id: int, refund_buyer: bool) -> None:
+    """Decide a reported return: give the held credits back to the buyer
+    (the listing is active again), or pay the seller (the listing is sold)."""
+    _check_admin(admin_email)
+    try:
+        deals.settle_dispute(db, request_id, refund_buyer)
+    except deals.ListingError as exc:
+        raise NotFound(" ".join(exc.errors)) from exc

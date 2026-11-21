@@ -62,15 +62,38 @@ def request_row(request: dict, price: int = 0) -> None:
         elif price:
             st.caption(f"{listings.format_price(price)} is held from the buyer's credits. "
                        "You get it when they confirm they received the item.")
-        if request.get("returned_at"):
-            st.warning(f"The buyer says they **gave the item back**. Check it and confirm "
-                       f"by **{deals.refund_text(request)}**. After that, the buyer is "
-                       "refunded automatically.", icon=":material/undo:")
-            if st.button("I got it back, refund the buyer", key=f"return-ok-{rid}",
-                         type="primary"):
+        if request.get("return_disputed_at"):
+            st.warning("You reported that the item came back **not in the same "
+                       "condition**. An admin will decide"
+                       + (" who gets the money." if price else "."),
+                       icon=":material/gavel:")
+        elif request.get("returned_at"):
+            if reason := deals.refund_reason_text(request):
+                st.markdown(f"**Why the buyer wants a refund:** "
+                            f"{listings.plain_text(reason)}")
+            if request.get("given_back_at"):
+                st.warning(f"The buyer says they **gave the item back**. Check it is in the "
+                           f"same condition by **{deals.refund_text(request)}**. Without an "
+                           "answer, the buyer is refunded automatically.",
+                           icon=":material/undo:")
+            else:
+                st.info(f"The buyer asked for a refund. Message them to agree where to meet "
+                        f"so they can give it back. If they don't by "
+                        f"**{deals.give_back_text(request)}**, you get paid.",
+                        icon=":material/undo:")
+            columns = st.columns(2)
+            if columns[0].button("Same condition, refund the buyer", key=f"return-ok-{rid}",
+                                 type="primary"):
                 act(deals.confirm_return, rid,
                     "Return confirmed. The buyer got their credits back and the item "
                     "is active again.")
+            with columns[1].popover("Not in the same condition"):
+                st.write("Is the item damaged or different from when you sold it? An "
+                         "admin will look at it and decide who gets the money. Until then "
+                         "it stays held.")
+                if st.button("Report to an admin", key=f"return-bad-{rid}"):
+                    act(deals.report_bad_condition, rid,
+                        "Reported. An admin will decide.")
         elif request["seller_confirmed_at"]:
             st.markdown(":orange[You confirmed. Waiting for the buyer to confirm too…]")
             if price and (due := deals.due_text(request)):
