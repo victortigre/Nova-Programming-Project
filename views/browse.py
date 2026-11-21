@@ -233,7 +233,8 @@ def plural(count: int, one: str, many: str) -> str:
 try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
-    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0, "confirm_return": 0}
+    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0, "confirm_return": 0,
+             "give_back": 0}
 if to_do["answer"]:
     with st.container(border=True):
         st.markdown(f"🔔 **{plural(to_do['answer'], 'buyer wants', 'buyers want')} "
@@ -247,8 +248,14 @@ if to_do["confirm_sale"]:
 if to_do.get("confirm_return"):
     with st.container(border=True):
         st.markdown(f"🔔 **{plural(to_do['confirm_return'], 'buyer', 'buyers')} gave an item "
-                    "back.** Check it and confirm on Sales within 48 hours.")
+                    "back.** Check it is in the same condition on Sales within 48 hours.")
         st.page_link("views/sales.py", label="Open Sales", icon=":material/sell:")
+if to_do.get("give_back"):
+    with st.container(border=True):
+        st.markdown(f"🔔 **You asked for a refund on {plural(to_do['give_back'], 'item', 'items')}.** "
+                    "Agree with the seller where to meet and give it back.")
+        st.page_link("views/purchases.py", label="Open My purchases",
+                     icon=":material/shopping_bag:")
 if to_do["confirm_received"]:
     with st.container(border=True):
         st.markdown(f"🔔 **{plural(to_do['confirm_received'], 'seller', 'sellers')} "

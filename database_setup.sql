@@ -190,6 +190,10 @@ alter table reviews enable row level security;
 -- When the buyer gave the item back after the hand-over (empty = not returned).
 -- The seller then has 48 hours to confirm before the buyer is refunded.
 alter table purchase_requests add column if not exists returned_at timestamptz;
+-- Refunds: when the buyer gave the item back, and when the seller reported
+-- that it came back in a worse condition (an admin then decides).
+alter table purchase_requests add column if not exists given_back_at timestamptz;
+alter table purchase_requests add column if not exists return_disputed_at timestamptz;
 
 -- Nova credits (pretend money, see wallet.py). One row per change, like a
 -- bank statement: + for added credits, a sale or a refund, - for money held

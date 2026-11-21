@@ -325,12 +325,20 @@ def test_a_cancelled_deal_is_never_paid_automatically(db):
     assert bal(db, SELLER) == 0 and bal(db, BUYER) == 5_000
 
 
-# --- returns: after the hand-over, the buyer gives the item back ----------------
+# --- refunds: ask, give the item back, the seller checks it ---------------------
 
-def returned_hours_ago(db, request_id, hours):
+def ago(**amount) -> str:
+    return (datetime.now(timezone.utc) - timedelta(**amount)).isoformat()
+
+
+def refund_asked(db, price=2000):
+    """A deal handed over, then the buyer asked for a refund. Returns (request id, listing id)."""
+    wallet.add_credits(db, BUYER, 5_000)
+    listing_id = sell(db, price)
+    request_id = deal(db, listing_id)
+    deals.confirm_sold(db, request_id, SELLER)
     deals.return_item(db, request_id, BUYER)
-    moment = datetime.now(timezone.utc) - timedelta(hours=hours)
-    db.requests[request_id]["returned_at"] = moment.isoformat()
+    return request_id, listing_id
 
 
 @pytest.mark.parametrize("who", [BUYER, SELLER])
@@ -357,7 +365,7 @@ def test_returning_keeps_the_money_held_and_stops_the_payment_countdown(db):
     handed_over_hours_ago(db, request_id, 30)
     deals.return_item(db, request_id, BUYER)
     request = db.get_request(request_id)
-    assert deals.payment_due(request) is None and deals.refund_due(request) is not None
+    assert deals.payment_due(request) is None and deals.give_back_due(request) is not None
     assert bal(db, BUYER) == 3_000 and bal(db, SELLER) == 0
     later = datetime.now(timezone.utc) + timedelta(hours=40)  # past the payment time
     deals.release_overdue(db, SELLER, now=later)
@@ -376,18 +384,135 @@ def test_seller_confirming_the_return_refunds_the_buyer(db):
     assert listings.get_listing(db, listing_id)["status"] == listings.ACTIVE
 
 
-def test_seller_has_48_hours_then_the_buyer_is_refunded_automatically(db):
-    wallet.add_credits(db, BUYER, 5_000)
-    request_id = deal(db, sell(db, 2000))
-    deals.confirm_sold(db, request_id, SELLER)
-    returned_hours_ago(db, request_id, 47)
+def test_after_giving_it_back_the_seller_has_48_hours_then_the_buyer_is_refunded(db):
+    request_id, listing_id = refund_asked(db)
+    deals.give_back(db, request_id, BUYER)
+    db.requests[request_id]["given_back_at"] = ago(hours=47)
     deals.to_do(db, BUYER)
     assert bal(db, BUYER) == 3_000  # 47 hours: still waiting for the seller
-    db.requests[request_id]["returned_at"] = (
-        datetime.now(timezone.utc) - timedelta(hours=49)).isoformat()
+    db.requests[request_id]["given_back_at"] = ago(hours=49)
     deals.to_do(db, BUYER)
     assert bal(db, BUYER) == 5_000 and bal(db, SELLER) == 0
     assert db.get_request(request_id)["status"] == deals.CANCELLED
+    assert listings.get_listing(db, listing_id)["status"] == listings.ACTIVE
+
+
+def test_no_deadline_for_the_seller_before_the_item_is_given_back(db):
+    request_id, _ = refund_asked(db)
+    db.requests[request_id]["returned_at"] = ago(days=10)  # asked 10 days ago, not given back
+    assert deals.refund_due(db.get_request(request_id)) is None
+    deals.to_do(db, BUYER)
+    assert bal(db, BUYER) == 3_000 and bal(db, SELLER) == 0  # still held
+
+
+def test_not_given_back_within_14_days_pays_the_seller(db):
+    request_id, listing_id = refund_asked(db)
+    db.requests[request_id]["returned_at"] = ago(days=13, hours=23)
+    deals.to_do(db, SELLER)
+    assert bal(db, SELLER) == 0
+    db.requests[request_id]["returned_at"] = ago(days=14, minutes=1)
+    deals.to_do(db, SELLER)
+    assert bal(db, SELLER) == 2_000 and bal(db, BUYER) == 3_000
+    assert db.get_request(request_id)["status"] == deals.COMPLETED
+    assert listings.get_listing(db, listing_id)["status"] == listings.SOLD
+    with pytest.raises(ListingError):
+        deals.give_back(db, request_id, BUYER)
+
+
+def test_giving_back_after_14_days_is_refused(db):
+    request_id, _ = refund_asked(db)
+    db.requests[request_id]["returned_at"] = ago(days=15)
+    with pytest.raises(ListingError, match="14 days"):
+        deals.give_back(db, request_id, BUYER)
+
+
+def test_give_back_rules(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    deals.confirm_sold(db, request_id, SELLER)
+    with pytest.raises(ListingError, match="no refund request"):
+        deals.give_back(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER)
+    with pytest.raises(NotAllowed):
+        deals.give_back(db, request_id, SELLER)
+    with pytest.raises(NotAllowed):
+        deals.give_back(db, request_id, OTHER)
+    deals.give_back(db, request_id, BUYER)
+    with pytest.raises(ListingError, match="already said"):
+        deals.give_back(db, request_id, BUYER)
+
+
+def test_seller_can_confirm_as_soon_as_they_have_it_back(db):
+    request_id, _ = refund_asked(db)  # the buyer didn't tap "I gave it back"
+    deals.confirm_return(db, request_id, SELLER)
+    assert bal(db, BUYER) == 5_000
+
+
+def test_seller_reports_bad_condition_money_stays_held_and_timers_stop(db):
+    request_id, _ = refund_asked(db)
+    deals.give_back(db, request_id, BUYER)
+    deals.report_bad_condition(db, request_id, SELLER)
+    db.requests[request_id]["given_back_at"] = ago(days=3)
+    db.requests[request_id]["returned_at"] = ago(days=30)
+    deals.to_do(db, BUYER)
+    deals.to_do(db, SELLER)
+    assert bal(db, BUYER) == 3_000 and bal(db, SELLER) == 0  # still held
+    assert db.get_request(request_id)["status"] == deals.ACCEPTED
+    with pytest.raises(ListingError, match="admin"):
+        deals.confirm_return(db, request_id, SELLER)
+    with pytest.raises(ListingError, match="admin"):
+        deals.report_bad_condition(db, request_id, SELLER)
+
+
+def test_only_the_seller_reports_and_not_after_the_48_hours(db):
+    request_id, _ = refund_asked(db)
+    with pytest.raises(NotAllowed):
+        deals.report_bad_condition(db, request_id, BUYER)
+    deals.give_back(db, request_id, BUYER)
+    db.requests[request_id]["given_back_at"] = ago(hours=49)
+    with pytest.raises(ListingError, match="48 hours"):
+        deals.report_bad_condition(db, request_id, SELLER)
+
+
+@pytest.mark.parametrize("refund_buyer", [True, False])
+def test_admin_settles_a_reported_return(db, monkeypatch, refund_buyer):
+    monkeypatch.setattr(admin, "admin_emails", lambda: [OTHER])  # OTHER is the admin here
+    request_id, listing_id = refund_asked(db)
+    deals.give_back(db, request_id, BUYER)
+    deals.report_bad_condition(db, request_id, SELLER)
+    shown = admin.disputed_returns(db, OTHER)
+    assert [(d["id"], d["price_cents"]) for d in shown] == [(request_id, 2000)]
+    admin.settle_return(db, OTHER, request_id, refund_buyer)
+    status = listings.get_listing(db, listing_id)["status"]
+    if refund_buyer:
+        assert bal(db, BUYER) == 5_000 and bal(db, SELLER) == 0
+        assert status == listings.ACTIVE
+    else:
+        assert bal(db, BUYER) == 3_000 and bal(db, SELLER) == 2_000
+        assert status == listings.SOLD
+    assert admin.disputed_returns(db, OTHER) == []
+    with pytest.raises(admin.NotFound):
+        admin.settle_return(db, OTHER, request_id, True)  # only once
+
+
+def test_only_admins_see_and_settle_reported_returns(db, monkeypatch):
+    monkeypatch.setattr(admin, "admin_emails", lambda: [OTHER])
+    request_id, _ = refund_asked(db)
+    deals.give_back(db, request_id, BUYER)
+    deals.report_bad_condition(db, request_id, SELLER)
+    with pytest.raises(admin.NotAllowed):
+        admin.disputed_returns(db, SELLER)
+    with pytest.raises(admin.NotAllowed):
+        admin.settle_return(db, BUYER, request_id, True)
+    assert bal(db, BUYER) == 3_000
+
+
+def test_admin_cannot_settle_a_return_nobody_reported(db, monkeypatch):
+    monkeypatch.setattr(admin, "admin_emails", lambda: [OTHER])
+    request_id, _ = refund_asked(db)
+    with pytest.raises(admin.NotFound):
+        admin.settle_return(db, OTHER, request_id, False)
+    assert bal(db, SELLER) == 0
 
 
 def test_return_is_only_possible_within_48_hours_of_the_hand_over(db):
@@ -405,7 +530,7 @@ def test_return_needs_a_hand_over_first_and_happens_once(db):
         deals.return_item(db, request_id, BUYER)
     deals.confirm_sold(db, request_id, SELLER)
     deals.return_item(db, request_id, BUYER)
-    with pytest.raises(ListingError, match="already returned"):
+    with pytest.raises(ListingError, match="already asked"):
         deals.return_item(db, request_id, BUYER)
     with pytest.raises(ListingError, match="returned this item"):
         deals.confirm_received(db, request_id, BUYER)
@@ -429,5 +554,9 @@ def test_seller_is_reminded_to_check_the_return(db):
     request_id = deal(db, sell(db, 2000))
     deals.confirm_sold(db, request_id, SELLER)
     deals.return_item(db, request_id, BUYER)
-    assert deals.to_do(db, SELLER)["confirm_return"] == 1
+    assert deals.to_do(db, BUYER)["give_back"] == 1  # the buyer: give it back
     assert deals.to_do(db, BUYER)["confirm_received"] == 0
+    assert deals.to_do(db, SELLER)["confirm_return"] == 0  # nothing to check yet
+    deals.give_back(db, request_id, BUYER)
+    assert deals.to_do(db, SELLER)["confirm_return"] == 1
+    assert deals.to_do(db, BUYER)["give_back"] == 0
