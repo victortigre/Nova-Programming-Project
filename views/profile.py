@@ -53,6 +53,21 @@ def add_credits(amount_cents: int) -> None:
         st.session_state["wallet_error"] = str(exc)
 
 
+def add_typed_credits() -> None:
+    """Read the euros typed in the box and add that amount (so a big top-up
+    like €4,000 doesn't need many button clicks)."""
+    try:
+        cents = listings.parse_price(st.session_state.get("topup-amount", ""))
+    except ValueError:
+        st.session_state["wallet_error"] = "Enter an amount like 40 or 4000."
+        return
+    if not cents:
+        st.session_state["wallet_error"] = "Enter an amount to add."
+        return
+    add_credits(cents)
+    st.session_state["topup-amount"] = ""  # empty the box after a successful add
+
+
 if profile is not None:
     with ui.card("wallet"):
         st.markdown("**Nova credits**")
@@ -77,6 +92,11 @@ if profile is not None:
                                       wallet.TOP_UP_AMOUNTS):
                 column.button(f"+ {wallet.euros(amount)}", key=f"topup-{amount}",
                               on_click=add_credits, args=(amount,), width="stretch")
+            st.caption("Or type any amount:")
+            box, add = st.columns([3, 1], vertical_alignment="bottom")
+            box.text_input("Amount (€)", key="topup-amount", placeholder="e.g. 4000",
+                           label_visibility="collapsed")
+            add.button("Add", key="topup-custom", on_click=add_typed_credits, width="stretch")
             if history:
                 with st.expander("History"):
                     for entry in history[:30]:

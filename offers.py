@@ -11,7 +11,7 @@ OFFER_STATUS_LABELS = {
 
 def validate_offer_price(price_cents: int) -> int:
     if type(price_cents) is not int or not 1 <= price_cents <= MAX_PRICE_CENTS:
-        raise ValueError(f"Offer price must be between 1 and {MAX_PRICE_CENTS} cents.")
+        raise ValueError(f"Offer price must be between €0.01 and €{MAX_PRICE_CENTS // 100:,}.")
     return price_cents
 
 
