@@ -68,6 +68,9 @@ def request_row(request: dict, price: int = 0) -> None:
                        + (" who gets the money." if price else "."),
                        icon=":material/gavel:")
         elif request.get("returned_at"):
+            if reason := deals.refund_reason_text(request):
+                st.markdown(f"**Why the buyer wants a refund:** "
+                            f"{listings.plain_text(reason)}")
             if request.get("given_back_at"):
                 st.warning(f"The buyer says they **gave the item back**. Check it is in the "
                            f"same condition by **{deals.refund_text(request)}**. Without an "

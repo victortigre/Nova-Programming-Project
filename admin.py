@@ -169,7 +169,7 @@ def disputed_returns(db, admin_email: str) -> list[dict]:
     """Every reported return, oldest first, with what the page needs to show it.
 
     Each item has: id, title, price_cents, buyer, seller, asked_at (refund asked),
-    given_back_at and reported_at.
+    given_back_at, reported_at and reason (why the buyer asked for a refund).
     """
     _check_admin(admin_email)
     rows = db.disputed_returns()
@@ -183,6 +183,7 @@ def disputed_returns(db, admin_email: str) -> list[dict]:
         "asked_at": r.get("returned_at"),
         "given_back_at": r.get("given_back_at"),
         "reported_at": r.get("return_disputed_at"),
+        "reason": deals.refund_reason_text(r),
     } for r in rows]
 
 

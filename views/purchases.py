@@ -127,6 +127,7 @@ def show_deal(deal: dict) -> None:
                            + f" automatically on {deals.refund_text(deal)}.")
             elif deal.get("returned_at"):
                 # Refund asked: meet the seller to give it back (14 days).
+                st.caption(f"Your reason: {listings.plain_text(deals.refund_reason_text(deal))}")
                 st.info(f"You asked for a refund. Message the seller to agree where to meet "
                         f"and give the item back by **{deals.give_back_text(deal)}**. If it "
                         "isn't given back by then, the payment goes to the seller.",
@@ -151,13 +152,22 @@ def show_deal(deal: dict) -> None:
                         "Thanks! " + (f"{listings.format_price(price)} went to the seller."
                                       if price else "Enjoy!"))
                 with columns[1].popover("Ask for a refund"):
-                    st.write(f"Not happy with the item? After asking, you agree with the "
-                             f"seller by message where to meet and give it back (you have "
-                             f"{deals.GIVE_BACK_DAYS} days). The seller then checks it is in "
-                             "the same condition, and you get your credits back.")
-                    if st.button("Ask for a refund", key=f"return-{request_id}"):
+                    st.write(f"Not happy with the item? Tell the seller what's wrong. Then "
+                             f"you agree by message where to meet and give it back (you have "
+                             f"{deals.GIVE_BACK_DAYS} days). The seller checks it is in the "
+                             "same condition, and you get your credits back.")
+                    reason = st.radio("What is the problem?", deals.REFUND_REASONS,
+                                      index=None, key=f"reason-{request_id}")
+                    other = reason == deals.REFUND_OTHER
+                    details = st.text_area(
+                        "Describe the problem" if other else "Anything to add? (optional)",
+                        key=f"details-{request_id}", max_chars=deals.MAX_REFUND_DETAILS,
+                        height=80, placeholder="For example: the left pedal is broken.")
+                    if st.button("Ask for a refund", key=f"return-{request_id}",
+                                 type="primary"):
                         act(deals.return_item, request_id,
-                            "Refund asked. Message the seller to arrange giving it back.")
+                            "Refund asked. Message the seller to arrange giving it back.",
+                            reason, details)
             else:
                 st.markdown(":green[Accepted! Meet the seller to collect it, then confirm below.]")
                 if price:

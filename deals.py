@@ -15,7 +15,8 @@ confirm (money to the seller) or ask for a refund. Without an answer, the money
 goes to the seller automatically.
 
 Refunds, step by step (the money stays held the whole time):
-  1. Within the 48 hours, the buyer asks for a refund (return_item). The two
+  1. Within the 48 hours, the buyer asks for a refund (return_item), saying
+     what the problem is (REFUND_REASONS, or "Other" with a description). The two
      arrange by message when to meet to give the item back. No rush, but if
      the item isn't given back within 14 days, the seller is paid.
   2. When they meet, the buyer taps "I gave it back" (give_back). Now the
@@ -54,6 +55,18 @@ REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
 LIVE = (REQUESTED, ACCEPTED)  # a deal still in progress
 AUTO_RELEASE_HOURS = 48  # after the seller's hand-over, how long the buyer has to confirm
 GIVE_BACK_DAYS = 14  # after asking for a refund, how long the buyer has to give it back
+
+# Why the buyer asks for a refund. With "Other", they must describe the problem.
+REFUND_REASONS = [
+    "Damaged or broken",
+    "Not as described in the listing",
+    "Wrong size or measurements",
+    "Missing parts or accessories",
+    "Doesn't work",
+    "Other",
+]
+REFUND_OTHER = "Other"
+MAX_REFUND_DETAILS = 300
 
 
 def _now() -> str:
@@ -337,8 +350,31 @@ def release_overdue(db, email: str, now: datetime | None = None) -> int:
 
 # --- refunds: the buyer gives the item back --------------------------------------
 
-def return_item(db, request_id: int, buyer_email: str) -> None:
-    """The buyer asks for a refund (within 48 hours of the hand-over).
+def check_refund_reason(reason, details) -> list[str]:
+    """What's wrong with a refund reason; an empty list means it is fine."""
+    errors = []
+    details = (details or "").strip()
+    if reason not in REFUND_REASONS:
+        errors.append("Choose what the problem is.")
+    elif reason == REFUND_OTHER and not details:
+        errors.append("Describe the problem, so the seller knows what is wrong.")
+    if len(details) > MAX_REFUND_DETAILS:
+        errors.append(f"The description can be at most {MAX_REFUND_DETAILS} characters.")
+    return errors
+
+
+def refund_reason_text(request: dict) -> str:
+    """'Damaged or broken: the screen is cracked', 'Damaged or broken', or ''."""
+    reason = request.get("refund_reason") or ""
+    details = (request.get("refund_details") or "").strip()
+    if reason == REFUND_OTHER and details:
+        return details
+    return f"{reason}: {details}" if reason and details else reason
+
+
+def return_item(db, request_id: int, buyer_email: str, reason: str | None = None,
+                details: str = "") -> None:
+    """The buyer asks for a refund (within 48 hours of the hand-over), saying why.
 
     The money stays held. The two meet to give the item back (give_back);
     there are 14 days for that.
@@ -355,10 +391,15 @@ def return_item(db, request_id: int, buyer_email: str) -> None:
         raise ListingError(["The seller hasn't handed it over yet. You can simply cancel."])
     if request.get("returned_at"):
         raise ListingError(["You already asked for a refund."])
+    errors = check_refund_reason(reason, details)
+    if errors:
+        raise ListingError(errors)
     due = payment_due(request)
     if due is not None and datetime.now(timezone.utc) >= due:
         raise ListingError(["The 48 hours have passed, so the payment went to the seller."])
-    if not db.update_request(request_id, {"returned_at": _now()}, only_if_status=ACCEPTED):
+    changes = {"returned_at": _now(), "refund_reason": reason,
+               "refund_details": (details or "").strip() or None}
+    if not db.update_request(request_id, changes, only_if_status=ACCEPTED):
         raise ListingError(["This deal just changed. Please look again."])
 
 

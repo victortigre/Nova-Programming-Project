@@ -103,6 +103,9 @@ for item in disputes:
         st.text(item["seller"])
         st.caption(f"Refund asked {when(item['asked_at'])} · given back "
                    f"{when(item['given_back_at'])} · reported {when(item['reported_at'])}")
+        if item["reason"]:
+            st.caption("Why the buyer asked for a refund")
+            st.text(item["reason"])
         st.write("The seller says the item came back **not in the same condition**. "
                  "Talk to both, then decide who gets the held credits.")
         buttons = st.columns(2)

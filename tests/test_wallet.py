@@ -18,6 +18,7 @@ from fake_database import FakeDatabase
 from listings import ListingError, NotAllowed
 
 SELLER, BUYER, OTHER = "seller@novasbe.pt", "buyer@novasbe.pt", "other@novasbe.pt"
+DAMAGED = "Damaged or broken"
 
 
 def photo() -> bytes:
@@ -337,7 +338,7 @@ def refund_asked(db, price=2000):
     listing_id = sell(db, price)
     request_id = deal(db, listing_id)
     deals.confirm_sold(db, request_id, SELLER)
-    deals.return_item(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     return request_id, listing_id
 
 
@@ -363,7 +364,7 @@ def test_returning_keeps_the_money_held_and_stops_the_payment_countdown(db):
     wallet.add_credits(db, BUYER, 5_000)
     request_id = deal(db, sell(db, 2000))
     handed_over_hours_ago(db, request_id, 30)
-    deals.return_item(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     request = db.get_request(request_id)
     assert deals.payment_due(request) is None and deals.give_back_due(request) is not None
     assert bal(db, BUYER) == 3_000 and bal(db, SELLER) == 0
@@ -377,7 +378,7 @@ def test_seller_confirming_the_return_refunds_the_buyer(db):
     listing_id = sell(db, 2000)
     request_id = deal(db, listing_id)
     deals.confirm_sold(db, request_id, SELLER)
-    deals.return_item(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     deals.confirm_return(db, request_id, SELLER)
     assert bal(db, BUYER) == 5_000 and bal(db, SELLER) == 0
     assert db.get_request(request_id)["status"] == deals.CANCELLED
@@ -432,7 +433,7 @@ def test_give_back_rules(db):
     deals.confirm_sold(db, request_id, SELLER)
     with pytest.raises(ListingError, match="no refund request"):
         deals.give_back(db, request_id, BUYER)
-    deals.return_item(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     with pytest.raises(NotAllowed):
         deals.give_back(db, request_id, SELLER)
     with pytest.raises(NotAllowed):
@@ -520,18 +521,18 @@ def test_return_is_only_possible_within_48_hours_of_the_hand_over(db):
     request_id = deal(db, sell(db, 2000))
     handed_over_hours_ago(db, request_id, 50)
     with pytest.raises(ListingError, match="48 hours have passed"):
-        deals.return_item(db, request_id, BUYER)
+        deals.return_item(db, request_id, BUYER, DAMAGED)
 
 
 def test_return_needs_a_hand_over_first_and_happens_once(db):
     wallet.add_credits(db, BUYER, 5_000)
     request_id = deal(db, sell(db, 2000))
     with pytest.raises(ListingError, match="simply cancel"):
-        deals.return_item(db, request_id, BUYER)
+        deals.return_item(db, request_id, BUYER, DAMAGED)
     deals.confirm_sold(db, request_id, SELLER)
-    deals.return_item(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     with pytest.raises(ListingError, match="already asked"):
-        deals.return_item(db, request_id, BUYER)
+        deals.return_item(db, request_id, BUYER, DAMAGED)
     with pytest.raises(ListingError, match="returned this item"):
         deals.confirm_received(db, request_id, BUYER)
 
@@ -541,8 +542,8 @@ def test_only_the_buyer_returns_and_only_the_seller_confirms_the_return(db):
     request_id = deal(db, sell(db, 2000))
     deals.confirm_sold(db, request_id, SELLER)
     with pytest.raises(NotAllowed):
-        deals.return_item(db, request_id, OTHER)
-    deals.return_item(db, request_id, BUYER)
+        deals.return_item(db, request_id, OTHER, DAMAGED)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     with pytest.raises(NotAllowed):
         deals.confirm_return(db, request_id, OTHER)
     with pytest.raises(NotAllowed):
@@ -553,10 +554,67 @@ def test_seller_is_reminded_to_check_the_return(db):
     wallet.add_credits(db, BUYER, 5_000)
     request_id = deal(db, sell(db, 2000))
     deals.confirm_sold(db, request_id, SELLER)
-    deals.return_item(db, request_id, BUYER)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
     assert deals.to_do(db, BUYER)["give_back"] == 1  # the buyer: give it back
     assert deals.to_do(db, BUYER)["confirm_received"] == 0
     assert deals.to_do(db, SELLER)["confirm_return"] == 0  # nothing to check yet
     deals.give_back(db, request_id, BUYER)
     assert deals.to_do(db, SELLER)["confirm_return"] == 1
     assert deals.to_do(db, BUYER)["give_back"] == 0
+
+
+# --- refund reasons ---------------------------------------------------------------
+
+def handed_over(db):
+    wallet.add_credits(db, BUYER, 5_000)
+    request_id = deal(db, sell(db, 2000))
+    deals.confirm_sold(db, request_id, SELLER)
+    return request_id
+
+
+def test_a_refund_needs_a_reason(db):
+    request_id = handed_over(db)
+    for bad in (None, "", "I just changed my mind"):
+        with pytest.raises(ListingError, match="Choose what the problem is"):
+            deals.return_item(db, request_id, BUYER, bad)
+    assert db.get_request(request_id)["returned_at"] is None
+
+
+def test_other_needs_a_description(db):
+    request_id = handed_over(db)
+    with pytest.raises(ListingError, match="Describe the problem"):
+        deals.return_item(db, request_id, BUYER, deals.REFUND_OTHER, "   ")
+    deals.return_item(db, request_id, BUYER, deals.REFUND_OTHER, " Smells of smoke ")
+    request = db.get_request(request_id)
+    assert request["refund_reason"] == "Other"
+    assert deals.refund_reason_text(request) == "Smells of smoke"
+
+
+def test_the_reason_and_details_are_saved_for_the_seller(db):
+    request_id = handed_over(db)
+    deals.return_item(db, request_id, BUYER, "Wrong size or measurements", "It's an S, not an M")
+    request = db.get_request(request_id)
+    assert deals.refund_reason_text(request) == "Wrong size or measurements: It's an S, not an M"
+
+
+def test_a_reason_without_details_is_fine(db):
+    request_id = handed_over(db)
+    deals.return_item(db, request_id, BUYER, DAMAGED)
+    request = db.get_request(request_id)
+    assert request["refund_details"] is None
+    assert deals.refund_reason_text(request) == DAMAGED
+
+
+def test_refund_description_has_a_length_limit(db):
+    request_id = handed_over(db)
+    with pytest.raises(ListingError, match="at most"):
+        deals.return_item(db, request_id, BUYER, DAMAGED, "x" * (deals.MAX_REFUND_DETAILS + 1))
+
+
+def test_admin_sees_why_the_buyer_asked_for_a_refund(db, monkeypatch):
+    monkeypatch.setattr(admin, "admin_emails", lambda: [OTHER])
+    request_id = handed_over(db)
+    deals.return_item(db, request_id, BUYER, DAMAGED, "Cracked frame")
+    deals.give_back(db, request_id, BUYER)
+    deals.report_bad_condition(db, request_id, SELLER)
+    assert admin.disputed_returns(db, OTHER)[0]["reason"] == "Damaged or broken: Cracked frame"
