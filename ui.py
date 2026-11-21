@@ -6,7 +6,6 @@ file adds what the theme alone cannot do:
     apply_style()   extra CSS (white cards, round heart and price buttons)
     card(key)       a white box with round corners, for grouping things
     listing_card()  one item in a grid: photo, badge, title, heart, price
-    price_chart()   the small price curve above the price slider
 
 Safety: everything a student typed (titles, names, places) goes through
 html.escape before it is put into HTML, so it shows as plain text and can
@@ -16,8 +15,6 @@ never add links, images or scripts.
 import html
 from datetime import date
 
-import altair as alt
-import pandas as pd
 import streamlit as st
 
 import listings
@@ -293,16 +290,22 @@ def apply_style() -> None:
 
 
 def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
-           tone: str = "violet", open_chat: str | None = None) -> None:
+           tone: str = "violet", open_chat: str | None = None, on_dismiss=None) -> None:
     """A card at the top of Browse: something waits for this student, with a button.
 
     tone: "violet" (selling), "green" (buying) or "warm" (refunds).
     title and text are our own words (never typed by students), so html is safe here;
     anything from a student (a name, a title) must be escaped with html.escape first.
     With open_chat (a conversation id), the button opens that chat in the Inbox.
+    on_dismiss: when given, a ✕ button is shown that calls on_dismiss(key).
     """
     with st.container(key=f"notice-{tone}-{key}"):
-        words, button = st.columns([4, 1.3], vertical_alignment="center")
+        if on_dismiss is None:
+            words, button = st.columns([4, 1.3], vertical_alignment="center")
+        else:
+            words, button, close = st.columns([4, 1.3, 0.5], vertical_alignment="center")
+            close.button("✕", key=f"notice-dismiss-{key}", on_click=on_dismiss, args=(key,),
+                         help="Dismiss this notification")
         words.html(f'<div class="nm-notice"><div class="nm-notice-icon">{emoji}</div>'
                    f'<div><div class="nm-notice-title">{title}</div>'
                    f'<div class="nm-notice-text">{text}</div></div></div>')
@@ -375,23 +378,6 @@ def avatar(photo_url: str | None, name: str) -> str:
     if photo_url:
         return f'<img class="nm-avatar" src="{html.escape(photo_url)}" alt="">'
     return f'<div class="nm-avatar">{html.escape((name or "?")[0].upper())}</div>'
-
-
-def price_chart(prices_in_euros: list[float]) -> None:
-    """A small violet curve showing how many listings there are at each price."""
-    if len(prices_in_euros) < 2:
-        return
-    data = pd.DataFrame({"price": prices_in_euros})
-    chart = (
-        alt.Chart(data)
-        .mark_area(color=VIOLET, opacity=0.35, interpolate="monotone",
-                   line={"color": VIOLET})
-        .encode(x=alt.X("price:Q", bin=alt.Bin(maxbins=12), axis=None),
-                y=alt.Y("count():Q", axis=None))
-        .properties(height=70, background="transparent")
-        .configure_view(strokeWidth=0, fill=None)
-    )
-    st.altair_chart(chart, use_container_width=True)
 
 
 def rating_form(key, who: str, name: str):
