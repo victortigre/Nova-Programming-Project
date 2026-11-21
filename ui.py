@@ -209,6 +209,13 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 [class*="st-key-notice-"] [data-testid="stPageLink"] a * {{ color: #FFFFFF !important; }}
 [class*="st-key-notice-"] [data-testid="stPageLink"] a:hover {{ background: #4B32D9; }}
+[class*="st-key-notice-"] .stButton {{ display: flex; justify-content: flex-end; }}
+[class*="st-key-notice-"] .stButton button {{
+    background: {VIOLET}; border: none; border-radius: 999px; padding: 4px 16px;
+    min-height: 0; width: auto;
+}}
+[class*="st-key-notice-"] .stButton button * {{ color: #FFFFFF !important; }}
+[class*="st-key-notice-"] .stButton button:hover {{ background: #4B32D9; }}
 /* even_text(): every text inside is the same size (e.g. the refund form). */
 [class*="st-key-even-"] p, [class*="st-key-even-"] label,
 [class*="st-key-even-"] textarea, [class*="st-key-even-"] button {{
@@ -291,18 +298,25 @@ def apply_style() -> None:
 
 
 def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
-           tone: str = "violet") -> None:
+           tone: str = "violet", open_chat: str | None = None) -> None:
     """A card at the top of Browse: something waits for this student, with a button.
 
     tone: "violet" (selling), "green" (buying) or "warm" (refunds).
-    title and text are our own words (never typed by students), so html is safe here.
+    title and text are our own words (never typed by students), so html is safe here;
+    anything from a student (a name, a title) must be escaped with html.escape first.
+    With open_chat (a conversation id), the button opens that chat in the Inbox.
     """
     with st.container(key=f"notice-{tone}-{key}"):
         words, button = st.columns([4, 1.3], vertical_alignment="center")
         words.html(f'<div class="nm-notice"><div class="nm-notice-icon">{emoji}</div>'
                    f'<div><div class="nm-notice-title">{title}</div>'
                    f'<div class="nm-notice-text">{text}</div></div></div>')
-        button.page_link(page, label=label, icon=":material/arrow_forward:")
+        if open_chat is None:
+            button.page_link(page, label=label, icon=":material/arrow_forward:")
+        elif button.button(label, key=f"notice-open-{key}", icon=":material/arrow_forward:"):
+            st.session_state.messaging_selected = open_chat
+            st.session_state.messaging_history_limit = 50
+            st.switch_page(page)
 
 
 def even_text(key: str):

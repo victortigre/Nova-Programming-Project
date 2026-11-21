@@ -5,6 +5,7 @@ live in browsing.py. app.py already lets only verified Nova students in, and we
 check again, because the rule is to check where the action happens.
 """
 
+import html
 import re
 from datetime import date
 from functools import partial
@@ -254,6 +255,19 @@ if to_do.get("give_back"):
               f"You asked for a refund on {plural(to_do['give_back'], 'item', 'items')}",
               "Agree with the seller where to meet and give it back.", PURCHASES, "Open",
               tone="warm")
+# Offers and counteroffers waiting for an answer (Inbox). Hidden if messaging
+# isn't set up in the database yet.
+try:
+    offers_waiting = messaging_repository.offers_to_answer()
+except Exception:
+    offers_waiting = []
+for item in offers_waiting:
+    kind = "a counteroffer" if item["counter"] else "an offer"
+    ui.notice(f"offer-{item['conversation_id']}", "💬",
+              f"{html.escape(item['sender_name'])} sent you {kind}: "
+              f"{listings.format_price(item['amount_cents'])}",
+              f"For {html.escape(item['listing_title'])}. Accept, decline or counter in your Inbox.",
+              "views/messaging.py", "See offer", open_chat=item["conversation_id"])
 if to_do["confirm_received"]:
     ui.notice("confirm-received", "🤝",
               f"{plural(to_do['confirm_received'], 'seller', 'sellers')} accepted your request",
