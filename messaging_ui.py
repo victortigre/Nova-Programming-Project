@@ -220,6 +220,12 @@ INBOX_CSS = """
     margin: 0;
     line-height: 1.5;
 }
+.st-key-inbox-list .inbox-summary { display: flex; align-items: center; gap: 12px; }
+.st-key-inbox-list .inbox-avatar {
+    width: 46px; height: 46px; flex: 0 0 46px; border-radius: 50%;
+    background-size: cover; background-position: center;
+}
+.st-key-inbox-list .inbox-information { flex: 1; min-width: 0; }
 .st-key-inbox-list .inbox-heading { color: #202433; }
 .st-key-inbox-list .inbox-listing { color: #737985; font-size: 0.85rem; }
 .st-key-inbox-list .inbox-preview { color: #626975; font-size: 0.85rem; margin-top: 4px; }
@@ -262,14 +268,17 @@ def inbox_activity_preview(activity: dict | None, actor: int) -> str:
 
 
 def inbox_summary(row: dict, activity: dict | None) -> None:
-    """Escaped compact name/listing and one-line preview; no photos or actions."""
+    """Compact escaped summary with an optional real photo above initials fallback."""
     name = html.escape(row["other_name"])
     title = html.escape(row["listing_title_snapshot"])
     preview = html.escape(inbox_activity_preview(activity, row["own_profile_id"]))
     dot = "🔵 " if row.get("unread") else ""  # Preserve the existing unread indicator.
     unavailable = " · Listing no longer available" if row["listing_id"] is None else ""
+    background = html.escape(avatar_background(row["other_name"], row.get("other_photo_url")), quote=True)
     st.html(
-        f'<div class="inbox-heading"><strong>{dot}{name}</strong>'
+        f'<div class="inbox-summary"><span class="inbox-avatar" role="img" '
+        f'aria-label="{name} profile picture" style="background-image: {background}"></span>'
+        f'<div class="inbox-information"><div class="inbox-heading"><strong>{dot}{name}</strong>'
         f'<span class="inbox-listing"> · {title}{unavailable}</span></div>'
-        f'<p class="inbox-preview" title="{preview}">{preview}</p>'
+        f'<p class="inbox-preview" title="{preview}">{preview}</p></div></div>'
     )

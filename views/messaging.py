@@ -77,7 +77,7 @@ def show_inbox() -> None:
         st.button("Refresh inbox")
     try:
         with st.spinner("Loading conversations…"), repository.checked_once():
-            rows = repository.get_inbox()
+            rows = repository.get_inbox(include_photos=True)
     except Exception as error:
         report_error(error)
         return

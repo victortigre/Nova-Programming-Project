@@ -14,7 +14,7 @@ def markup(app):
     return '\n'.join(x.proto.body for x in app.get('html'))
 
 
-def test_compact_rows_keep_actions_refresh_and_no_price_or_photo(ui):
+def test_compact_rows_keep_actions_refresh_and_no_asking_price(ui):
     app, mocks, _ = ui
     mocks['get_inbox'].return_value = [
         {**ROW, 'other_name': 'Jonathan', 'listing_title_snapshot': 'Surfboard', 'unread': True},
@@ -29,7 +29,8 @@ def test_compact_rows_keep_actions_refresh_and_no_price_or_photo(ui):
     assert '<strong>🔵 Jonathan</strong>' in markup(app)
     assert 'Surfboard' in markup(app) and 'Listing no longer available' in markup(app)
     assert not app.image
-    assert 'background-image:' not in markup(app)
+    assert 'inbox-avatar' in markup(app)
+    assert 'data:image/svg+xml,' in markup(app)
     assert not any('€20' in c.value for c in app.caption)
     for row in listing.get('flex_container'):
         if row.key and row.key.startswith('inbox-row-'):
@@ -94,3 +95,24 @@ def test_preview_escapes_untrusted_text_and_keeps_full_one_line_content(ui):
     assert '&lt;b&gt;Name&lt;/b&gt;' in html
     assert 'text-overflow: ellipsis' in html and 'white-space: nowrap' in html
     assert 'Long message ' * 40 in html
+
+
+@pytest.mark.parametrize('url', [None, 'https://photos.example.invalid/avatar.jpg'])
+def test_inbox_avatars_keep_summary_chronology_and_navigation(ui, url):
+    app, mocks, _ = ui
+    mocks['get_inbox'].return_value = [{**ROW, 'other_name': 'Mia Silva', 'other_photo_url': url,
+        'last_activity': {'type': 'message', 'sender_id': 8, 'body': 'Most recent message',
+                          'created_at': ROW['created_at']}}]
+    app.run()
+    assert not app.exception
+    mocks['get_inbox'].assert_called_once_with(include_photos=True)
+    html = markup(app)
+    assert 'width: 46px; height: 46px' in html and 'border-radius: 50%' in html
+    assert 'aria-label="Mia Silva profile picture"' in html
+    assert 'data:image/svg+xml,' in html
+    if url:
+        assert url in html  # Real photo and layered initials fallback both present.
+    assert '<strong>Mia Silva</strong>' in html and 'Most recent message' in html
+    assert 'text-overflow: ellipsis' in html
+    app.button(key='chat_' + CID).click().run()
+    assert app.chat_input and not app.exception
