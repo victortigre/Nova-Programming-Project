@@ -6,12 +6,15 @@ Every visit starts here. First it checks who is at the door. Only a
 verified Nova student gets through to the pages listed at the bottom.
 """
 
+import time
+
 import streamlit as st
 
 import database
 import deals
 import ui
-from accounts import admin_emails, email_is_verified, is_admin, logged_in_user, nova_email
+from accounts import (admin_emails, email_is_verified, is_admin, logged_in_user, may_resend,
+                      nova_email, resend_verification_email)
 from profiles import DONE, onboarding_step
 
 
@@ -121,6 +124,14 @@ if not email_is_verified(user_info):
             "sign in again to finish."
         )
         st.button("Sign in again", on_click=st.login, args=("auth0",))
+    if st.button("Send the email again"):
+        if not may_resend(st.session_state.get("confirmation_resent_at"), time.time()):
+            st.warning("We just sent it. Please wait a minute before asking again.")
+        elif resend_verification_email(user_info):
+            st.session_state["confirmation_resent_at"] = time.time()
+            st.success(f"Sent a new link to **{email}**. Check your inbox and your Junk folder.")
+        else:
+            st.error("Sorry, we could not send the email right now. Please try again later.")
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
