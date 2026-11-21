@@ -12,7 +12,8 @@ import streamlit as st
 import database
 from accounts import logged_in_user, verified_nova_email
 from profiles import DONE, onboarding_step
-from offers import OFFER_STATUS_LABELS, validate_offer_note, validate_offer_price
+from offers import (OFFER_STATUS_LABELS, offers_waiting_for, validate_offer_note,
+                    validate_offer_price)
 from messaging import (
     conversation_key,
     require_conversation_participant,
@@ -194,6 +195,23 @@ def get_or_create_conversation(listing_id: int) -> dict:
     if (row["buyer_id"], row["seller_id"], row["original_listing_id"]) != (actor, seller["id"], listing_id):
         raise ValueError("Conversation does not match the listing participants.")
     return row
+
+
+def offers_to_answer() -> list[dict]:
+    """Offers and counteroffers waiting for the signed-in student's answer.
+
+    For the notifications on Browse. Each has "sender_name" added.
+    """
+    actor = _actor()
+
+    def latest(conversation_id):
+        rows = database.messaging_offers(conversation_id, 1, 0)
+        return rows[0] if rows else None
+
+    waiting = offers_waiting_for(actor, database.messaging_conversations(actor), latest)
+    names = database.names_of([item["sender_id"] for item in waiting]) if waiting else {}
+    return [{**item, "sender_name": names.get(item["sender_id"], "A student")}
+            for item in waiting]
 
 
 def get_offers(conversation_id: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
