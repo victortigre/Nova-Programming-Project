@@ -226,7 +226,7 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
 
 
 # --- What needs your attention ------------------------------------------------
-# The same numbers as in the menu ("Sales (2)"), spelled out, with a link.
+# The same numbers as in the menu ("My listings (2)"), spelled out, with a link.
 def plural(count: int, one: str, many: str) -> str:
     return f"{count} {one if count == 1 else many}"
 
@@ -235,11 +235,11 @@ try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
     to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0}
-SALES, PURCHASES = "views/sales.py", "views/purchases.py"
+SALES, PURCHASES = "views/my_listings.py", "views/purchases.py"
 if to_do["answer"]:
     ui.notice("answer", "🛍️",
               f"{plural(to_do['answer'], 'buyer wants', 'buyers want')} to buy your items",
-              "Accept or decline the request on Sales.", SALES, "Answer")
+              "Accept or decline the request on My listings.", SALES, "Answer")
 if to_do["confirm_sale"]:
     ui.notice("confirm-sale", "✅",
               f"{plural(to_do['confirm_sale'], 'buyer', 'buyers')} got the item",

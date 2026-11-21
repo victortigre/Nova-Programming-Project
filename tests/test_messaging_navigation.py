@@ -57,7 +57,7 @@ def test_messages_added_without_removing_existing_navigation(navigation):
     app.run()
     assert not app.exception
     assert [page.title for page in pages] == [
-        "Browse", "Sell an item", "My listings", "My purchases (1)", "Sales (2)",
+        "Browse", "Sell an item", "My listings (2)", "My purchases (1)",
         "Inbox", "My profile", "House rules", "Student profile", "Report", "Welcome",
     ]
     messages = next(page for page in pages if page.title == "Inbox")

@@ -153,7 +153,7 @@ if onboarding_step(profile) != DONE:
 # 7. A verified Nova student who finished the Welcome steps: show the pages.
 # Every page of the app is listed here, in the menu bar at the top. The files
 # live in the views folder. Sign out is on "My profile".
-# "Sales (2)" and "My purchases (1)": how many deals wait for this student to
+# "My listings (2)" and "My purchases (1)": how many deals wait for this student to
 # do something (see deals.to_do). If buying isn't set up in the database yet,
 # the menu simply shows no numbers.
 try:
@@ -170,11 +170,11 @@ browse = st.Page("views/browse.py", title="Browse", icon=":material/search:", de
 pages = [
     browse,
     st.Page("views/sell_item.py", title="Sell an item", icon=":material/add_circle:"),
-    st.Page("views/my_listings.py", title="My listings", icon=":material/inventory_2:"),
+    # Your own items and the buyers who asked for them, on one page.
+    st.Page("views/my_listings.py", title=with_count("My listings", to_do["sales"]),
+            icon=":material/inventory_2:"),
     st.Page("views/purchases.py", title=with_count("My purchases", to_do["purchases"]),
             icon=":material/shopping_bag:"),
-    st.Page("views/sales.py", title=with_count("Sales", to_do["sales"]),
-            icon=":material/sell:"),
     st.Page("views/messaging.py", title="Inbox", icon=":material/chat:"),
     st.Page("views/profile.py", title="My profile", icon=":material/person:"),
     # Linked from "My profile" and "Sell an item", so it is not shown in the menu.

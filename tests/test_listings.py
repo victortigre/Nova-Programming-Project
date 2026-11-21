@@ -466,7 +466,7 @@ def _with_request(db, accepted: bool):
                                     listings.delete_listing])
 def test_a_deal_in_progress_blocks_the_manual_buttons(db, action):
     lid, rid = _with_request(db, accepted=True)
-    with pytest.raises(listings.ListingError, match="Sales page"):
+    with pytest.raises(listings.ListingError, match="cancel that deal first"):
         action(db, lid, ANA)
     assert db.get_listing(lid)["status"] == listings.RESERVED
     assert db.get_request(rid)["status"] == "accepted"
