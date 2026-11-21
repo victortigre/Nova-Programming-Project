@@ -157,17 +157,37 @@ if onboarding_step(profile) != DONE:
 # "My listings (2)" and "My purchases (1)": how many deals wait for this student to
 # do something (see deals.to_do). If buying isn't set up in the database yet,
 # the menu simply shows no numbers.
-try:
-    to_do = deals.to_do(database, email)
-except Exception:
-    to_do = {"sales": 0, "purchases": 0}
+def attention_counts():
+    """The numbers behind the menu badges and the Browse notifications: deal tasks,
+    unread chats (Inbox), and offers waiting for an answer. Each part falls back to
+    0/empty if its table isn't set up yet, so the menu still loads."""
+    try:
+        tasks = deals.to_do(database, email)
+    except Exception:
+        tasks = {"sales": 0, "purchases": 0}
+    try:
+        unread = len(messaging_repository.unread_conversations())
+    except Exception:
+        unread = 0
+    try:
+        offers = len(messaging_repository.offers_to_answer())
+    except Exception:
+        offers = 0
+    return tasks, unread, offers
 
-# The Inbox count: chats with messages this student hasn't opened yet, like the
-# number on Instagram's direct messages. 0 (no badge) if messaging isn't set up.
-try:
-    unread_inbox = len(messaging_repository.unread_conversations())
-except Exception:
-    unread_inbox = 0
+
+def attention_signature(tasks, unread, offers):
+    """A small fingerprint of everything shown in the badges and notifications,
+    so the auto-refresh below can tell when something new has arrived."""
+    return (unread, offers, tuple(sorted(tasks.items())))
+
+
+# The Inbox count works like Instagram's direct messages: chats with messages this
+# student hasn't opened yet. 0 (no badge) if messaging isn't set up in the database.
+to_do, unread_inbox, offers_waiting = attention_counts()
+# Remember what the menu and notifications show right now, so the timer below only
+# reruns the page when a NEW message/offer/request actually appears.
+st.session_state["attention_signature"] = attention_signature(to_do, unread_inbox, offers_waiting)
 
 
 def with_count(title: str, count: int) -> str:
@@ -211,4 +231,18 @@ came_from = st.session_state.get("last_page")
 st.session_state["last_page"] = navigation.url_path
 if navigation.url_path == browse.url_path and came_from != browse.url_path:
     st.session_state.pop("view_listing", None)
+
+
+# Live updates with no action from the user: every few seconds this quietly
+# recomputes the counts and, only if a new message/offer/request has arrived,
+# reruns the whole app so the menu badge AND the Browse notifications refresh on
+# their own. It's an in-place rerun (not a browser reload) and happens only when
+# something changed, so there's no flicker while nothing is going on.
+@st.fragment(run_every="5s")
+def live_updates():
+    if attention_signature(*attention_counts()) != st.session_state.get("attention_signature"):
+        st.rerun(scope="app")
+
+
+live_updates()
 navigation.run()
