@@ -28,7 +28,7 @@ def store(monkeypatch):
     existing = MagicMock(return_value=None)
     row = {"id": CID, "buyer_id": 7, "seller_id": 8, "listing_id": 10,
            "original_listing_id": 10, "listing_title_snapshot": "Stored title",
-           "listing_price_snapshot": "12.34"}
+           "price_cents": 1234}
     insert = MagicMock(return_value=row)
     for name, mock in (("messaging_actor_profile", actor), ("get_profile_by_id", seller),
                        ("get_listing", listing), ("messaging_conversation_for_listing", existing),
@@ -53,7 +53,8 @@ def test_repeated_contact_reuses_original_snapshot(store):
     for _ in range(2):
         result = repo.get_or_create_conversation(10)
         assert result["listing_title_snapshot"] == "Stored title"
-        assert result["listing_price_snapshot"] == "12.34"
+        assert result["price_cents"] == 1234
+        assert type(result["price_cents"]) is int
     store.insert.assert_not_called()
 
 

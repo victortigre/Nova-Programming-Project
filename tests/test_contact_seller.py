@@ -14,6 +14,7 @@ import database
 import deals
 import messaging_repository as repository
 import ui
+import wallet
 
 CID = "11111111-1111-4111-8111-111111111111"
 
@@ -30,6 +31,7 @@ def flow(monkeypatch):
     monkeypatch.setattr(database, "_client", MagicMock(side_effect=AssertionError("No live access")))
     monkeypatch.setattr(database, "database_is_set_up", lambda: True)
     monkeypatch.setattr(ui, "apply_style", lambda: None)
+    monkeypatch.setattr(wallet, "my_balance", lambda db, email: 5000)
     buyer = {"id": 7, "name": "Test buyer", "rules_accepted_at": "2026-11-20"}
     seller = {"id": 8, "name": "Test seller", "rules_accepted_at": "2026-11-20"}
     item = {"id": 10, "seller_id": 8, "title": "Stored listing", "description": "Stored description",
@@ -44,7 +46,7 @@ def flow(monkeypatch):
     monkeypatch.setattr(browsing, "saved_ids", lambda *args: set())
     monkeypatch.setattr(browsing, "saved_listings", lambda *args: [])
     monkeypatch.setattr(deals, "to_do", lambda *args: {
-        "sales": 0, "purchases": 0, "answer": 0, "confirm_sale": 0, "confirm_received": 0,
+        "sales": 0, "purchases": 0, "answer": 0, "confirm_sale": 0, "confirm_received": 0, "confirm_return": 0,
     })
     purchase = MagicMock()
     monkeypatch.setattr(deals, "request_to_buy", purchase)
@@ -52,7 +54,7 @@ def flow(monkeypatch):
 
     def insert(payload):
         row = {"id": CID, **payload, "seller_id": item["seller_id"], "original_listing_id": 10,
-               "listing_title_snapshot": item["title"], "listing_price_snapshot": "12.34",
+               "listing_title_snapshot": item["title"], "price_cents": 1234,
                "created_at": "2026-11-20T10:00:00+00:00"}
         rows[CID] = row
         return row
@@ -63,6 +65,7 @@ def flow(monkeypatch):
     monkeypatch.setattr(database, "messaging_conversation", lambda *args: rows.get(CID))
     monkeypatch.setattr(database, "messaging_conversations", lambda *args: list(rows.values()))
     monkeypatch.setattr(database, "messaging_messages", lambda *args: [])
+    monkeypatch.setattr(database, "messaging_offers", lambda *args: [])
     # Used only when a listing disappears and Browse returns to its grid.
     monkeypatch.setattr(database, "feed_listings", lambda *args: [])
     app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
@@ -121,6 +124,7 @@ def test_contact_not_shown_to_ineligible_accounts(flow, restriction, monkeypatch
     flow.app.run()
     assert not flow.app.exception
     assert not any(button.label == "Contact Seller" for button in flow.app.button)
+    assert not any(button.label == "Make an Offer" for button in flow.app.button)
     flow.creation.assert_not_called()
 
 
@@ -217,3 +221,13 @@ def test_current_accounts_pending_message_is_preserved(flow):
     assert not flow.app.exception
     assert flow.app.session_state["messaging_pending"] == pending
     assert flow.app.chat_input[0].disabled
+
+
+def test_wallet_caption_and_regular_purchase_survive_offer_integration(flow):
+    app = flow.app.run()
+    assert not app.exception
+    assert any("Your Nova credits: €50.00" in item.value for item in app.caption)
+    assert any(button.label == "Make an Offer" for button in app.button)
+    app.button(key="buy-10").click().run()
+    flow.purchase.assert_called_once_with(database, 10, "buyer@novasbe.pt")
+    flow.creation.assert_not_called()

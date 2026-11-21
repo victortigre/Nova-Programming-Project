@@ -15,6 +15,7 @@ import database
 import deals
 import listings
 import messaging_repository
+import offer_ui
 import ui
 import wallet
 from accounts import logged_in_user, verified_nova_email
@@ -33,6 +34,7 @@ if me is None:
     st.page_link("views/profile.py", label="Fill in my profile")
     st.stop()
 my_id = me["id"]
+offer_ui.sync_account(email)
 
 # Saving needs the favorites table. If it isn't in the database yet, the rest of
 # Browse still works and saving is quietly turned off with a clear note.
@@ -90,6 +92,7 @@ if viewing is not None:
     if item is None:
         close_listing()
         st.rerun()
+    offer_ui.retry_panel()
     st.button("Back to results", icon=":material/arrow_back:", type="tertiary",
               on_click=close_listing)
     with ui.card("detail"):
@@ -145,7 +148,8 @@ if viewing is not None:
                 if (not me.get("blocked_at") and onboarding_step(me) == DONE
                         and seller and not seller.get("blocked_at")
                         and onboarding_step(seller) == DONE):
-                    if st.button("Contact Seller", key=f"contact-{item['id']}",
+                    contact_column, offer_column = st.columns(2)
+                    if contact_column.button("Contact Seller", key=f"contact-{item['id']}",
                                  icon=":material/chat:"):
                         try:
                             with st.spinner("Opening conversation…"):
@@ -164,6 +168,12 @@ if viewing is not None:
                             st.session_state["messaging_selected"] = conversation["id"]
                             st.session_state["messaging_history_limit"] = 50
                             st.switch_page("views/messaging.py")
+                    if item["status"] == listings.ACTIVE:
+                        if offer_column.button("Make an Offer", key=f"offer-{item['id']}", icon=":material/local_offer:"):
+                            st.session_state.messaging_offer_browse = item["id"]
+                        if st.session_state.get("messaging_offer_browse") == item["id"]:
+                            st.caption("Send a price offer directly to the chat. A personal message is optional.")
+                            offer_ui.show_form(f"browse-{item['id']}", default_cents=item["price_cents"], listing_id=item["id"])
                 save_button(item["id"], where="detail")
                 st.page_link("views/public_profile.py",
                              label="View the seller's profile to get in touch",

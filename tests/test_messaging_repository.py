@@ -16,6 +16,7 @@ ORIGINAL_ACTOR_PROFILE = database.messaging_actor_profile
 
 @pytest.fixture
 def context(monkeypatch):
+    monkeypatch.setattr(database, "messaging_offers", MagicMock(return_value=[]))
     client = MagicMock()
     monkeypatch.setattr(database, "_client", lambda: client)
     user = SimpleNamespace(is_logged_in=True, to_dict=lambda: {
@@ -286,3 +287,54 @@ def test_unmatched_unique_conflict_is_not_treated_as_success(context, table):
         else:
             database.messaging_insert_conversation({"listing_id": 10, "buyer_id": 7})
     assert raised.value is error
+
+
+@pytest.mark.parametrize("status,response", [("pending", None), ("superseded", "2026-11-22T10:00:00+00:00"),
+                                            ("accepted", "2026-11-22T10:00:00+00:00"),
+                                            ("declined", "2026-11-22T10:00:00+00:00")])
+def test_inbox_counts_offer_creation_and_responses(context, monkeypatch, status, response):
+    first = {**context[3], "created_at": "2026-11-18T10:00:00+00:00"}
+    second = {**first, "id": MID}
+    monkeypatch.setattr(database, "messaging_conversations", lambda actor: [second, first])
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": "Participant"})
+    monkeypatch.setattr(database, "messaging_messages", lambda cid, *args: [] if cid == CID else [
+        {"id": 1, "body": "Hello", "created_at": "2026-11-20T09:00:00+00:00"}])
+    offer = {"id": MID, "status": status, "amount_cents": 2500, "sender_id": 8,
+             "parent_offer_id": CID, "created_at": "2026-11-20T10:00:00+00:00", "responded_at": response}
+    monkeypatch.setattr(database, "messaging_offers", lambda cid, *args: [offer] if cid == CID else [])
+    rows = repo.get_inbox()
+    assert [row["id"] for row in rows] == [CID, MID]
+    assert rows[0]["last_activity"]["type"] == "offer"
+    assert rows[0]["activity_at"] == (response or offer["created_at"])
+    assert rows[0]["last_message"] is None
+
+
+@pytest.mark.parametrize("status", ["active", "reserved", "sold", None])
+def test_chat_details_reads_current_listing_status(context, monkeypatch, status):
+    context[3]["listing_id"] = 10
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": "Participant"})
+    monkeypatch.setattr(database, "get_listing", lambda lid: {"status": status} if status else None)
+    assert repo.get_conversation_details(CID)["listing_status"] == (status or "unavailable")
+
+
+def test_listing_check_failure_preserves_authorized_chat_and_recovers(context, monkeypatch):
+    context[3]["listing_id"] = 10
+    monkeypatch.setattr(database, "get_profile_by_id", lambda pid: {"name": "Participant"})
+    lookup = MagicMock(side_effect=RuntimeError("private provider details"))
+    monkeypatch.setattr(database, "get_listing", lookup)
+    row = repo.get_conversation_details(CID)
+    assert row["listing_status"] == "unknown"
+    assert row["id"] == CID and row["own_profile_id"] == 7
+    assert "private provider details" not in str(row)
+    lookup.side_effect = None
+    lookup.return_value = {"status": "active"}
+    assert repo.get_conversation_details(CID)["listing_status"] == "active"
+
+
+def test_listing_fallback_does_not_bypass_membership(context, monkeypatch):
+    context[4].return_value = None
+    lookup = MagicMock(side_effect=RuntimeError("Unavailable"))
+    monkeypatch.setattr(database, "get_listing", lookup)
+    with pytest.raises(ValueError, match="Conversation unavailable"):
+        repo.get_conversation_details(CID)
+    lookup.assert_not_called()

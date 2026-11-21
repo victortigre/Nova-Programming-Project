@@ -647,3 +647,14 @@ def wallet_settle(request_id: int, kind: str, profile_id: int) -> bool:
     return bool(_client().rpc("wallet_settle", {
         "p_request": request_id, "p_kind": kind, "p_profile": profile_id,
     }).execute().data)
+
+
+def messaging_offers(conversation_id: str, limit: int, offset: int) -> list[dict]:
+    return (_client().table("offers").select("*").eq("conversation_id", conversation_id)
+            .order("created_at", desc=True).order("id", desc=True)
+            .range(offset, offset + limit - 1).execute().data)
+
+
+def messaging_offer_action(payload: dict) -> dict:
+    """One atomic database transaction; only the trusted repository calls this."""
+    return _client().rpc("messaging_offer_action", payload).execute().data

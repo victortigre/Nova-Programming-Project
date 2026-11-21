@@ -12,6 +12,7 @@ import streamlit as st
 import database
 from accounts import logged_in_user, verified_nova_email
 from profiles import DONE, onboarding_step
+from offers import OFFER_STATUS_LABELS, validate_offer_note, validate_offer_price
 from messaging import (
     conversation_key,
     require_conversation_participant,
@@ -37,26 +38,46 @@ def _details(row: dict, actor: int) -> dict:
 
 def get_conversation_details(conversation_id: str) -> dict:
     actor = _actor()
-    return _details(_authorized(conversation_id, actor), actor)
+    row = _details(_authorized(conversation_id, actor), actor)
+    # Membership and identity above remain mandatory. Availability is optional:
+    # fail closed for negotiation without hiding an authorized chat's history.
+    try:
+        listing = database.get_listing(row["listing_id"]) if row.get("listing_id") is not None else None
+        row["listing_status"] = listing["status"] if listing else "unavailable"
+    except Exception:
+        row["listing_status"] = "unknown"
+    return row
 
 
 def get_inbox() -> list[dict]:
-    """Authorized summaries sorted by latest message, or conversation creation.
-
-    Initial implementation uses one preview query per conversation.
-    A paginated aggregate query will be needed before scaling this up.
-    """
+    """Participant-only previews including offer creation and responses."""
     actor = _actor()
     summaries = []
     for row in database.messaging_conversations(actor):
         summary = _details(row, actor)
         latest = database.messaging_messages(row["id"], 1, 0)
         summary["last_message"] = latest[0] if latest else None
+        events = [{**message, "type": "message", "activity_at": message["created_at"]}
+                  for message in latest]
+        # Response time can be newer than creation time. Inspect every offer,
+        # rather than assuming the most recently created card is most active.
+        offset = 0
+        while True:
+            batch = database.messaging_offers(row["id"], 100, offset)
+            events.extend({**offer, "type": "offer", "activity_at": max(
+                (offer["created_at"], offer.get("responded_at") or offer["created_at"]),
+                key=datetime.fromisoformat)} for offer in batch)
+            if len(batch) < 100:
+                break
+            offset += len(batch)
+        activity = max(events, key=lambda event: (
+            datetime.fromisoformat(event["activity_at"]), event["type"], str(event["id"])
+        ), default=None)
+        summary["last_activity"] = activity
+        summary["activity_at"] = activity["activity_at"] if activity else row["created_at"]
         summaries.append(summary)
     return sorted(summaries, key=lambda row: (
-        datetime.fromisoformat((row["last_message"] or row)["created_at"]),
-        row["last_message"]["id"] if row["last_message"] else 0,
-        row["id"],
+        datetime.fromisoformat(row["activity_at"]), row["id"],
     ), reverse=True)
 
 
@@ -162,3 +183,92 @@ def get_or_create_conversation(listing_id: int) -> dict:
     if (row["buyer_id"], row["seller_id"], row["original_listing_id"]) != (actor, seller["id"], listing_id):
         raise ValueError("Conversation does not match the listing participants.")
     return row
+
+
+def get_offers(conversation_id: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
+    actor = _actor()
+    row = _authorized(conversation_id, actor)
+    _offer_page(limit, offset)
+    return list(reversed(database.messaging_offers(row["id"], limit, offset)))
+
+
+def _offer_page(limit: int, offset: int) -> None:
+    if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or offset < 0:
+        raise ValueError("Invalid offer page.")
+
+
+def _offer_action(conversation_id: str, action: str, operation_id: str,
+                  offer_id: str | None = None, price_cents: int | None = None,
+                  note: str | None = None) -> dict:
+    actor = _actor()
+    conversation = _authorized(conversation_id, actor)
+    # SQL rechecks live listing, both accounts, current offer and recipient under
+    # locks. Do not reject retries based on a status already changed by that retry.
+    return database.messaging_offer_action({
+        "p_conversation_id": conversation["id"], "p_actor_id": actor,
+        "p_action": action, "p_operation_id": _uuid(operation_id),
+        "p_offer_id": _uuid(offer_id) if offer_id is not None else None,
+        "p_amount_cents": validate_offer_price(price_cents) if action in ("send", "counter") else None,
+        "p_note": validate_offer_note(note),
+    })
+
+
+def send_offer(conversation_id: str, price_cents: int, operation_id: str,
+               note: str | None = None) -> dict:
+    """Buyer starts an offer. No message or purchase row is created."""
+    return _offer_action(conversation_id, "send", operation_id, price_cents=price_cents, note=note)
+
+
+def counter_offer(conversation_id: str, offer_id: str, price_cents: int,
+                  operation_id: str, note: str | None = None) -> dict:
+    return _offer_action(conversation_id, "counter", operation_id, offer_id, price_cents, note)
+
+
+def accept_offer(conversation_id: str, offer_id: str, operation_id: str) -> dict:
+    return _offer_action(conversation_id, "accept", operation_id, offer_id)
+
+
+def decline_offer(conversation_id: str, offer_id: str, operation_id: str) -> dict:
+    return _offer_action(conversation_id, "decline", operation_id, offer_id)
+
+
+def get_chat_events(conversation_id: str, *, limit: int = 50) -> list[dict]:
+    """Latest combined timeline for chat cards; existing text API unchanged.
+
+    Each offer is one event, including its optional note, never a duplicate text
+    message. Read this again after an action to display the authoritative status.
+    """
+    actor = _actor()
+    row = _authorized(conversation_id, actor)
+    _offer_page(limit, 0)
+    events = [{**message, "type": "message"}
+              for message in database.messaging_messages(row["id"], limit, 0)]
+    events += [{**offer, "type": "offer", "status_label": OFFER_STATUS_LABELS[offer["status"]]}
+               for offer in database.messaging_offers(row["id"], limit, 0)]
+    events.sort(key=lambda event: (datetime.fromisoformat(event["created_at"]), event["type"], str(event["id"])))
+    events = events[-limit:]
+    names = database.names_of([event["sender_id"] for event in events]) if events else {}
+    return [{**event, "sender_name": names.get(event["sender_id"], "Profile unavailable")}
+            for event in events]
+
+
+def get_buy_now_agreement(conversation_id: str) -> dict | None:
+    """Buyer-only agreement display; never authorizes checkout or a reservation.
+
+    No wallet or payment data is read. A future wallet-backed checkout must
+    independently validate the agreement, existing purchases and availability.
+    """
+    actor = _actor()
+    conversation = _authorized(conversation_id, actor)
+    if actor != conversation["buyer_id"] or conversation["listing_id"] is None:
+        return None
+    latest = database.messaging_offers(conversation["id"], 1, 0)
+    if not latest or latest[0]["status"] != "accepted":
+        return None
+    listing = database.get_listing(conversation["listing_id"])
+    seller = database.get_profile_by_id(conversation["seller_id"])
+    if (listing is None or listing["status"] != "active"
+            or listing["seller_id"] != conversation["seller_id"]
+            or seller is None or seller.get("blocked_at") or onboarding_step(seller) != DONE):
+        return None
+    return latest[0]
