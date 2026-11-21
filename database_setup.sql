@@ -173,7 +173,95 @@ create table if not exists reviews (
 
 -- One rating per person per deal, even on a double-click.
 create unique index if not exists reviews_one_per_deal on reviews (request_id, reviewer_id);
+
+-- Added later: 1 to 5 stars and an optional written feedback. Older ratings
+-- (thumbs up / down) become 5 or 1 stars. Safe to run again.
+alter table reviews add column if not exists stars smallint check (stars between 1 and 5);
+alter table reviews add column if not exists comment text check (char_length(comment) <= 500);
+update reviews set stars = case when positive then 5 else 1 end where stars is null;
 create index if not exists reviews_reviewee_idx on reviews (reviewee_id);
 
 -- Locked the same way as the other tables: only our app can read or change rows.
 alter table reviews enable row level security;
+
+-- When the buyer gave the item back after the hand-over (empty = not returned).
+-- The seller then has 48 hours to confirm before the buyer is refunded.
+alter table purchase_requests add column if not exists returned_at timestamptz;
+
+-- Nova credits (pretend money, see wallet.py). One row per change, like a
+-- bank statement: + for added credits, a sale or a refund, - for money held
+-- when a seller accepts a request. A student's balance is the sum of their rows.
+-- If a deal is deleted later, its rows stay (request_id becomes empty), so the
+-- history and the balance never change by themselves.
+create table if not exists wallet_entries (
+    id           bigint generated always as identity primary key,
+    profile_id   bigint not null references profiles(id) on delete cascade,
+    amount_cents integer not null,
+    kind         text not null check (kind in ('top_up', 'hold', 'release', 'refund')),
+    request_id   bigint references purchase_requests(id) on delete set null,
+    note         text,  -- the item's title, for the history
+    created_at   timestamptz not null default now()
+);
+create index if not exists wallet_entries_profile_idx on wallet_entries (profile_id, created_at desc);
+
+-- Each deal can be held once, and released or refunded once, never both:
+-- the database refuses a second row of the same kind for the same deal.
+create unique index if not exists wallet_entries_once_per_deal
+    on wallet_entries (request_id, kind) where request_id is not null;
+
+-- Locked the same way as the other tables: only our app can read or change rows.
+alter table wallet_entries enable row level security;
+
+-- Hold the price from the buyer, ONLY if their balance is enough, in one step.
+-- The lock makes two holds for the same student wait for each other, so the
+-- same credits can never be spent twice. Returns true when the money is held.
+create or replace function wallet_hold(p_profile bigint, p_request bigint,
+                                       p_amount integer, p_note text)
+returns boolean language plpgsql as $$
+declare available integer;
+begin
+    perform pg_advisory_xact_lock(1, p_profile::integer);
+    if exists (select 1 from wallet_entries
+               where request_id = p_request and kind = 'hold') then
+        return true;  -- already held (a double click)
+    end if;
+    select coalesce(sum(amount_cents), 0) into available
+        from wallet_entries where profile_id = p_profile;
+    if available < p_amount then
+        return false;
+    end if;
+    insert into wallet_entries (profile_id, amount_cents, kind, request_id, note)
+        values (p_profile, -p_amount, 'hold', p_request, p_note);
+    return true;
+end;
+$$;
+
+-- Move a deal's held money to the seller ('release') or back to the buyer
+-- ('refund'), only if it is still held: never both, never twice.
+create or replace function wallet_settle(p_request bigint, p_kind text, p_profile bigint)
+returns boolean language plpgsql as $$
+declare held integer;
+declare held_note text;
+begin
+    if p_kind not in ('release', 'refund') then
+        raise exception 'unknown kind %', p_kind;
+    end if;
+    perform pg_advisory_xact_lock(2, p_request::integer);
+    select -amount_cents, note into held, held_note from wallet_entries
+        where request_id = p_request and kind = 'hold';
+    if not found then
+        return false;  -- nothing was held (a free item)
+    end if;
+    if exists (select 1 from wallet_entries where request_id = p_request
+               and kind in ('release', 'refund')) then
+        return false;  -- already settled
+    end if;
+    insert into wallet_entries (profile_id, amount_cents, kind, request_id, note)
+        values (p_profile, held, p_kind, p_request, held_note);
+    return true;
+end;
+$$;
+
+-- Only our app (with the secret key) may run these two, not visitors.
+revoke execute on function wallet_hold(bigint, bigint, integer, text) from public, anon, authenticated;
+revoke execute on function wallet_settle(bigint, text, bigint) from public, anon, authenticated;

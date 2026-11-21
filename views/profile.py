@@ -7,7 +7,10 @@ import streamlit as st
 
 import browsing
 import database
+import listings
+import reviews
 import ui
+import wallet
 from accounts import logged_in_user, verified_nova_email
 from profile_form import show_profile_form
 
@@ -36,6 +39,76 @@ if profile is not None:
 
 with ui.card("profile-form"):
     show_profile_form(email, profile)
+
+# --- Nova credits (wallet.py) ------------------------------------------------------
+# Pretend money for this course project: add some with the buttons, spend it
+# on items, receive it when you sell.
+
+
+def add_credits(amount_cents: int) -> None:
+    try:
+        wallet.add_credits(database, email, amount_cents)
+        st.session_state["wallet_message"] = f"Added {wallet.euros(amount_cents)} in credits."
+    except (wallet.WalletError, wallet.NotAllowed) as exc:
+        st.session_state["wallet_error"] = str(exc)
+
+
+if profile is not None:
+    with ui.card("wallet"):
+        st.markdown("**Nova credits**")
+        try:
+            balance = wallet.my_balance(database, email)
+            history = wallet.my_history(database, email)
+        except Exception:  # the wallet table isn't in the database yet
+            balance, history = None, []
+        if balance is None:
+            st.caption("Credits aren't set up in the database yet. Whoever manages the "
+                       "database needs to run `database_setup.sql`.")
+        else:
+            st.html(f'<p class="nm-price">{wallet.euros(balance)}</p>')
+            st.caption("Demo credits for this course project, not real money. When a seller "
+                       "accepts your request, the price is held; it goes to the seller when "
+                       "you confirm you got the item.")
+            if message := st.session_state.pop("wallet_message", None):
+                st.success(message)
+            if error := st.session_state.pop("wallet_error", None):
+                st.error(error)
+            for column, amount in zip(st.columns(len(wallet.TOP_UP_AMOUNTS)),
+                                      wallet.TOP_UP_AMOUNTS):
+                column.button(f"+ {wallet.euros(amount)}", key=f"topup-{amount}",
+                              on_click=add_credits, args=(amount,), width="stretch")
+            if history:
+                with st.expander("History"):
+                    for entry in history[:30]:
+                        amount = entry["amount_cents"]
+                        sign = ":green[+" if amount > 0 else "−"
+                        end = "]" if amount > 0 else ""
+                        st.markdown(f"{sign}{wallet.euros(abs(amount))}{end} · "
+                                    f"{listings.plain_text(entry['text'])}")
+
+# --- My ratings (reviews.py) ----------------------------------------------------
+# What other students said about you after finished deals. You rate others
+# from "My purchases" and "Sales".
+if profile is not None:
+    try:
+        rating = reviews.summary(database, profile["id"])
+        feedback = reviews.recent_feedback(database, profile["id"], limit=10)
+    except Exception:  # the reviews table isn't in the database yet
+        rating = None
+    if rating is not None:
+        with ui.card("ratings"):
+            st.markdown("**My ratings**")
+            if rating["count"]:
+                plural = "s" if rating["count"] != 1 else ""
+                st.markdown(f"**★ {rating['average']:.1f}** ({rating['count']} rating{plural}) "
+                            f"· {rating['sold']} sold through the app")
+            else:
+                st.caption("No ratings yet. After a finished deal, the other student can "
+                           "rate you here.")
+            for item in feedback:
+                st.markdown(f"{reviews.star_text(item['stars'])} · "
+                            f"**{listings.plain_text(item['reviewer_name'])}**")
+                st.caption(listings.plain_text(item["comment"]))
 
 # --- Saved items ---------------------------------------------------------------
 # The listings this student liked. Tapping ♥ removes one; tapping the price
