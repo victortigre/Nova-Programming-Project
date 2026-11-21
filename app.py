@@ -47,7 +47,7 @@ def show_landing_page() -> None:
         with st.container(horizontal_alignment="center"):
             if st.button("Sign in or create an account"):
                 st.login("auth0")
-        st.html('<p class="nm-hint">New here? You can create an account on the next screen.</p>')
+        st.html('<p class="nm-hint">Use your @novasbe.pt student email to get in.</p>')
 
         # The list is written twice in a row, so the movement can loop without a jump.
         names = "".join(f"<span>{name}</span>" for name in THINGS_STUDENTS_SELL)
