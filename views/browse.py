@@ -234,8 +234,7 @@ def plural(count: int, one: str, many: str) -> str:
 try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
-    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0, "confirm_return": 0,
-             "give_back": 0}
+    to_do = {"answer": 0, "confirm_sale": 0, "confirm_received": 0}
 SALES, PURCHASES = "views/sales.py", "views/purchases.py"
 if to_do["answer"]:
     ui.notice("answer", "🛍️",
@@ -245,16 +244,6 @@ if to_do["confirm_sale"]:
     ui.notice("confirm-sale", "✅",
               f"{plural(to_do['confirm_sale'], 'buyer', 'buyers')} got the item",
               "Confirm the hand-over too, so it counts as sold.", SALES, "Confirm")
-if to_do.get("confirm_return"):
-    ui.notice("confirm-return", "↩️",
-              f"{plural(to_do['confirm_return'], 'buyer', 'buyers')} gave an item back",
-              "Check it is in the same condition within 48 hours.", SALES, "Check it",
-              tone="warm")
-if to_do.get("give_back"):
-    ui.notice("give-back", "↩️",
-              f"You asked for a refund on {plural(to_do['give_back'], 'item', 'items')}",
-              "Agree with the seller where to meet and give it back.", PURCHASES, "Open",
-              tone="warm")
 # Offers and counteroffers waiting for an answer (Inbox). Hidden if messaging
 # isn't set up in the database yet.
 try:

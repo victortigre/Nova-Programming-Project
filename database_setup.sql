@@ -187,17 +187,9 @@ create index if not exists reviews_reviewee_idx on reviews (reviewee_id);
 -- Locked the same way as the other tables: only our app can read or change rows.
 alter table reviews enable row level security;
 
--- When the buyer gave the item back after the hand-over (empty = not returned).
--- The seller then has 48 hours to confirm before the buyer is refunded.
+-- From an earlier version with returns (no longer used: after the hand-over a
+-- deal is final). Kept so running this file again changes nothing.
 alter table purchase_requests add column if not exists returned_at timestamptz;
--- Refunds: when the buyer gave the item back, and when the seller reported
--- that it came back in a worse condition (an admin then decides).
-alter table purchase_requests add column if not exists given_back_at timestamptz;
-alter table purchase_requests add column if not exists return_disputed_at timestamptz;
--- Why the buyer asked for a refund (one of deals.REFUND_REASONS) and their words.
-alter table purchase_requests add column if not exists refund_reason text;
-alter table purchase_requests add column if not exists refund_details text
-    check (char_length(refund_details) <= 300);
 
 -- Nova credits (pretend money, see wallet.py). One row per change, like a
 -- bank statement: + for added credits, a sale or a refund, - for money held

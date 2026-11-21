@@ -161,8 +161,7 @@ class FakeDatabase:
         request = {**row, "id": next(self._numbers),
                    "status": row.get("status", "requested"),
                    "seller_confirmed_at": None, "buyer_confirmed_at": None,
-                   "returned_at": None, "given_back_at": None, "return_disputed_at": None,
-                   "refund_reason": None, "refund_details": None}
+                   "returned_at": None}
         request["created_at"] = request["id"]  # a higher number means newer
         self.requests[request["id"]] = request
         return dict(request)
@@ -204,16 +203,6 @@ class FakeDatabase:
             if listing and listing["seller_id"] == seller_id and r["status"] in statuses:
                 # Like the real query: the listing comes along as row["listings"].
                 rows.append({**r, "listings": {"seller_id": seller_id,
-                                               "title": listing.get("title"),
-                                               "price_cents": listing.get("price_cents", 0)}})
-        return rows
-
-    def disputed_returns(self):
-        rows = []
-        for r in sorted(self.requests.values(), key=lambda r: r["created_at"]):
-            listing = self.listings.get(r["listing_id"])
-            if r["status"] == "accepted" and r.get("return_disputed_at") and listing:
-                rows.append({**r, "listings": {"seller_id": listing["seller_id"],
                                                "title": listing.get("title"),
                                                "price_cents": listing.get("price_cents", 0)}})
         return rows

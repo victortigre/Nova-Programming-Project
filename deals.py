@@ -10,22 +10,9 @@ Money (see wallet.py): when the seller accepts, the price is held from the
 buyer's Nova credits; when the buyer confirms they got the item, it goes to the
 seller; if the deal is called off before that, it goes back to the buyer.
 After the buyer has confirmed, the deal can no longer be cancelled.
-Once the seller confirms the hand-over, the buyer has 48 hours to either
-confirm (money to the seller) or ask for a refund. Without an answer, the money
-goes to the seller automatically.
-
-Refunds, step by step (the money stays held the whole time):
-  1. Within the 48 hours, the buyer asks for a refund (return_item), saying
-     what the problem is (REFUND_REASONS, or "Other" with a description). The two
-     arrange by message when to meet to give the item back. No rush, but if
-     the item isn't given back within 14 days, the seller is paid.
-  2. When they meet, the buyer taps "I gave it back" (give_back). Now the
-     seller has 48 hours to check the item:
-       - same condition: the seller confirms (confirm_return) and the buyer
-         is refunded; the listing is active again,
-       - not the same condition: the seller reports it (report_bad_condition)
-         and an admin decides who gets the money (settle_dispute),
-       - no answer within 48 hours: the buyer is refunded automatically.
+Once the seller confirms the hand-over, the buyer has 48 hours to confirm
+(money to the seller). Without an answer, the money goes to the seller
+automatically. After the hand-over the deal is final: there are no refunds.
 Before the hand-over, either side can simply cancel and the buyer is refunded
 at once.
 
@@ -54,19 +41,6 @@ REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
     "requested", "accepted", "declined", "cancelled", "completed")
 LIVE = (REQUESTED, ACCEPTED)  # a deal still in progress
 AUTO_RELEASE_HOURS = 48  # after the seller's hand-over, how long the buyer has to confirm
-GIVE_BACK_DAYS = 14  # after asking for a refund, how long the buyer has to give it back
-
-# Why the buyer asks for a refund. With "Other", they must describe the problem.
-REFUND_REASONS = [
-    "Damaged or broken",
-    "Not as described in the listing",
-    "Wrong size or measurements",
-    "Missing parts or accessories",
-    "Doesn't work",
-    "Other",
-]
-REFUND_OTHER = "Other"
-MAX_REFUND_DETAILS = 300
 
 
 def _now() -> str:
@@ -218,8 +192,6 @@ def confirm_received(db, request_id: int, buyer_email: str) -> None:
         raise NotAllowed("Only the buyer can confirm this.")
     if request["status"] != ACCEPTED:
         raise ListingError(["This deal isn't active any more."])
-    if request.get("returned_at"):
-        raise ListingError(["You returned this item, so it can't be confirmed any more."])
     if not db.update_request(request_id, {"buyer_confirmed_at": _now()},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal isn't active any more."])
@@ -258,35 +230,12 @@ def payment_due(request: dict) -> datetime | None:
     The countdown runs once the seller confirmed the hand-over and the buyer
     hasn't confirmed yet.
     """
-    if (request.get("status") != ACCEPTED or request.get("buyer_confirmed_at")
-            or request.get("returned_at")):
+    if request.get("status") != ACCEPTED or request.get("buyer_confirmed_at"):
         return None
     handed_over = _as_time(request.get("seller_confirmed_at"))
     if handed_over is None:
         return None
     return handed_over + timedelta(hours=AUTO_RELEASE_HOURS)
-
-
-def give_back_due(request: dict) -> datetime | None:
-    """After a refund request: by when the buyer must give the item back.
-
-    If they don't, the seller is paid automatically. None when not waiting for that.
-    """
-    asked = _as_time(request.get("returned_at"))
-    if (request.get("status") != ACCEPTED or asked is None or request.get("given_back_at")
-            or request.get("return_disputed_at")):
-        return None
-    return asked + timedelta(days=GIVE_BACK_DAYS)
-
-
-def refund_due(request: dict) -> datetime | None:
-    """When a given-back item is refunded automatically (the seller has 48 hours to
-    check it), or None if no such countdown is running."""
-    given_back = _as_time(request.get("given_back_at"))
-    if (request.get("status") != ACCEPTED or given_back is None
-            or request.get("return_disputed_at")):
-        return None
-    return given_back + timedelta(hours=AUTO_RELEASE_HOURS)
 
 
 def _when(moment: datetime | None) -> str:
@@ -296,16 +245,6 @@ def _when(moment: datetime | None) -> str:
 def due_text(request: dict) -> str:
     """'Sat 22 Nov, 18:05' for the automatic payment, or '' when no countdown runs."""
     return _when(payment_due(request))
-
-
-def refund_text(request: dict) -> str:
-    """'Sat 22 Nov, 18:05' for the automatic refund of a return, or ''."""
-    return _when(refund_due(request))
-
-
-def give_back_text(request: dict) -> str:
-    """'Sat 6 Dec, 18:05': the last moment to give the item back, or ''."""
-    return _when(give_back_due(request))
 
 
 def _pay_seller(db, request: dict) -> bool:
@@ -335,137 +274,7 @@ def release_overdue(db, email: str, now: datetime | None = None) -> int:
             # The buyer didn't answer in 48 hours: the seller is paid.
             if _pay_seller(db, request):
                 settled += 1
-        give_back_by = give_back_due(request)
-        if give_back_by is not None and now >= give_back_by:
-            # Asked for a refund but never gave the item back: the seller is paid.
-            if _pay_seller(db, request):
-                settled += 1
-        refund_at = refund_due(request)
-        if refund_at is not None and now >= refund_at:
-            # The seller didn't check the given-back item in time: refund the buyer.
-            if _call_off(db, request, db.get_listing(request["listing_id"])):
-                settled += 1
     return settled
-
-
-# --- refunds: the buyer gives the item back --------------------------------------
-
-def check_refund_reason(reason, details) -> list[str]:
-    """What's wrong with a refund reason; an empty list means it is fine."""
-    errors = []
-    details = (details or "").strip()
-    if reason not in REFUND_REASONS:
-        errors.append("Choose what the problem is.")
-    elif reason == REFUND_OTHER and not details:
-        errors.append("Describe the problem, so the seller knows what is wrong.")
-    if len(details) > MAX_REFUND_DETAILS:
-        errors.append(f"The description can be at most {MAX_REFUND_DETAILS} characters.")
-    return errors
-
-
-def refund_reason_text(request: dict) -> str:
-    """'Damaged or broken: the screen is cracked', 'Damaged or broken', or ''."""
-    reason = request.get("refund_reason") or ""
-    details = (request.get("refund_details") or "").strip()
-    if reason == REFUND_OTHER and details:
-        return details
-    return f"{reason}: {details}" if reason and details else reason
-
-
-def return_item(db, request_id: int, buyer_email: str, reason: str | None = None,
-                details: str = "") -> None:
-    """The buyer asks for a refund (within 48 hours of the hand-over), saying why.
-
-    The money stays held. The two meet to give the item back (give_back);
-    there are 14 days for that.
-    """
-    buyer = _profile(db, buyer_email)
-    request = db.get_request(request_id)
-    if request is None:
-        raise NotFound("This request doesn't exist any more.")
-    if request["buyer_id"] != buyer["id"]:
-        raise NotAllowed("Only the buyer can return the item.")
-    if request["status"] != ACCEPTED or request.get("buyer_confirmed_at"):
-        raise ListingError(["This deal is already finished."])
-    if not request.get("seller_confirmed_at"):
-        raise ListingError(["The seller hasn't handed it over yet. You can simply cancel."])
-    if request.get("returned_at"):
-        raise ListingError(["You already asked for a refund."])
-    errors = check_refund_reason(reason, details)
-    if errors:
-        raise ListingError(errors)
-    due = payment_due(request)
-    if due is not None and datetime.now(timezone.utc) >= due:
-        raise ListingError(["The 48 hours have passed, so the payment went to the seller."])
-    changes = {"returned_at": _now(), "refund_reason": reason,
-               "refund_details": (details or "").strip() or None}
-    if not db.update_request(request_id, changes, only_if_status=ACCEPTED):
-        raise ListingError(["This deal just changed. Please look again."])
-
-
-def give_back(db, request_id: int, buyer_email: str) -> None:
-    """The buyer gave the item back to the seller. The seller now has 48 hours to check it."""
-    buyer = _profile(db, buyer_email)
-    request = db.get_request(request_id)
-    if request is None:
-        raise NotFound("This request doesn't exist any more.")
-    if request["buyer_id"] != buyer["id"]:
-        raise NotAllowed("Only the buyer can do this.")
-    if request["status"] != ACCEPTED or not request.get("returned_at"):
-        raise ListingError(["There's no refund request on this deal."])
-    if request.get("given_back_at"):
-        raise ListingError(["You already said you gave it back."])
-    due = give_back_due(request)
-    if due is not None and datetime.now(timezone.utc) >= due:
-        raise ListingError([f"The {GIVE_BACK_DAYS} days to give it back have passed, so "
-                            "the payment went to the seller."])
-    if not db.update_request(request_id, {"given_back_at": _now()}, only_if_status=ACCEPTED):
-        raise ListingError(["This deal just changed. Please look again."])
-
-
-def _open_return(db, request_id: int, seller_email: str):
-    """The seller's own deal with a refund request that is still open."""
-    request, listing, seller = _my_request(db, request_id, seller_email)
-    if request["status"] != ACCEPTED or not request.get("returned_at"):
-        raise ListingError(["There's no return to check."])
-    if request.get("return_disputed_at"):
-        raise ListingError(["You reported this return. An admin will decide."])
-    due = refund_due(request)
-    if due is not None and datetime.now(timezone.utc) >= due:
-        raise ListingError(["The 48 hours have passed, so the buyer was refunded."])
-    return request, listing
-
-
-def confirm_return(db, request_id: int, seller_email: str) -> None:
-    """The seller has the item back in the same condition: refund the buyer, list it again."""
-    request, listing = _open_return(db, request_id, seller_email)
-    if not _call_off(db, request, listing):
-        raise ListingError(["This deal just changed. Please look again."])
-
-
-def report_bad_condition(db, request_id: int, seller_email: str) -> None:
-    """The item came back NOT in the same condition. The money stays held, the
-    timers stop, and an admin decides (admin.py, settle_dispute)."""
-    request, _ = _open_return(db, request_id, seller_email)
-    if not db.update_request(request_id, {"return_disputed_at": _now()},
-                             only_if_status=ACCEPTED):
-        raise ListingError(["This deal just changed. Please look again."])
-
-
-def settle_dispute(db, request_id: int, refund_buyer: bool) -> None:
-    """An admin decides a reported return: refund the buyer, or pay the seller.
-
-    Only admin.py calls this, after it checked that an admin is asking.
-    """
-    request = db.get_request(request_id)
-    if request is None or request["status"] != ACCEPTED or not request.get("return_disputed_at"):
-        raise ListingError(["This return was already settled."])
-    if refund_buyer:
-        done = _call_off(db, request, db.get_listing(request["listing_id"]))
-    else:
-        done = _pay_seller(db, request)
-    if not done:
-        raise ListingError(["This deal just changed. Please look again."])
 
 
 # --- either side: cancel a live deal ------------------------------------------
@@ -482,7 +291,7 @@ def cancel_deal(db, request_id: int, email: str) -> None:
                             "money went to the seller, so this deal can't be cancelled."])
     if request.get("seller_confirmed_at"):
         raise ListingError(["The item was already handed over, so the deal can't be "
-                            "cancelled. The buyer can ask for a refund within 48 hours."])
+                            "cancelled."])
     person = _profile(db, email)
     listing = db.get_listing(request["listing_id"])
     is_buyer = request["buyer_id"] == person["id"]
@@ -568,8 +377,6 @@ def to_do(db, email: str) -> dict[str, int]:
         answer            buyers asked for your item; accept or decline
         confirm_sale      the buyer confirmed they got it; now you confirm
         confirm_received  a seller accepted you; meet them, then confirm
-        give_back         you asked for a refund; give the item back
-        confirm_return    a buyer gave an item back; check it within 48 hours
         sales, purchases  the totals for the "Sales" and "My purchases" pages
     """
     me = _profile(db, email)
@@ -580,12 +387,7 @@ def to_do(db, email: str) -> dict[str, int]:
                        if r["status"] == ACCEPTED and r["buyer_confirmed_at"]
                        and not r["seller_confirmed_at"])
     confirm_received = sum(1 for r in live["buying"]
-                           if r["status"] == ACCEPTED and not r["buyer_confirmed_at"]
-                           and not r.get("returned_at"))
-    give_back_count = sum(1 for r in live["buying"] if give_back_due(r) is not None)
-    confirm_return = sum(1 for r in live["selling"] if refund_due(r) is not None)
+                           if r["status"] == ACCEPTED and not r["buyer_confirmed_at"])
     return {"answer": answer, "confirm_sale": confirm_sale,
-            "confirm_received": confirm_received, "give_back": give_back_count,
-            "confirm_return": confirm_return,
-            "sales": answer + confirm_sale + confirm_return,
-            "purchases": confirm_received + give_back_count}
+            "confirm_received": confirm_received,
+            "sales": answer + confirm_sale, "purchases": confirm_received}
