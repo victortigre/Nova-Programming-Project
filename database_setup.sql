@@ -49,6 +49,9 @@ create table if not exists listings (
 alter table listings add column if not exists category_other text;
 alter table listings add column if not exists pickup_area_other text;
 
+-- When the seller can only hand the item over from a later date (empty = now).
+alter table listings add column if not exists available_from date;
+
 -- Condition names were renamed ("New" -> "Brand New", "Like new" -> "Like New").
 update listings set condition = 'Brand New' where condition = 'New';
 update listings set condition = 'Like New' where condition = 'Like new';

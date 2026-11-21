@@ -7,6 +7,8 @@ The page only collects the input and shows messages. The rules themselves
 (and the check that you own the listing) are in listings.py.
 """
 
+from datetime import date
+
 import streamlit as st
 
 import database
@@ -134,6 +136,17 @@ with right:
                                           value=start_value("pickup_area_other", ""),
                                           placeholder="e.g. Saldanha metro station")
 
+# --- when it's available (optional) -------------------------------------------
+saved_available = None
+if editing and editing.get("available_from"):
+    saved_available = date.fromisoformat(editing["available_from"])
+available_from = None
+if st.checkbox("I can only hand it over from a later date",
+               value=saved_available is not None, key=key("available-later")):
+    available_from = st.date_input("Available from", value=saved_available or date.today(),
+                                   min_value=date.today(), format="DD/MM/YYYY",
+                                   key=key("available-from"))
+
 # --- current photos (only when editing) --------------------------------------
 keep_paths = None
 if editing:
@@ -165,6 +178,7 @@ if st.button("Save changes" if editing else "Publish listing", type="primary"):
         title=title, description=description, free=free, price_cents=price_cents,
         category=category, category_other=category_other, condition=condition,
         pickup_area=pickup_area, pickup_area_other=pickup_area_other,
+        available_from=available_from,
     )
     new_photos = [upload.getvalue() for upload in uploads or []]
     try:
