@@ -187,7 +187,8 @@ def test_blocked_reporter_cannot_send_a_report(db):
 
 def test_blocking_cancels_the_deals_of_the_blocked_student(db):
     import deals
-    request = deals.request_to_buy(db, db.tom_listing["id"], EVA)
+    from deal_helpers import start_purchase
+    request = start_purchase(db, db.tom_listing["id"], EVA)
     admin.block_user(db, BOSS, db.report_id)
     assert db.get_request(request["id"])["status"] == "cancelled"
     assert deals.my_purchases(db, EVA)[0]["status"] == "cancelled"

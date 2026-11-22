@@ -13,6 +13,7 @@ import streamlit as st
 
 import database
 import listings
+import payments
 from accounts import logged_in_user, verified_nova_email
 
 SELL = "Sell for a price"
@@ -43,6 +44,12 @@ if edit_id:
         editing = None
 
 st.header("Edit listing" if editing else "Sell an item")
+if not payments.has_bank_details(profile):
+    st.warning("Add your bank details on My profile, so buyers can pay you by bank "
+               "transfer. Without them, nobody can buy your items.",
+               icon=":material/account_balance:")
+    st.page_link("views/profile.py", label="Add my bank details",
+                 icon=":material/account_balance:")
 if editing and st.button("← Cancel editing"):
     st.session_state.pop("edit_listing_id", None)
     st.switch_page("views/my_listings.py")

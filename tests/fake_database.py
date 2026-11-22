@@ -16,7 +16,8 @@ class FakeDatabase:
         self.favorites = []  # (profile_id, listing_id), in the order they were saved
         self.reports = {}  # id -> report
         self.requests = {}  # id -> purchase request
-        self.wallet = []  # wallet lines, oldest first
+        self.conversations = {}  # chat id -> conversation (only what deals.py reads)
+        self.offers = {}  # chat id -> offers, newest first
         self.reviews = []  # every review, in the order they were left
         self._numbers = itertools.count(1)
 
@@ -161,10 +162,16 @@ class FakeDatabase:
         request = {**row, "id": next(self._numbers),
                    "status": row.get("status", "requested"),
                    "seller_confirmed_at": None, "buyer_confirmed_at": None,
-                   "returned_at": None}
+                   "returned_at": None, "paid_at": None, "payment_missing_at": None,
+                   "agreed_price_cents": row.get("agreed_price_cents"),
+                   "conversation_id": row.get("conversation_id"), "pay_by": row.get("pay_by")}
         request["created_at"] = request["id"]  # a higher number means newer
         self.requests[request["id"]] = request
         return dict(request)
+
+    def request_for_conversation(self, conversation_id):
+        rows = [r for r in self.requests.values() if r.get("conversation_id") == conversation_id]
+        return dict(max(rows, key=lambda r: r["created_at"])) if rows else None
 
     def get_request(self, request_id):
         request = self.requests.get(request_id)
@@ -235,39 +242,25 @@ class FakeDatabase:
     def reviews_by(self, reviewer_id):
         return [dict(r) for r in self.reviews if r["reviewer_id"] == reviewer_id]
 
+    # --- bank details and chats (only what deals.py reads) ---------------------
 
-    # --- wallet (same rules as the two database functions) -------------------
+    def save_bank_details(self, email, holder, iban):
+        self.profiles[email].update({"bank_holder": holder, "iban": iban})
 
-    def wallet_entries_of(self, profile_id):
-        rows = [dict(e) for e in self.wallet if e["profile_id"] == profile_id]
-        return list(reversed(rows))  # newest first
+    def add_chat(self, chat_id, listing_id, buyer_id, seller_id):
+        self.conversations[chat_id] = {"id": chat_id, "listing_id": listing_id,
+                                       "buyer_id": buyer_id, "seller_id": seller_id}
+        self.offers[chat_id] = []
 
-    def wallet_add_entry(self, row):
-        entry = {**row, "id": next(self._numbers)}
-        self.wallet.append(entry)
-        return dict(entry)
+    def add_offer(self, chat_id, sender_id, amount_cents, status="accepted"):
+        self.offers[chat_id].insert(0, {"conversation_id": chat_id, "sender_id": sender_id,
+                                        "amount_cents": amount_cents, "status": status})
 
-    def _wallet_line(self, request_id, kind):
-        return next((e for e in self.wallet
-                     if e["request_id"] == request_id and e["kind"] == kind), None)
+    def messaging_conversation(self, conversation_id, actor_id):
+        chat = self.conversations.get(conversation_id)
+        if chat and actor_id in (chat["buyer_id"], chat["seller_id"]):
+            return dict(chat)
+        return None
 
-    def wallet_hold(self, profile_id, request_id, amount_cents, note):
-        if self._wallet_line(request_id, "hold"):
-            return True
-        available = sum(e["amount_cents"] for e in self.wallet if e["profile_id"] == profile_id)
-        if available < amount_cents:
-            return False
-        self.wallet_add_entry({"profile_id": profile_id, "amount_cents": -amount_cents,
-                               "kind": "hold", "request_id": request_id, "note": note})
-        return True
-
-    def wallet_settle(self, request_id, kind, profile_id):
-        assert kind in ("release", "refund")
-        held = self._wallet_line(request_id, "hold")
-        if held is None:
-            return False
-        if self._wallet_line(request_id, "release") or self._wallet_line(request_id, "refund"):
-            return False
-        self.wallet_add_entry({"profile_id": profile_id, "amount_cents": -held["amount_cents"],
-                               "kind": kind, "request_id": request_id, "note": held["note"]})
-        return True
+    def messaging_offers(self, conversation_id, limit, offset):
+        return [dict(o) for o in self.offers.get(conversation_id, [])[offset:offset + limit]]

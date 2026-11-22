@@ -11,6 +11,7 @@ from streamlit.testing.v1 import AppTest
 
 import accounts
 import deals
+from deal_helpers import finish_purchase, start_purchase
 from fake_database import FakeDatabase
 
 SELLER = "seller@novasbe.pt"
@@ -32,7 +33,6 @@ def db(monkeypatch):
 
 
 def listing(db, title):
-    """A free item, so no Nova credits are involved."""
     return db.insert_listing({
         "seller_id": db.get_profile(SELLER)["id"], "title": title, "photo_paths": [],
         "price_cents": 0, "category": "Furniture", "pickup_area": "Carcavelos",
@@ -43,40 +43,40 @@ def page_text(page) -> str:
     return "\n".join(element.value for element in [*page.markdown, *page.caption])
 
 
-def test_requests_and_sales_show_inside_the_listing_cards(db):
+def test_buyers_and_sales_show_inside_the_listing_cards(db):
     lamp, bike, chair = listing(db, "Desk lamp"), listing(db, "Bike"), listing(db, "Old chair")
-    deals.request_to_buy(db, lamp, "ana@novasbe.pt")                 # waiting for an answer
-    accepted = deals.request_to_buy(db, bike, "rui@novasbe.pt")      # reserved for Rui
-    deals.accept_request(db, accepted["id"], SELLER)
-    sold = deals.request_to_buy(db, chair, "marta@novasbe.pt")       # sold to Marta
-    deals.accept_request(db, sold["id"], SELLER)
-    deals.confirm_sold(db, sold["id"], SELLER)
-    deals.confirm_received(db, sold["id"], "marta@novasbe.pt")
+    db.insert_request({"listing_id": lamp,                            # an old request
+                       "buyer_id": db.get_profile("ana@novasbe.pt")["id"]})
+    paying = start_purchase(db, bike, "rui@novasbe.pt")               # Rui says he paid
+    deals.mark_paid(db, paying["id"], "rui@novasbe.pt")
+    sold = start_purchase(db, chair, "marta@novasbe.pt")              # sold to Marta
+    finish_purchase(db, sold["id"], "marta@novasbe.pt", SELLER)
 
     page = AppTest.from_file(PAGE, default_timeout=30).run()
 
     assert not page.exception
-    assert [tab.label for tab in page.tabs] == ["Active (1) 🔔", "Reserved (1)", "Sold (1)"]
+    assert [tab.label.split(" 🔔")[0] for tab in page.tabs] == [
+        "Active (1)", "Reserved (1)", "Sold (1)"]
     text = page_text(page)
-    assert "**Ana** wants to buy this." in text
-    assert "**Rui** wants to buy this." in text
+    assert "**Ana** asked to buy this (old request)" in text
+    assert "**Rui** is buying this." in text
     assert "Sold to Marta" in text
     labels = [button.label for button in page.button]
-    assert "Accept" in labels and "Decline" in labels
-    assert "I handed it over" in labels and "Cancel deal" in labels
-    # With an accepted buyer, the deal decides: no Reserve/Sold/Relist on the bike.
+    assert "Decline" in labels
+    assert "Payment received" in labels and "Not received yet" in labels
+    # With a buyer, the deal decides: no Reserve/Sold/Relist on the bike.
     assert f"sold-{bike}" not in [button.key for button in page.button]
 
 
-def test_accepting_a_buyer_on_the_page_reserves_the_item(db):
-    lamp = listing(db, "Desk lamp")
-    request = deals.request_to_buy(db, lamp, "ana@novasbe.pt")
+def test_confirming_the_payment_on_the_page_marks_it_sold(db):
+    bike = listing(db, "Bike")
+    deal = start_purchase(db, bike, "rui@novasbe.pt")
+    deals.mark_paid(db, deal["id"], "rui@novasbe.pt")
 
     page = AppTest.from_file(PAGE, default_timeout=30).run()
-    page.button(key=f"accept-{request['id']}").click().run()
+    page.button(key=f"mylistings-received-{deal['id']}").click().run()
 
     assert not page.exception
-    assert db.get_request(request["id"])["status"] == deals.ACCEPTED
-    assert [tab.label for tab in page.tabs] == ["Active (0)", "Reserved (1)", "Sold (0)"]
-    assert page.success[0].value == "Accepted. The item is now reserved for this buyer."
-
+    assert db.get_request(deal["id"])["status"] == deals.COMPLETED
+    assert db.get_listing(bike)["status"] == "sold"
+    assert page.success[0].value == "Payment confirmed. The item is marked sold."

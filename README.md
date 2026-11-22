@@ -50,11 +50,13 @@ stay separate; no duplicate message is created for the note. Only the recipient
 of the current pending offer can accept, decline or counter it. Counteroffers
 preserve the earlier cards and their statuses.
 
-Acceptance records a price agreement without reserving a listing. The buyer sees
-a disabled Buy Now placeholder explaining that checkout is not available yet;
-no payment is made by that UI. Future checkout will reuse Nova credits and the
-existing purchase lifecycle. Unconfirmed offer actions can be retried with the
-same operation ID.
+Acceptance records a price agreement. The buyer then taps Buy Now in the chat:
+the item is reserved and the chat shows the seller's bank details (account
+holder and IBAN, kept on My profile and shown only to that buyer). The buyer has
+48 hours to pay by bank transfer and tap "I've paid", otherwise the purchase is
+cancelled and the item is back on sale. The seller checks their bank and taps
+"Payment received" (the item is sold) or "Not received yet". The app never moves
+money itself. Unconfirmed offer actions can be retried with the same operation ID.
 
 SQL is not executed by the mocked tests. Database privileges, triggers and
 concurrent offer retries require separate development-database validation.
