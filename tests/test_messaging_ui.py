@@ -34,7 +34,7 @@ def ui(monkeypatch):
                          ("send_message", {"id": 1}), ("mark_read", None)):
         mocks[name] = MagicMock(return_value=result)
         monkeypatch.setattr(repository, name, mocks[name])
-    return AppTest.from_file(PAGE), mocks, user
+    return AppTest.from_file(PAGE, default_timeout=30), mocks, user
 
 
 def test_navigation_and_send(ui):

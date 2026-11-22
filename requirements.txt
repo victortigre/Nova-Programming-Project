@@ -1,6 +1,6 @@
-streamlit[auth]>=1.67
-requests
-supabase
-pillow
-pytest
+streamlit[auth]==1.67.0
+requests==2.34.2
+supabase==2.34.1
+pillow==13.0.0
+pytest==9.2.0
 # Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-21 buyer confirms
