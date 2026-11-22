@@ -173,11 +173,12 @@ def test_previous_accounts_pending_text_is_not_carried_into_chat(flow):
     assert flow.app.chat_input
 
 
-def test_browse_has_no_purchase_button_buying_starts_in_the_chat(flow):
+def test_browse_buys_now_at_the_listed_price_not_request_to_purchase(flow):
     flow.app.run()
     assert not flow.app.exception
     assert not any(button.label == "Request to Purchase" for button in flow.app.button)
     assert any("Buy Now" in item.value for item in flow.app.caption)
+    assert flow.app.button(key="buy-now-10").label == "Buy Now"  # at the listed price
     flow.purchase.assert_not_called()
     flow.creation.assert_not_called()
 

@@ -103,6 +103,46 @@ def test_buy_now_twice_starts_one_deal(db):
     assert len(db.requests) == 1
 
 
+# --- Buy Now from the item page (the listed price, no offer) ------------------------
+
+def a_plain_chat(db, listing_id, chat_id="plain"):
+    db.add_chat(chat_id, listing_id, pid(db, BUYER), pid(db, SELLER))
+    return chat_id
+
+
+def test_buy_at_the_listed_price_without_an_offer(db):
+    lid = a_listing(db)
+    db.listings[lid]["price_cents"] = 1600
+    give_bank_details(db, SELLER)
+    deal = deals.buy_at_listed_price(db, BUYER, a_plain_chat(db, lid))
+    assert deal["agreed_price_cents"] == 1600 and deal["status"] == ACCEPTED
+    assert db.get_listing(lid)["status"] == RESERVED
+    assert deals.deal_in_chat(db, SELLER, "plain")["id"] == deal["id"]
+
+
+def test_free_items_cannot_be_bought_there_is_nothing_to_pay(db):
+    lid = a_listing(db)
+    db.listings[lid]["price_cents"] = 0
+    give_bank_details(db, SELLER)
+    with pytest.raises(ListingError, match="free"):
+        deals.buy_at_listed_price(db, BUYER, a_plain_chat(db, lid))
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+def test_buying_at_the_listed_price_has_the_same_checks(db):
+    lid = a_listing(db)
+    db.listings[lid]["price_cents"] = 1600
+    chat = a_plain_chat(db, lid)
+    with pytest.raises(ListingError, match="bank details"):
+        deals.buy_at_listed_price(db, BUYER, chat)
+    give_bank_details(db, SELLER)
+    with pytest.raises(NotAllowed):
+        deals.buy_at_listed_price(db, SELLER, chat)
+    deals.buy_at_listed_price(db, BUYER, chat)
+    with pytest.raises(ListingError):
+        deals.buy_at_listed_price(db, BUYER, chat)  # only once
+
+
 # --- where to pay ----------------------------------------------------------------------
 
 def test_the_buyer_sees_the_sellers_bank_details(db):

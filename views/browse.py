@@ -163,14 +163,41 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                if item["status"] == listings.ACTIVE:
-                    st.caption("How to buy: make an offer (or offer the listed price) and "
-                               "agree in the chat. Then tap **Buy Now** in the chat and pay "
-                               "the seller by bank transfer.")
+                if item["status"] == listings.ACTIVE and item["price_cents"]:
+                    st.caption("**Buy Now** at this price, or make an offer to agree a "
+                               "different one in the chat. You pay the seller by bank "
+                               "transfer within 48 hours.")
+                elif item["status"] == listings.ACTIVE:
+                    st.caption("This item is free: contact the seller to arrange the pickup.")
                 can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
                 with st.container(key="listing-actions"):
+                    if can_contact and item["status"] == listings.ACTIVE and item["price_cents"]:
+                        # Buy at the listed price: open (or reuse) the chat with the
+                        # seller, start the purchase there (deals.py checks everything
+                        # again) and show where to pay.
+                        if st.button("Buy Now", key=f"buy-now-{item['id']}", type="primary",
+                                     icon=":material/shopping_bag:", width="stretch"):
+                            try:
+                                with st.spinner("Reserving it for you…"):
+                                    conversation = messaging_repository.get_or_create_conversation(item["id"])
+                                    deals.buy_at_listed_price(database, email, conversation["id"])
+                            except deals.ListingError as exc:
+                                st.error(" ".join(exc.errors))
+                            except (deals.NotAllowed, deals.NotFound, ValueError) as exc:
+                                st.error(str(exc))
+                            except Exception:
+                                st.error("Buying isn't available right now. Please try again later.")
+                            else:
+                                if st.session_state.get("messaging_account") != email:
+                                    st.session_state.pop("messaging_pending", None)
+                                st.session_state["messaging_account"] = email
+                                st.session_state["messaging_selected"] = conversation["id"]
+                                st.session_state["messaging_history_limit"] = 50
+                                st.session_state["payment_message"] = (
+                                    "Reserved for you! Pay by bank transfer within 48 hours.")
+                                st.switch_page("views/messaging.py")
                     if can_contact:
                         offer_column, contact_column = st.columns(2)
                         if item["status"] == listings.ACTIVE:
