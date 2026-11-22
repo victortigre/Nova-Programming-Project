@@ -229,6 +229,34 @@ def test_inbox_still_loads_when_read_tracking_is_missing(context, monkeypatch):
     assert rows[0]["unread"] is False
 
 
+def _inbox_rows(context, monkeypatch):
+    """Two chats (CID and MID) in the inbox, as in test_inbox_flags_unread_chats."""
+    first = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
+    second = {**first, "id": MID}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
+        inbox_row(first), inbox_row(second),
+    ])
+    return repo.get_inbox()
+
+
+def test_inbox_counts_how_many_are_new(context, monkeypatch):
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID])
+    monkeypatch.setattr(database, "messaging_unread_counts", lambda actor: {CID: 3})
+    rows = {row["id"]: row for row in _inbox_rows(context, monkeypatch)}
+    assert rows[CID]["unread_count"] == 3
+    assert rows[MID]["unread_count"] == 0
+
+
+def test_inbox_counts_fall_back_to_one_without_the_counting_function(context, monkeypatch):
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID])
+
+    def missing(actor):
+        raise RuntimeError("function not in the database yet")
+    monkeypatch.setattr(database, "messaging_unread_counts", missing)
+    rows = {row["id"]: row for row in _inbox_rows(context, monkeypatch)}
+    assert rows[CID]["unread_count"] == 1
+
+
 def test_unread_conversations_returns_the_set(context, monkeypatch):
     monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID, MID, CID])
     assert repo.unread_conversations() == {CID, MID}

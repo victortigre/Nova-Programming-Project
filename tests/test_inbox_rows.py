@@ -26,7 +26,10 @@ def test_compact_rows_keep_actions_refresh_and_no_asking_price(ui):
     listing = next(c for c in containers if c.key == 'inbox-list')
     assert len([c for c in listing.get('flex_container') if c.key and c.key.startswith('inbox-row-')]) == 2
     assert len(listing.get('divider')) == 1
-    assert '<strong>🔵 Jonathan</strong>' in markup(app)
+    # Unread: no blue dot any more, but bold text and a violet counter (like WhatsApp).
+    assert '<strong>Jonathan</strong>' in markup(app) and '🔵' not in markup(app)
+    assert markup(app).count('inbox-summary inbox-unread') == 1
+    assert markup(app).count('class="inbox-count"') == 1
     assert 'Surfboard' in markup(app) and 'Listing no longer available' in markup(app)
     assert not app.image
     assert 'inbox-avatar' in markup(app)
