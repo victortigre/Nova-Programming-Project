@@ -515,3 +515,8 @@ def test_a_free_item_cannot_become_paid_or_be_relisted_paid_without_bank_details
     with pytest.raises(listings.ListingError, match="bank details"):
         listings.relist(db, paid, ANA)
 
+
+@pytest.mark.parametrize("typed", ["12,999", "0,001", "15.505"])
+def test_a_price_with_three_decimals_is_refused_not_rounded(typed):
+    with pytest.raises(ValueError, match="at most two decimals"):
+        listings.parse_price(typed)

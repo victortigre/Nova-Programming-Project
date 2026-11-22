@@ -90,6 +90,9 @@ def parse_price(text) -> int | None:
         return None
     if cleaned.count(".") > 1 or not cleaned.replace(".", "").isdigit():
         raise ValueError("Price must be a number, like 15 or 15,50.")
+    # 12,999 is not a price in euros and cents. Say so instead of rounding it.
+    if "." in cleaned and len(cleaned.split(".")[1]) > 2:
+        raise ValueError("Price can have at most two decimals, like 15,50.")
     return euros_to_cents(cleaned)
 
 

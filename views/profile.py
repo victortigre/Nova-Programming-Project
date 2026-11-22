@@ -130,8 +130,7 @@ if profile is not None:
                             item, links.get(cover), key=f"saved-{item['id']}",
                             saved=True, on_heart=partial(unsave, item["id"]))
                     if clicked:
-                        st.session_state["open_listing"] = item["id"]
-                        st.switch_page("views/browse.py")
+                        st.switch_page("views/browse.py", query_params={"listing": item["id"]})
 
 # The menu bar has no room for the account, so signing out is here.
 with ui.card("account"):

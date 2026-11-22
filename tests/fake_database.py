@@ -150,6 +150,14 @@ class FakeDatabase:
             if profile["id"] == profile_id:
                 profile["blocked_at"] = "now"
 
+    def unblock_profile(self, profile_id):
+        for profile in self.profiles.values():
+            if profile["id"] == profile_id:
+                profile["blocked_at"] = None
+
+    def blocked_profiles(self):
+        return [dict(p) for p in self.profiles.values() if p["blocked_at"] is not None]
+
     def admin_delete_listing(self, listing_id):
         self.listings.pop(listing_id, None)
         # Like "on delete cascade" in the real database: its reports go too.

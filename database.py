@@ -458,6 +458,22 @@ def block_profile(profile_id: int) -> None:
     _listings_changed()  # the blocked student's listings leave the feed
 
 
+def unblock_profile(profile_id: int) -> None:
+    """Take the block off a student again."""
+    _client().table("profiles").update({"blocked_at": None}).eq("id", profile_id).execute()
+    get_profile.clear()
+    _listings_changed()  # their listings are back in the feed
+
+
+def blocked_profiles() -> list[dict]:
+    """Return every blocked student, the one blocked longest ago first."""
+    return (
+        _client().table("profiles").select("id,name,blocked_at")
+        .not_.is_("blocked_at", "null").order("blocked_at")
+        .execute().data
+    )
+
+
 def admin_delete_listing(listing_id: int) -> None:
     """Remove any listing, whoever the seller is. Its reports go with it."""
     _client().table("listings").delete().eq("id", listing_id).execute()

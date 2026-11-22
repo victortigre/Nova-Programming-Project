@@ -186,3 +186,19 @@ def test_inbox_offer_only_preview(ui, status):
     assert not app.exception
     assert any(f"Offer: €25.00 · {status.title()}" in item.proto.body for item in app.get("html"))
     assert not any(item.value == "No messages yet" for item in app.caption)
+
+
+def test_a_refused_message_does_not_lock_the_chat(ui):
+    # Only spaces: the message is refused. Trying it again can't work, so
+    # nothing is kept as "pending" and the next message can be typed at once.
+    app, mocks, _ = ui
+    app.run()
+    app.button(key=f"chat_{CID}").click().run()
+    mocks["send_message"].side_effect = ValueError("Write a message before sending.")
+    app.chat_input[0].set_value("   ").run()
+    assert any(item.value == "Write a message before sending." for item in app.warning)
+    assert "messaging_pending" not in app.session_state
+    app.run()
+    assert not app.chat_input[0].disabled
+    assert not any(button.label == "Retry message" for button in app.button)
+    assert not app.exception

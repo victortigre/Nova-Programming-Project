@@ -67,6 +67,12 @@ def try_send(pending: dict) -> None:
     try:
         with st.spinner("Sending message…"):
             repository.send_message(pending["conversation_id"], pending["body"], pending["id"])
+    except ValueError as error:
+        # The message itself was refused (for example only spaces). Trying the
+        # same text again cannot work, so it is not kept as "pending": the
+        # student can simply type a new message.
+        st.session_state.pop("messaging_pending", None)
+        report_error(error)
     except Exception as error:
         report_error(error)
     else:
@@ -261,8 +267,9 @@ def show_chat(selected: str) -> None:
                 else:
                     payment_ui.seller_box(deal, email, where="chat",
                                           buyer_name=row["other_name"])
+        # A free item has no price to negotiate, so no offer form for it.
         if (row["own_profile_id"] == row["buyer_id"] and negotiation_available
-                and (not current or current["status"] == "declined")):
+                and row["price_cents"] and (not current or current["status"] == "declined")):
             with st.expander("Make an Offer"):
                 offer_ui.show_form(f"chat-{selected}", default_cents=row["price_cents"], conversation_id=selected)
         pending = st.session_state.get("messaging_pending")

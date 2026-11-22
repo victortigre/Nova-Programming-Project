@@ -14,6 +14,7 @@ import streamlit as st
 import database
 import listings
 import payments
+import photos
 from accounts import logged_in_user, verified_nova_email
 
 SELL = "Sell for a price"
@@ -172,6 +173,8 @@ if editing:
 uploads = st.file_uploader(
     "Add photos (JPG or PNG)" if editing else "Photos (1 to 5, JPG or PNG)",
     type=["jpg", "jpeg", "png"], accept_multiple_files=True, key=key("photos"),
+    # The same limit photos.py checks, so the box shows "10MB" and not 200MB.
+    max_upload_size=photos.MAX_UPLOAD_BYTES // (1024 * 1024),
 )
 
 # --- saving --------------------------------------------------------------------

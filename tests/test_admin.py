@@ -57,6 +57,10 @@ def test_non_admins_are_refused_for_every_action(db, who):
     for action in (admin.remove_listing, admin.block_user, admin.dismiss_report):
         with pytest.raises(admin.NotAllowed):
             action(db, who, db.report_id)
+    with pytest.raises(admin.NotAllowed):
+        admin.blocked_students(db, who)
+    with pytest.raises(admin.NotAllowed):
+        admin.unblock_user(db, who, tom_id(db))
     # Nothing changed.
     assert db.reports[db.report_id]["status"] == "open"
     assert db.tom_listing["id"] in db.listings
@@ -195,3 +199,34 @@ def test_blocking_cancels_the_deals_of_the_blocked_student(db):
     admin.block_user(db, BOSS, db.report_id)
     assert db.get_request(request["id"])["status"] == "cancelled"
     assert deals.my_purchases(db, EVA)[0]["status"] == "cancelled"
+
+
+# --- undoing a block ------------------------------------------------------------------
+
+def test_unblock_lets_the_student_back_in(db):
+    admin.block_user(db, BOSS, db.report_id)
+    assert [s["name"] for s in admin.blocked_students(db, BOSS)] == ["Tom"]
+    admin.unblock_user(db, BOSS, tom_id(db))
+    assert db.get_profile(TOM)["blocked_at"] is None
+    assert admin.blocked_students(db, BOSS) == []
+    # Their listing is back in the feed.
+    assert [item["title"] for item in listings.feed_listings(db)] == ["Old sofa"]
+
+
+def test_blocked_students_shows_no_email(db):
+    admin.block_user(db, BOSS, db.report_id)
+    assert set(admin.blocked_students(db, BOSS)[0]) == {"id", "name", "blocked_at"}
+
+
+def test_unblock_needs_a_blocked_student(db):
+    with pytest.raises(admin.NotFound):
+        admin.unblock_user(db, BOSS, tom_id(db))  # Tom is not blocked
+    with pytest.raises(admin.NotFound):
+        admin.unblock_user(db, BOSS, 999)  # nobody has this number
+
+
+def test_no_block_button_for_a_report_about_the_admin(db):
+    reports.create_report(db, ANA, reported_profile_id=db.get_profile(BOSS)["id"], reason="Other")
+    about_tom, about_boss = admin.open_reports(db, BOSS)
+    assert about_tom["can_block"] is True
+    assert about_boss["can_block"] is False

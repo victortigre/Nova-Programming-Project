@@ -63,12 +63,21 @@ def status_note(status: str) -> str:
     return ""
 
 
+# Which listing is open is written in the address (/?listing=12), not kept in
+# memory. So "Browse" or the logo in the menu (address without ?listing=) always
+# shows the full list again, and the browser's Back button closes the listing.
 def open_listing(listing_id: int) -> None:
-    st.session_state["view_listing"] = listing_id
+    st.query_params["listing"] = str(listing_id)
 
 
 def close_listing() -> None:
-    st.session_state.pop("view_listing", None)
+    st.query_params.clear()
+
+
+def listing_in_address() -> int | None:
+    """The listing number from the address, or None if there is none (or nonsense)."""
+    text = str(st.query_params.get("listing", ""))
+    return int(text) if text.isdigit() else None
 
 
 def turn_photo(listing_id: int, step: int) -> None:
@@ -105,8 +114,12 @@ def photo_viewer(listing_id: int, urls: list[str]) -> None:
                               on_click=pick_photo, args=(listing_id, place))
 
 
-def flip_saved(listing_id: int) -> None:
+def flip_saved(listing_id: int, tab: str = "browse") -> None:
     browsing.toggle_saved(database, my_id, listing_id)
+    # The tab is called "Saved (2)". Removing a heart changes that number, and
+    # Streamlit then opens the first tab again. Remember to stay on Saved.
+    if tab == "saved":
+        st.session_state["stay_on_saved_tab"] = True
 
 
 def save_button(listing_id: int, *, where: str) -> None:
@@ -123,8 +136,8 @@ def save_button(listing_id: int, *, where: str) -> None:
 # --- detail view --------------------------------------------------------------
 # Another page (a student's profile) can ask Browse to open one listing.
 if "open_listing" in st.session_state:
-    st.session_state["view_listing"] = st.session_state.pop("open_listing")
-viewing = st.session_state.get("view_listing")
+    open_listing(st.session_state.pop("open_listing"))
+viewing = listing_in_address()
 if viewing is not None:
     item = listings.get_listing(database, viewing)
     if item is None:
@@ -158,7 +171,9 @@ if viewing is not None:
             listed_note = listings.listed_text(item)
             if listed_note:
                 st.caption(f"🗓️ {listed_note}")
-            st.write(plain(item["description"]))
+            # st.text shows it exactly as typed: no formatting, and a web
+            # address in it does not become a link.
+            st.text(item["description"])
             if message := st.session_state.pop("deal_message", None):
                 st.success(message)
             if error := st.session_state.pop("deal_error", None):
@@ -206,7 +221,8 @@ if viewing is not None:
                                 st.switch_page("views/messaging.py")
                     if can_contact:
                         offer_column, contact_column = st.columns(2)
-                        if item["status"] == listings.ACTIVE:
+                        # A free item has no price to negotiate.
+                        if item["status"] == listings.ACTIVE and item["price_cents"]:
                             if offer_column.button("Make an Offer", key=f"offer-{item['id']}",
                                                    type="secondary", icon=":material/local_offer:", width="stretch"):
                                 st.session_state.messaging_offer_browse = item["id"]
@@ -265,7 +281,7 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                     links.get(cover),
                     key=f"{tab}-{item['id']}",
                     saved=None if (own or not saving_ready) else item["id"] in saved,
-                    on_heart=partial(flip_saved, item["id"]),
+                    on_heart=partial(flip_saved, item["id"], tab),
                 )
             if clicked:
                 open_listing(item["id"])
@@ -352,7 +368,11 @@ if len(visible) > NOTICES_SHOWN:
 # --- Browse and Saved tabs ----------------------------------------------------
 # In a keyed container, so ui.py can put the heart picture in front of "Saved".
 with st.container(key="browse-tabs"):
-    browse_tab, saved_tab = st.tabs(["All items", f"Saved ({len(saved)})"])
+    saved_label = f"Saved ({len(saved)})"
+    # After removing a heart on the Saved tab, open that tab again (see flip_saved).
+    stay_on_saved = st.session_state.pop("stay_on_saved_tab", False)
+    browse_tab, saved_tab = st.tabs(["All items", saved_label],
+                                    default=saved_label if stay_on_saved else None)
 
 with browse_tab:
     query = st.text_input("Search", placeholder="Search desks, books, bikes...",
