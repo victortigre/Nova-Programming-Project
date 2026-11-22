@@ -122,6 +122,31 @@ def flip_saved(listing_id: int, tab: str = "browse") -> None:
         st.session_state["stay_on_saved_tab"] = True
 
 
+# --- Buy Now (item page and grid cards) -------------------------------------------
+def buy_now(listing_id: int) -> None:
+    """Buy at the listed price: open (or reuse) the chat with the seller, start
+    the purchase there (deals.py checks everything again, including that the
+    seller can be paid) and go to the chat, which shows how to pay."""
+    try:
+        with st.spinner("Reserving it for you…"):
+            conversation = messaging_repository.get_or_create_conversation(listing_id)
+            deals.buy_at_listed_price(database, email, conversation["id"])
+    except deals.ListingError as exc:
+        st.error(" ".join(exc.errors))
+    except (deals.NotAllowed, deals.NotFound, ValueError) as exc:
+        st.error(str(exc))
+    except Exception:
+        st.error("Buying isn't available right now. Please try again later.")
+    else:
+        if st.session_state.get("messaging_account") != email:
+            st.session_state.pop("messaging_pending", None)
+        st.session_state["messaging_account"] = email
+        st.session_state["messaging_selected"] = conversation["id"]
+        st.session_state["messaging_history_limit"] = 50
+        st.session_state["payment_message"] = "Reserved for you! See below how to pay the seller."
+        st.switch_page("views/messaging.py")
+
+
 def save_button(listing_id: int, *, where: str) -> None:
     if not saving_ready:
         return
@@ -200,25 +225,7 @@ if viewing is not None:
                         # again) and show where to pay.
                         if st.button("Buy Now", key=f"buy-now-{item['id']}", type="primary",
                                      icon=":material/shopping_bag:", width="stretch"):
-                            try:
-                                with st.spinner("Reserving it for you…"):
-                                    conversation = messaging_repository.get_or_create_conversation(item["id"])
-                                    deals.buy_at_listed_price(database, email, conversation["id"])
-                            except deals.ListingError as exc:
-                                st.error(" ".join(exc.errors))
-                            except (deals.NotAllowed, deals.NotFound, ValueError) as exc:
-                                st.error(str(exc))
-                            except Exception:
-                                st.error("Buying isn't available right now. Please try again later.")
-                            else:
-                                if st.session_state.get("messaging_account") != email:
-                                    st.session_state.pop("messaging_pending", None)
-                                st.session_state["messaging_account"] = email
-                                st.session_state["messaging_selected"] = conversation["id"]
-                                st.session_state["messaging_history_limit"] = 50
-                                st.session_state["payment_message"] = (
-                                    "Reserved for you! See below how to pay the seller.")
-                                st.switch_page("views/messaging.py")
+                            buy_now(item["id"])
                     if can_contact:
                         offer_column, contact_column = st.columns(2)
                         # A free item has no price to negotiate.
@@ -282,6 +289,10 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                     key=f"{tab}-{item['id']}",
                     saved=None if (own or not saving_ready) else item["id"] in saved,
                     on_heart=partial(flip_saved, item["id"], tab),
+                    # Buy Now right from the grid: priced, on sale, not your own.
+                    on_buy=(partial(buy_now, item["id"])
+                            if not own and item["status"] == listings.ACTIVE
+                            and item["price_cents"] else None),
                 )
             if clicked:
                 open_listing(item["id"])

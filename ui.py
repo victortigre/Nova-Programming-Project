@@ -380,12 +380,14 @@ def _badge(item: dict) -> str:
 
 
 def listing_card(item: dict, photo_url: str | None, *, key: str,
-                 saved: bool | None = None, on_heart=None) -> bool:
+                 saved: bool | None = None, on_heart=None, on_buy=None) -> bool:
     """Show one listing as a card. Returns True when its price button is clicked.
 
     `key` must be different for every card on the page. Leave `saved` as
     None to show no heart (for example on your own listing). Otherwise
-    `on_heart` is called when the heart is clicked.
+    `on_heart` is called when the heart is clicked. With `on_buy`, the card
+    gets a "Buy Now" button that calls it (in the page run, not as a callback,
+    so it may switch pages).
     """
     with card(key):
         if photo_url:
@@ -410,8 +412,13 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
                       on_click=on_heart,
                       help="Remove from saved" if saved else "Save for later")
         with st.container(horizontal_alignment="center"):
-            return st.button(listings.format_price(item["price_cents"]), key=f"price-{key}",
-                             icon=":material/shopping_basket:", help="Open this listing")
+            clicked = st.button(listings.format_price(item["price_cents"]), key=f"price-{key}",
+                                icon=":material/shopping_basket:", help="Open this listing")
+        if on_buy is not None and st.button("Buy Now", key=f"buy-{key}", type="primary",
+                                            width="stretch",
+                                            help="Buy at this price and see how to pay"):
+            on_buy()
+        return clicked
 
 
 def chip(text: str, warm: bool = False) -> str:
