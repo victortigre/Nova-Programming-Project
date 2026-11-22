@@ -50,7 +50,8 @@ stay separate; no duplicate message is created for the note. Only the recipient
 of the current pending offer can accept, decline or counter it. Counteroffers
 preserve the earlier cards and their statuses.
 
-Acceptance records a price agreement. The buyer then taps Buy Now in the chat:
+Acceptance records a price agreement. The buyer then taps Buy Now in the chat
+(or taps Buy Now on the item page to pay the listed price without an offer):
 the item is reserved and the chat shows the seller's bank details (account
 holder and IBAN, kept on My profile and shown only to that buyer). The buyer has
 48 hours to pay by bank transfer and tap "I've paid", otherwise the purchase is

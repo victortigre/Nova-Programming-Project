@@ -2,8 +2,9 @@
 
 The app never moves money. Students pay each other by bank transfer:
 
-  1. Buyer and seller agree a price in the chat (an offer is accepted, see
-     offers.py). The buyer taps "Buy Now" (buy_now). The deal starts, the
+  1. The buyer taps "Buy now" on the item page at the listed price
+     (buy_at_listed_price), or first agrees a lower price in the chat (an
+     accepted offer) and taps "Buy Now" there (buy_now). The deal starts, the
      listing becomes Reserved, and the chat shows the seller's bank details.
   2. The buyer has 48 hours to pay and tap "I've paid" (mark_paid). If they
      don't, the deal is cancelled automatically and the item is back on sale
@@ -108,17 +109,42 @@ def price_of(request: dict, listing: dict | None = None) -> int:
 # --- 1. buyer: Buy Now (after a price was agreed in the chat) ------------------
 
 def buy_now(db, buyer_email: str, conversation_id: str) -> dict:
-    """Start the purchase at the price agreed in this chat. Returns the new deal."""
+    """Start the purchase at the price agreed in this chat (an accepted offer)."""
+    buyer, chat = _buyers_chat(db, buyer_email, conversation_id)
+    offers = db.messaging_offers(conversation_id, 1, 0)
+    if not offers or offers[0]["status"] != "accepted":
+        raise ListingError(["Agree a price in the chat first: an offer must be accepted."])
+    return _start_purchase(db, buyer, chat, offers[0]["amount_cents"])
+
+
+def buy_at_listed_price(db, buyer_email: str, conversation_id: str) -> dict:
+    """Buy now from the item page: the listed price, no offer needed.
+
+    The page first opens (or reuses) the chat with the seller, so the payment
+    details and the conversation live in one place, like after an offer.
+    """
+    buyer, chat = _buyers_chat(db, buyer_email, conversation_id)
+    listing = _listing(db, chat["listing_id"])
+    price = listing.get("price_cents") or 0
+    if price <= 0:
+        raise ListingError(["This item is free: there's nothing to pay. "
+                            "Contact the seller to arrange the pickup."])
+    return _start_purchase(db, buyer, chat, price)
+
+
+def _buyers_chat(db, buyer_email: str, conversation_id: str) -> tuple[dict, dict]:
+    """(buyer, chat) when this student is the buyer in this chat about a listing."""
     buyer = _profile(db, buyer_email)
     chat = db.messaging_conversation(conversation_id, buyer["id"])
     if chat is None or chat["buyer_id"] != buyer["id"]:
         raise NotAllowed("Only the buyer in this chat can use Buy Now.")
     if chat.get("listing_id") is None:
         raise ListingError(["This listing doesn't exist any more."])
-    offers = db.messaging_offers(conversation_id, 1, 0)
-    if not offers or offers[0]["status"] != "accepted":
-        raise ListingError(["Agree a price in the chat first: an offer must be accepted."])
-    agreed = offers[0]["amount_cents"]
+    return buyer, chat
+
+
+def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
+    """Reserve the listing and create the deal: 48 hours to pay `price_cents`."""
     listing = _listing(db, chat["listing_id"])
     if listing["seller_id"] != chat["seller_id"]:
         raise ListingError(["This listing changed hands. Please look again."])
@@ -140,7 +166,7 @@ def buy_now(db, buyer_email: str, conversation_id: str) -> dict:
     pay_by = datetime.now(timezone.utc) + timedelta(hours=PAY_WITHIN_HOURS)
     return db.insert_request({
         "listing_id": listing["id"], "buyer_id": buyer["id"], "status": ACCEPTED,
-        "agreed_price_cents": agreed, "conversation_id": conversation_id,
+        "agreed_price_cents": price_cents, "conversation_id": chat["id"],
         "pay_by": pay_by.isoformat(),
     })
 
