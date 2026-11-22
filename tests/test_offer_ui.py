@@ -272,7 +272,10 @@ def test_unavailable_listing_hides_negotiation_but_keeps_chat(ui, status, has_of
     assert any("Negotiation is unavailable" in item.value for item in list(app.info) + list(app.caption))
     assert app.chat_input and not app.chat_input[0].disabled
     if has_offer:
-        assert any(item.value == "Status: Pending" for item in app.text)
+        # Nobody can answer the offer now, so it says why instead of "Pending".
+        expected = ("Status: On hold: the item is reserved" if status == "reserved"
+                    else "Status: Expired: the item is no longer on sale")
+        assert any(item.value == expected for item in app.text)
 
 
 def test_agreement_preview_error_does_not_block_offers_or_sending(ui):

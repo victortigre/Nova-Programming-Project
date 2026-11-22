@@ -121,6 +121,12 @@ def remove_listing(db, admin_email: str, report_id: int) -> None:
     listing = db.get_listing(report["listing_id"])
     if listing is None:
         raise NotFound("The reported listing doesn't exist any more.")
+    # The database deletes a listing's deals with it. A buyer who bought this
+    # item would lose it from "My purchases" and could not rate the seller.
+    if db.requests_for_listing(listing["id"], [deals.COMPLETED]):
+        raise NotAllowed("This item was sold through the app, so it can't be removed: the "
+                         "buyer would lose their purchase. It is no longer shown on Browse. "
+                         "Dismiss the report, or block the seller.")
 
     # Order matters:
     # 1. Delete the listing first. The database then also deletes every

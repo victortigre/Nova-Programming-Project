@@ -132,6 +132,10 @@ def buy_at_listed_price(db, buyer_email: str, conversation_id: str) -> dict:
     if price <= 0:
         raise ListingError(["This item is free: there's nothing to pay. "
                             "Contact the seller to arrange the pickup."])
+    # A price the two already agreed in the chat counts, wherever Buy Now is tapped.
+    offers = db.messaging_offers(chat["id"], 1, 0)
+    if offers and offers[0]["status"] == "accepted":
+        price = offers[0]["amount_cents"]
     return _start_purchase(db, buyer, chat, price)
 
 
@@ -151,27 +155,38 @@ def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
     listing = _listing(db, chat["listing_id"])
     if listing["seller_id"] != chat["seller_id"]:
         raise ListingError(["This listing changed hands. Please look again."])
+    # Asked first: the buyer's own purchase is what reserved the item.
+    if db.live_request(buyer["id"], listing["id"]) is not None:
+        raise ListingError(["You already started buying this item."])
     if listing["status"] == SOLD:
         raise ListingError(["This item is already sold."])
     if listing["status"] != ACTIVE:
         raise ListingError(["This item is reserved for someone else."])
     seller = db.get_profile_by_id(listing["seller_id"])
+    # A blocked seller could not confirm the payment, so the deal would be stuck.
+    if seller is None or seller.get("blocked_at"):
+        raise ListingError(["This seller isn't available any more, so the item can't be bought."])
     if not payments.can_be_paid(seller):
         raise ListingError(["The seller hasn't added a way to get paid yet, so you can't "
                             "pay them. Ask them in the chat to add one on My profile."])
-    if db.live_request(buyer["id"], listing["id"]) is not None:
-        raise ListingError(["You already started buying this item."])
     # Reserve first, only if it is still active: of two Buy Now taps at the same
     # moment, only one gets past this line.
     if not db.update_listing(listing["id"], listing["seller_id"], {"status": RESERVED},
                              only_if_status=ACTIVE):
         raise ListingError(["This item isn't available any more."])
     pay_by = datetime.now(timezone.utc) + timedelta(hours=PAY_WITHIN_HOURS)
-    return db.insert_request({
-        "listing_id": listing["id"], "buyer_id": buyer["id"], "status": ACCEPTED,
-        "agreed_price_cents": price_cents, "conversation_id": chat["id"],
-        "pay_by": pay_by.isoformat(),
-    })
+    try:
+        return db.insert_request({
+            "listing_id": listing["id"], "buyer_id": buyer["id"], "status": ACCEPTED,
+            "agreed_price_cents": price_cents, "conversation_id": chat["id"],
+            "pay_by": pay_by.isoformat(),
+        })
+    except Exception:
+        # The purchase could not be saved (for example the connection dropped).
+        # Without this the item would stay reserved for nobody.
+        db.update_listing(listing["id"], listing["seller_id"], {"status": ACTIVE},
+                          only_if_status=RESERVED)
+        raise
 
 
 def deal_in_chat(db, email: str, conversation_id: str) -> dict | None:
@@ -331,6 +346,22 @@ def cancel_overdue(db, email: str, now: datetime | None = None) -> int:
 
 
 # --- cancelling ---------------------------------------------------------------------
+
+def cancel_all_overdue(db, now: datetime | None = None) -> int:
+    """Cancel every deal whose 48 hours to pay have passed, whoever it belongs to.
+
+    cancel_overdue above only runs when the buyer or the seller opens the app.
+    Browse calls this one, so an unpaid item comes back on sale for everybody.
+    """
+    now = now or datetime.now(timezone.utc)
+    cancelled = 0
+    for request in db.unpaid_deals_due_before(now.isoformat()):
+        due = pay_due(request)
+        if due is not None and now >= due:
+            if _call_off(db, request, db.get_listing(request["listing_id"])):
+                cancelled += 1
+    return cancelled
+
 
 def cancel_deal(db, request_id: int, email: str) -> None:
     """Call off a live deal; the listing goes back to Active.

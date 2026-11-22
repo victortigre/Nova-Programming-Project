@@ -70,7 +70,8 @@ def profile_id_from_text(text: str | None) -> int | None:
     can type anything there, so only plain digits are accepted.
     """
     text = (text or "").strip()
-    if not text.isascii() or not text.isdigit():
+    # Only plain digits, and not more than the database can hold as a number.
+    if not text.isascii() or not text.isdigit() or len(text) > 15:
         return None
     number = int(text)
     return number if number > 0 else None

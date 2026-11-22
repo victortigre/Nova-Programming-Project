@@ -230,3 +230,17 @@ def test_no_block_button_for_a_report_about_the_admin(db):
     about_tom, about_boss = admin.open_reports(db, BOSS)
     assert about_tom["can_block"] is True
     assert about_boss["can_block"] is False
+
+
+# --- a listing a buyer bought through the app --------------------------------------
+
+def test_a_listing_sold_through_the_app_cannot_be_removed(db):
+    import deals
+    from deal_helpers import finish_purchase, start_purchase
+    request = start_purchase(db, db.tom_listing["id"], EVA)
+    finish_purchase(db, request["id"], EVA, TOM)
+    with pytest.raises(admin.NotAllowed, match="sold through the app"):
+        admin.remove_listing(db, BOSS, db.report_id)
+    # The buyer keeps the purchase, and the report is still there to dismiss.
+    assert deals.my_purchases(db, EVA, statuses=("completed",))[0]["status"] == "completed"
+    assert db.report_id in db.reports

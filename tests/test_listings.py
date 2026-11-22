@@ -539,3 +539,45 @@ def test_a_free_item_cannot_become_paid_or_be_relisted_paid_without_bank_details
 def test_a_price_with_three_decimals_is_refused_not_rounded(typed):
     with pytest.raises(ValueError, match="at most two decimals"):
         listings.parse_price(typed)
+
+
+# --- price box: characters that only look like digits --------------------------
+
+@pytest.mark.parametrize("typed", ["²", "1²", "①", "٣"])
+def test_digit_lookalikes_are_not_a_price(typed):
+    with pytest.raises(ValueError, match="Price must be a number"):
+        listings.parse_price(typed)
+
+
+# --- a reported listing waits for the admin -------------------------------------
+
+def test_a_reported_listing_cannot_be_edited_or_deleted_until_an_admin_handled_it(db):
+    lid = new_listing(db)
+    tom = db.get_profile(TOM)["id"]
+    report = db.insert_report({"reporter_id": tom, "listing_id": lid,
+                               "reported_profile_id": None, "reason": "Other", "details": None})
+    with pytest.raises(ListingError, match="admin is looking"):
+        edit(db, lid, title="Something harmless")
+    with pytest.raises(ListingError, match="admin is looking"):
+        listings.delete_listing(db, lid, ANA)
+    assert db.get_listing(lid)["title"] == GOOD["title"]
+    assert db.get_report(report["id"]) is not None
+
+    db.close_reports([report["id"]], "dismissed")  # the admin found nothing wrong
+    edit(db, lid, title="Something harmless")
+    listings.delete_listing(db, lid, ANA)
+    assert db.get_listing(lid) is None
+
+
+# --- sold through the app: it stays sold, and stays as it was ------------------------
+
+def test_an_item_sold_through_the_app_cannot_be_relisted_or_rewritten(db):
+    lid = new_listing(db)
+    deal = start_purchase(db, lid, TOM)
+    finish_purchase(db, deal["id"], TOM, ANA)
+    with pytest.raises(ListingError, match="sold through the app"):
+        listings.relist(db, lid, ANA)
+    with pytest.raises(ListingError, match="sold through the app"):
+        edit(db, lid, title="Empty box only")
+    listing = db.get_listing(lid)
+    assert listing["status"] == "sold" and listing["title"] == GOOD["title"]

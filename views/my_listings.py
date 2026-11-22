@@ -120,7 +120,7 @@ def needs_me(request: dict) -> bool:
 def listing_buttons(listing: dict, has_buyer: bool, waiting: int,
                     sold_in_app: bool = False) -> None:
     """Reserve, Sold, Relist, Edit and Delete. With an accepted buyer: only Edit.
-    Sold through the app: no Delete, the sale stays as a record for both sides."""
+    Sold through the app: no buttons, the sale stays as a record for both sides."""
     lid = listing["id"]
     status = listing["status"]
     with st.container(key=f"my-listing-actions-{lid}"):
@@ -139,14 +139,15 @@ def listing_buttons(listing: dict, has_buyer: bool, waiting: int,
         if status != listings.SOLD and buttons[1].button("Sold", key=f"sold-{lid}",
                                                           help=no_to_waiting, icon=":material/check:", width="stretch"):
             run(listings.mark_sold, lid, "Marked as sold. It no longer shows in the marketplace.")
+        # Sold through the app: no Relist, Edit or Delete. listings.py refuses them
+        # too; here the buttons are simply not shown.
+        if sold_in_app:
+            return
         if status != listings.ACTIVE and buttons[2].button("Relist", key=f"relist-{lid}", width="stretch"):
             run(listings.relist, lid, "Back on the marketplace.")
         if buttons[3].button("Edit", key=f"edit-{lid}", icon=":material/edit:", width="stretch"):
             st.session_state["edit_listing_id"] = lid
             st.switch_page("views/sell_item.py")
-        # listings.delete_listing refuses this too; here the button is simply not shown.
-        if sold_in_app:
-            return
         with buttons[4].popover("Delete", icon=":material/delete:", width="stretch"):
             st.write("Delete this listing for good?")
             if st.button("Yes, delete", key=f"delete-{lid}", type="primary"):

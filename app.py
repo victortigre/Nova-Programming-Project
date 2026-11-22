@@ -242,6 +242,10 @@ with messaging_repository.checked_once():
         pages.append(st.Page("views/admin.py", title="Admin", icon=":material/flag:"))
 
     navigation = st.navigation(pages, position="top")
+    # "Edit" on My listings remembers which listing to edit. Leaving the edit
+    # page any other way forgets it, so "Sell an item" opens an empty form.
+    if navigation.url_path != "sell_item":
+        st.session_state.pop("edit_listing_id", None)
     if st.session_state.pop("onboarding_just_finished", False):
         st.switch_page("views/welcome.py")
     if jump_to_listing is not None:

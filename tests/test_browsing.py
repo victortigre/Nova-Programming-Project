@@ -174,3 +174,26 @@ def test_saved_listings_are_newest_saved_first(db):
     db.add_favorite(buyer, first)
     db.add_favorite(buyer, second)
     assert [x["id"] for x in browsing.saved_listings(db, buyer)] == [second, first]
+
+
+# --- search: words in any order, accents, typed "Other" texts ------------------
+
+def test_search_finds_every_word_in_any_order():
+    items = [L(title="Blue desk lamp"), L(title="Desk", description="wooden")]
+    assert [i["title"] for i in browsing.search_and_sort(items, query="lamp blue")] == ["Blue desk lamp"]
+    assert browsing.search_and_sort(items, query="lamp wooden") == []
+
+
+def test_search_ignores_accents():
+    items = [L(title="Cadeira de escritório", description="perto da Estação")]
+    assert len(browsing.search_and_sort(items, query="estacao")) == 1
+    assert len(browsing.search_and_sort(items, query="ESCRITORIO")) == 1
+
+
+def test_search_looks_at_category_and_pickup_area_too():
+    items = [L(title="Helmet", category="Other", category_other="Bike stuff",
+               pickup_area="Other", pickup_area_other="Saldanha"),
+             L(title="Chair", category="Furniture", pickup_area="Carcavelos")]
+    assert [i["title"] for i in browsing.search_and_sort(items, query="bike")] == ["Helmet"]
+    assert [i["title"] for i in browsing.search_and_sort(items, query="saldanha")] == ["Helmet"]
+    assert [i["title"] for i in browsing.search_and_sort(items, query="carcavelos")] == ["Chair"]

@@ -45,7 +45,11 @@ def _execute(pending: dict) -> None:
     except APIError as error:
         if error.code == "23514":
             st.session_state.pop("messaging_offer_pending", None)
-            st.warning("This offer changed or the listing is no longer eligible. Refresh the chat before trying again.")
+            if pending["action"] == "send":
+                st.warning("This offer could not be sent. You may already have an offer on this "
+                           "item (see the chat in your Inbox), or the item is no longer on sale.")
+            else:
+                st.warning("This offer changed or the listing is no longer eligible. Refresh the chat before trying again.")
         else:
             st.error("The offer was not confirmed. Messaging may need database setup. Retry the same action below.")
         return

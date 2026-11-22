@@ -264,7 +264,15 @@ def show_chat(selected: str) -> None:
                     # Own keyed box with space on top: the chat styles pull the line
                     # under a subheader up into it otherwise.
                     with st.container(key=f"dm-offer-details-{message['id']}"):
-                        st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
+                        status_text = OFFER_STATUS_LABELS[message["status"]]
+                        # Nobody can answer it now: say why instead of "Pending".
+                        if message["status"] == "pending" and not negotiation_available:
+                            status_text = {
+                                "reserved": "On hold: the item is reserved",
+                                "sold": "Expired: the item is no longer on sale",
+                                "unavailable": "Expired: the item is no longer on sale",
+                            }.get(row.get("listing_status"), status_text)
+                        st.text(f"Status: {status_text}")
                         if message.get("note"):
                             st.text(message["note"])
                     if (current and current["id"] == message["id"] and message["status"] == "pending"

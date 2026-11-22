@@ -40,6 +40,19 @@ my_id = me["id"]
 offer_ui.sync_account(email)
 messaging_ui.apply_listing_action_styles()
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def free_unpaid_items() -> None:
+    """Put items back on sale whose buyer did not pay in time. At most once every
+    five minutes (that is what the ttl does), so Browse stays fast."""
+    try:
+        deals.cancel_all_overdue(database)
+    except Exception:  # buying isn't set up in the database yet
+        pass
+
+
+free_unpaid_items()
+
 # Saving needs the favorites table. If it isn't in the database yet, the rest of
 # Browse still works and saving is quietly turned off with a clear note.
 try:
@@ -77,7 +90,10 @@ def close_listing() -> None:
 def listing_in_address() -> int | None:
     """The listing number from the address, or None if there is none (or nonsense)."""
     text = str(st.query_params.get("listing", ""))
-    return int(text) if text.isdigit() else None
+    # Only plain digits, and not more than the database can hold as a number.
+    if not (text.isascii() and text.isdigit()) or len(text) > 15:
+        return None
+    return int(text)
 
 
 def turn_photo(listing_id: int, step: int) -> None:

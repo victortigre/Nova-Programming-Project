@@ -197,3 +197,8 @@ def test_a_profile_without_agreed_rules_goes_to_the_rules():
 
 def test_a_student_who_agreed_to_the_rules_is_done():
     assert onboarding_step({"name": "Ana", "rules_accepted_at": "2026-11-19T10:00:00+00:00"}) == DONE
+
+
+def test_a_profile_number_too_long_for_the_database_is_ignored():
+    assert profile_id_from_text("9" * 23) is None
+    assert profile_id_from_text("²") is None
