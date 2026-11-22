@@ -156,13 +156,14 @@ def accepted_offer_card(message: dict, row: dict, current: dict | None, live_dea
                 st.error("Buying isn't available right now. Please try again later.")
             else:
                 st.session_state["payment_message"] = (
-                    "Reserved for you! Pay by bank transfer within 48 hours.")
+                    "Reserved for you! See below how to pay the seller.")
                 st.rerun()
         if can_buy:
             st.caption("Reserves the item and shows where to pay. You have 48 hours.")
     elif is_current and negotiation_available:
         next_step(message, f"Next: {first} pays you",
-                  "They tap Buy Now, see your bank details and have 48 hours to transfer.")
+                  "They tap Buy Now, see how to pay you and have 48 hours (or pay cash "
+                  "when you meet).")
 
 
 def next_step(message: dict, title: str, text: str) -> None:

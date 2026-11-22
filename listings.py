@@ -226,15 +226,15 @@ def pickup_label(listing: dict) -> str:
             else None) or listing.get("pickup_area", "")
 
 
-NO_BANK_DETAILS = ("Add your bank details on My profile before selling something: buyers "
-                   "pay you by bank transfer. Free items don't need them.")
+NO_PAYMENT_METHOD = ("Add how you get paid on My profile (bank transfer or cash) before "
+                     "selling something. Free items don't need it.")
 
 
 def _bank_details_errors(seller: dict, free) -> list[str]:
-    """Selling for money needs bank details (buyers pay by transfer, see deals.py)."""
-    if free is True or payments.has_bank_details(seller):
+    """Selling for money needs a way to get paid (see payments.py and deals.py)."""
+    if free is True or payments.can_be_paid(seller):
         return []
-    return [NO_BANK_DETAILS]
+    return [NO_PAYMENT_METHOD]
 
 
 def _seller_profile(db, email: str) -> dict:
