@@ -8,6 +8,7 @@ Reads run inside repository.checked_once(), so a page load checks the
 signed-in student and the chat once instead of once per question.
 """
 
+import html
 from datetime import datetime
 from uuid import uuid4
 
@@ -19,7 +20,7 @@ import deals
 import payment_ui
 from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
-from listings import format_price, plain_text
+from listings import format_price
 import messaging_repository as repository
 import messaging_ui
 import offer_ui
@@ -119,11 +120,15 @@ def accepted_offer_card(message: dict, row: dict, current: dict | None, live_dea
     crossed = (f"  :grey[~~{format_price(original)}~~]"
                if original and original != amount else "")
     st.subheader(format_price(amount) + crossed)
-    if message.get("note"):
-        st.text(message["note"])
     first = (row.get("other_name") or "They").split(" ")[0]
     i_proposed = message["sender_id"] == row["own_profile_id"]
-    st.text(f"{first} accepted your offer." if i_proposed else f"You accepted {first}'s offer.")
+    # In its own keyed box with some space on top: the chat styles pull the
+    # line under a subheader up into it otherwise.
+    with st.container(key=f"dm-accepted-by-{message['id']}"):
+        if message.get("note"):
+            st.text(message["note"])
+        st.text(f"{first} accepted your offer." if i_proposed
+                else f"You accepted {first}'s offer.")
     buyer_here = row["own_profile_id"] == row["buyer_id"]
     is_current = current is not None and current["id"] == message["id"]
     if is_current and live_deal:
@@ -150,15 +155,17 @@ def accepted_offer_card(message: dict, row: dict, current: dict | None, live_dea
         if can_buy:
             st.caption("Reserves the item and shows where to pay. You have 48 hours.")
     elif is_current and negotiation_available:
-        next_step(message, f"Next: {plain_text(first)} pays you",
+        next_step(message, f"Next: {first} pays you",
                   "They tap Buy Now, see your bank details and have 48 hours to transfer.")
 
 
 def next_step(message: dict, title: str, text: str) -> None:
-    """A small grey box with a clock: what happens next."""
+    """A small grey box with a clock: what happens next. One html block, so the
+    title and its line can't overlap. Names are escaped before they go in."""
     with st.container(key=f"next-step-{message['id']}"):
-        st.markdown(f":material/schedule: **{title}**")
-        st.caption(text)
+        st.html('<div class="nm-next-step"><span class="nm-next-icon">🕒</span><div>'
+                f'<div class="nm-next-title">{html.escape(title)}</div>'
+                f'<div class="nm-next-text">{html.escape(text)}</div></div></div>')
 
 
 @st.fragment
