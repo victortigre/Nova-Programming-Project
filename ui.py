@@ -279,7 +279,9 @@ button[data-variant="pills"][data-selected="true"] p {{
     background: linear-gradient(180deg, #F8F7F5 0%, #ECEAE6 100%);
     background-attachment: fixed;
 }}
-[data-testid="stHeader"] {{ background: transparent; }}
+/* The top bar (logo and menu) stays put while the page scrolls under it, so it
+   needs a solid colour: the top colour of the fade, with a thin line below. */
+[data-testid="stHeader"] {{ background: #F8F7F5; border-bottom: 1px solid #ECEAE6; }}
 @media (max-width: 640px) {{ .stApp {{ background-attachment: scroll; }} }}
 </style>
 """
