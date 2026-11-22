@@ -122,7 +122,7 @@ def flip_saved(listing_id: int, tab: str = "browse") -> None:
         st.session_state["stay_on_saved_tab"] = True
 
 
-# --- Buy Now (item page and grid cards) -------------------------------------------
+# --- Buy Now (on the item page) ------------------------------------------------------
 def buy_now(listing_id: int) -> None:
     """Buy at the listed price: open (or reuse) the chat with the seller, start
     the purchase there (deals.py checks everything again, including that the
@@ -215,7 +215,7 @@ if viewing is not None:
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
                 with st.container(key="listing-actions"):
-                    # Always shown, like on the cards in the grid. If the seller can't be
+                    # Always shown for priced items on sale. If the seller can't be
                     # paid yet, deals.py refuses and the reason appears here.
                     if can_contact and item["status"] == listings.ACTIVE and item["price_cents"]:
                         # Buy at the listed price: open (or reuse) the chat with the
@@ -290,10 +290,6 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                     saved=None if (own or not saving_ready) else item["id"] in saved,
                     on_heart=partial(flip_saved, item["id"], tab),
                     on_open=partial(open_listing, item["id"]),
-                    # Buy Now right from the grid: priced, on sale, not your own.
-                    on_buy=(partial(buy_now, item["id"])
-                            if not own and item["status"] == listings.ACTIVE
-                            and item["price_cents"] else None),
                 )
 
 
