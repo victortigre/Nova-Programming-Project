@@ -1,18 +1,15 @@
-"""Buying: Buy Now, the buyer pays the seller directly, the seller confirms.
+"""Buying with a bank transfer: agree a price in the chat, pay, the seller confirms.
 
-The app never moves money. Students pay each other with one of the ways the
-seller accepts (payments.py): bank transfer, Revolut, PayPal, MB WAY or cash:
+The app never moves money. Students pay each other by bank transfer:
 
   1. The buyer taps "Buy now" on the item page at the listed price
      (buy_at_listed_price), or first agrees a lower price in the chat (an
      accepted offer) and taps "Buy Now" there (buy_now). The deal starts, the
-     listing becomes Reserved, and the chat shows how to pay the seller.
-  2. The buyer has 48 hours to pay and tap "I've paid with …" (mark_paid,
-     saying which method). If they don't, the deal is cancelled automatically
-     and the item is back on sale (cancel_overdue, run whenever a student
-     opens a page: no clock needed). Cash is different: the buyer chooses
-     "Pay in cash when we meet" (choose_cash) and there is no deadline.
-  3. The seller checks (their bank, app, or the cash in hand) and taps "Payment received"
+     listing becomes Reserved, and the chat shows the seller's bank details.
+  2. The buyer has 48 hours to pay and tap "I've paid" (mark_paid). If they
+     don't, the deal is cancelled automatically and the item is back on sale
+     (cancel_overdue, run whenever a student opens a page: no clock needed).
+  3. The seller checks their bank and taps "Payment received"
      (confirm_payment): the deal is completed and the listing is Sold.
      If the money isn't there, "Not received yet" (payment_not_received) sends
      it back to the buyer, who checks and taps "I've paid" again. They sort
@@ -156,9 +153,9 @@ def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
     if listing["status"] != ACTIVE:
         raise ListingError(["This item is reserved for someone else."])
     seller = db.get_profile_by_id(listing["seller_id"])
-    if not payments.can_be_paid(seller):
-        raise ListingError(["The seller hasn't added a way to get paid yet, so you can't "
-                            "pay them. Ask them in the chat to add one on My profile."])
+    if not payments.has_bank_details(seller):
+        raise ListingError(["The seller hasn't added their bank details yet, so you can't "
+                            "pay them. Ask them in the chat to add them on My profile."])
     if db.live_request(buyer["id"], listing["id"]) is not None:
         raise ListingError(["You already started buying this item."])
     # Reserve first, only if it is still active: of two Buy Now taps at the same
@@ -187,11 +184,9 @@ def deal_in_chat(db, email: str, conversation_id: str) -> dict | None:
 
 
 def payment_details(db, request_id: int, email: str) -> dict:
-    """How to pay: {"methods", "amount_cents", "reference", "pay_by", "method"}.
+    """Where to pay: {"holder", "iban", "amount_cents", "reference", "pay_by"}.
 
-    "methods" are the seller's accepted methods with their details (see
-    payments.methods_of); "method" is the one the buyer chose, if any.
-    Only the buyer and the seller of this deal may see them.
+    Only the buyer and the seller of this deal may see the seller's bank details.
     """
     me = _profile(db, email)
     request = db.get_request(request_id)
@@ -201,23 +196,17 @@ def payment_details(db, request_id: int, email: str) -> dict:
     if me["id"] not in (request["buyer_id"], listing["seller_id"]):
         raise NotAllowed("Only the buyer and the seller can see the payment details.")
     seller = db.get_profile_by_id(listing["seller_id"]) or {}
-    return {"methods": payments.methods_of(seller),
+    return {"holder": (seller.get("bank_holder") or "").strip(),
+            "iban": payments.show_iban(seller.get("iban")),
             "amount_cents": price_of(request, listing),
             "reference": f"Nova Marketplace #{request['id']}",
-            "pay_by": pay_by_text(request),
-            "method": request.get("payment_method")}
-
-
-def _sellers_methods(db, request: dict) -> list[str]:
-    listing = _listing(db, request["listing_id"])
-    return [m["key"] for m in payments.methods_of(db.get_profile_by_id(listing["seller_id"]))]
+            "pay_by": pay_by_text(request)}
 
 
 # --- 2. buyer: I've paid ---------------------------------------------------------
 
-def mark_paid(db, request_id: int, buyer_email: str, method: str | None = None) -> None:
-    """The buyer says they paid, and how (one of the seller's methods).
-    The seller is asked to check."""
+def mark_paid(db, request_id: int, buyer_email: str) -> None:
+    """The buyer says they made the transfer. The seller is asked to check."""
     request, _ = _my_purchase(db, request_id, buyer_email)
     if request["status"] != ACCEPTED:
         raise ListingError(["This deal isn't active any more."])
@@ -226,33 +215,9 @@ def mark_paid(db, request_id: int, buyer_email: str, method: str | None = None) 
     due = pay_due(request)
     if due is not None and datetime.now(timezone.utc) >= due:
         raise ListingError(["The 48 hours to pay have passed, so the deal was cancelled."])
-    method = method or request.get("payment_method")
-    if method not in _sellers_methods(db, request):
-        raise ListingError(["Choose how you paid: one of the ways the seller accepts."])
-    if not db.update_request(request_id, {"paid_at": _now(), "payment_missing_at": None,
-                                          "payment_method": method},
+    if not db.update_request(request_id, {"paid_at": _now(), "payment_missing_at": None},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal just changed. Please look again."])
-
-
-def choose_cash(db, request_id: int, buyer_email: str) -> None:
-    """The buyer will pay in cash when they meet. No 48-hour deadline for cash."""
-    request, _ = _my_purchase(db, request_id, buyer_email)
-    if request["status"] != ACCEPTED or request.get("paid_at"):
-        raise ListingError(["This deal isn't waiting for a payment."])
-    if payments.CASH not in _sellers_methods(db, request):
-        raise ListingError(["This seller doesn't accept cash."])
-    due = pay_due(request)
-    if due is not None and datetime.now(timezone.utc) >= due:
-        raise ListingError(["The 48 hours to pay have passed, so the deal was cancelled."])
-    if not db.update_request(request_id, {"payment_method": payments.CASH},
-                             only_if_status=ACCEPTED):
-        raise ListingError(["This deal just changed. Please look again."])
-
-
-def paying_cash(request: dict) -> bool:
-    """Did the buyer choose to pay in cash when they meet?"""
-    return request.get("payment_method") == payments.CASH
 
 
 # --- 3. seller: check the bank ------------------------------------------------------
@@ -262,7 +227,7 @@ def confirm_payment(db, request_id: int, seller_email: str) -> None:
     request, listing, seller = _my_request(db, request_id, seller_email)
     if request["status"] != ACCEPTED:
         raise ListingError(["This deal isn't active any more."])
-    if not request.get("paid_at") and not paying_cash(request):
+    if not request.get("paid_at"):
         raise ListingError(["The buyer hasn't said they paid yet."])
     if not db.update_request(request_id, {"status": COMPLETED, "seller_confirmed_at": _now()},
                              only_if_status=ACCEPTED):
@@ -299,8 +264,8 @@ def pay_due(request: dict) -> datetime | None:
     yet" it doesn't come back: the two talk, and the seller may cancel.
     """
     if (request.get("status") != ACCEPTED or request.get("paid_at")
-            or request.get("payment_missing_at") or paying_cash(request)):
-        return None  # paid, being sorted out, or cash when they meet: no deadline
+            or request.get("payment_missing_at")):
+        return None
     return _as_time(request.get("pay_by"))
 
 
@@ -466,8 +431,7 @@ def to_do(db, email: str) -> dict[str, int]:
     cancel_overdue(db, email)  # 48 hours without payment? Cancel those first.
     live = db.live_deals_of(me["id"])
     pay = sum(1 for r in live["buying"] if r["status"] == ACCEPTED and not r.get("paid_at"))
-    check = sum(1 for r in live["selling"]
-                if r["status"] == ACCEPTED and (r.get("paid_at") or paying_cash(r)))
+    check = sum(1 for r in live["selling"] if r["status"] == ACCEPTED and r.get("paid_at"))
     answer = sum(1 for r in live["selling"] if r["status"] == REQUESTED)
     return {"pay": pay, "check_payment": check, "answer": answer,
             "sales": check + answer, "purchases": pay}
