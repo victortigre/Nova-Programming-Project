@@ -273,6 +273,14 @@ button[data-variant="pills"][data-selected="true"] p {{
 [class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover * {{
     color: #1B1B29 !important;
 }}
+/* Page background: a warm grey fade, light at the top, a little deeper below.
+   The landing page (before sign-in) sets its own photo background after this. */
+.stApp {{
+    background: linear-gradient(180deg, #F8F7F5 0%, #ECEAE6 100%);
+    background-attachment: fixed;
+}}
+[data-testid="stHeader"] {{ background: transparent; }}
+@media (max-width: 640px) {{ .stApp {{ background-attachment: scroll; }} }}
 </style>
 """
 
