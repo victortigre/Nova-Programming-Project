@@ -142,7 +142,7 @@ def test_purchase_photo_fallback_never_hides_payment_instructions(shop, mode):
 
 def test_only_page_scoped_styles_and_natural_card_height():
     for name, prefix in [('my_listings.py', 'my-listing-'), ('purchases.py', 'purchase-')]:
-        source = (ROOT / 'views' / name).read_text()
+        source = (ROOT / 'views' / name).read_text(encoding='utf-8')
         css = source.split('st.html("""<style>', 1)[1].split('</style>""")', 1)[0]
         assert '#FFFFFF' in css and 'aspect-ratio: 4 / 3' in css
         assert '@media (max-width: 700px)' in css and 'flex-wrap: wrap' in css
