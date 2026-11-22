@@ -132,18 +132,18 @@ def test_accepted_card_is_role_aware_and_only_the_buyer_gets_buy_now(ui, monkeyp
         monkeypatch.setattr(database, name, mock)
         writes.append(mock)
     app, _ = open_chat(ui)
-    assert any(h.value == 'Offer Accepted — €15.00' for h in app.subheader)
+    # One "Offer accepted" tag; the price with the listing price crossed out.
+    assert any(h.value.startswith('€15.00') and '~~€20.00~~' in h.value for h in app.subheader)
     assert any(t.value == 'Status: Superseded' for t in app.text)
-    assert any(t.value == 'Status: Accepted' for t in app.text)
-    expected = {
-        (7, 7): 'The seller has accepted your offer.',
-        (7, 8): "You have accepted the seller's counteroffer.",
-        (8, 7): "You have accepted the buyer's offer.",
-        (8, 8): 'The buyer has accepted your offer.',
-    }[actor, sender]
+    assert not any(t.value == 'Status: Accepted' for t in app.text)
+    first = ROW['other_name'].split(' ')[0]
+    expected = (f'{first} accepted your offer.' if actor == sender
+                else f"You accepted {first}'s offer.")
     assert any(t.value == expected for t in app.text)
-    hint = 'Tap Buy Now to reserve it' if actor == 7 else 'Waiting for the buyer to tap Buy Now'
-    assert any(c.value.startswith(hint) for c in app.caption)
+    if actor == 7:
+        assert any(c.value.startswith('Reserves the item and shows where to pay') for c in app.caption)
+    else:
+        assert any('pays you' in m.value for m in app.markdown)
     assert not any(b.label in ('Accept', 'Decline', 'Counteroffer', 'Send Offer') for b in app.button)
     buy = [b for b in app.button if b.label == 'Buy Now']
     if actor == 7:
@@ -167,7 +167,7 @@ def test_historical_acceptance_never_claims_item_is_unreserved(ui, status):
     mocks['get_chat_events'].return_value = [accepted]
     mocks['get_offers'].return_value = [accepted]
     app, _ = open_chat(ui)
-    assert any(h.value == 'Offer Accepted — €15.00' for h in app.subheader)
+    assert any(h.value.startswith('€15.00') for h in app.subheader)
     assert next(b for b in app.button if b.label == 'Buy Now').disabled
     assert any('Negotiation is unavailable' in item.value for item in list(app.info) + list(app.caption))
     assert not any('has not been reserved' in item.value for item in app.caption)

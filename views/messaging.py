@@ -19,7 +19,7 @@ import deals
 import payment_ui
 from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
-from listings import format_price
+from listings import format_price, plain_text
 import messaging_repository as repository
 import messaging_ui
 import offer_ui
@@ -110,6 +110,57 @@ def show_inbox() -> None:
                     st.divider()
 
 
+def accepted_offer_card(message: dict, row: dict, current: dict | None, live_deal: bool,
+                        negotiation_available: bool, selected: str) -> None:
+    """An accepted offer: one "Offer accepted" tag, the price (the listing price
+    crossed out), who accepted, and what happens next for this side."""
+    amount, original = message["amount_cents"], row.get("price_cents")
+    st.badge("Offer accepted", icon=":material/check:", color="green")
+    crossed = (f"  :grey[~~{format_price(original)}~~]"
+               if original and original != amount else "")
+    st.subheader(format_price(amount) + crossed)
+    if message.get("note"):
+        st.text(message["note"])
+    first = (row.get("other_name") or "They").split(" ")[0]
+    i_proposed = message["sender_id"] == row["own_profile_id"]
+    st.text(f"{first} accepted your offer." if i_proposed else f"You accepted {first}'s offer.")
+    buyer_here = row["own_profile_id"] == row["buyer_id"]
+    is_current = current is not None and current["id"] == message["id"]
+    if is_current and live_deal:
+        next_step(message, "The purchase has started", "See the payment below.")
+        return
+    if buyer_here:
+        # Buy Now starts the purchase at this price (deals.buy_now checks
+        # everything again) and shows where to pay below.
+        can_buy = is_current and negotiation_available and not live_deal
+        if st.button("Buy Now", key=f"buy_now_{message['id']}", type="primary",
+                     disabled=not can_buy, width="stretch"):
+            try:
+                deals.buy_now(database, email, selected)
+            except deals.ListingError as exc:
+                st.error(" ".join(exc.errors))
+            except (deals.NotAllowed, deals.NotFound) as exc:
+                st.error(str(exc))
+            except Exception:
+                st.error("Buying isn't available right now. Please try again later.")
+            else:
+                st.session_state["payment_message"] = (
+                    "Reserved for you! Pay by bank transfer within 48 hours.")
+                st.rerun()
+        if can_buy:
+            st.caption("Reserves the item and shows where to pay. You have 48 hours.")
+    elif is_current and negotiation_available:
+        next_step(message, f"Next: {plain_text(first)} pays you",
+                  "They tap Buy Now, see your bank details and have 48 hours to transfer.")
+
+
+def next_step(message: dict, title: str, text: str) -> None:
+    """A small grey box with a clock: what happens next."""
+    with st.container(key=f"next-step-{message['id']}"):
+        st.markdown(f":material/schedule: **{title}**")
+        st.caption(text)
+
+
 @st.fragment
 def show_chat(selected: str) -> None:
     messaging_ui.apply_open_chat_styles()
@@ -175,50 +226,21 @@ def show_chat(selected: str) -> None:
                 messaging_ui.date_separator(separator)
             with messaging_ui.message_bubble(message, row, compact=True,
                                              show_avatar=show_avatar) as own:
-                if message["type"] == "offer":
+                if message["type"] == "offer" and message["status"] == "accepted":
+                    accepted_offer_card(message, row, current, live_deal, negotiation_available,
+                                        selected)
+                elif message["type"] == "offer":
                     st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
-                    accepted = message["status"] == "accepted"
-                    st.subheader(f"Offer Accepted — {format_price(message['amount_cents'])}" if accepted
-                                 else format_price(message["amount_cents"]))
+                    st.subheader(format_price(message["amount_cents"]))
                     with st.container(key=f"dm-original-price-{message['id']}"):
                         st.caption(f"Original listing price: {format_price(row['price_cents'])}")
                     st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
                     if message.get("note"):
                         st.text(message["note"])
-                    if accepted:
-                        st.text(messaging_ui.accepted_offer_description(message, row))
-                        is_current = current is not None and current["id"] == message["id"]
-                        if row["own_profile_id"] == row["buyer_id"]:
-                            # Buy Now starts the purchase at this price (deals.buy_now
-                            # checks everything again) and shows where to pay below.
-                            can_buy = is_current and negotiation_available and not live_deal
-                            if st.button("Buy Now", key=f"buy_now_{message['id']}",
-                                         type="primary", disabled=not can_buy, width="stretch"):
-                                try:
-                                    deals.buy_now(database, email, selected)
-                                except deals.ListingError as exc:
-                                    st.error(" ".join(exc.errors))
-                                except (deals.NotAllowed, deals.NotFound) as exc:
-                                    st.error(str(exc))
-                                except Exception:
-                                    st.error("Buying isn't available right now. "
-                                             "Please try again later.")
-                                else:
-                                    st.session_state["payment_message"] = (
-                                        "Reserved for you! Pay by bank transfer within 48 hours.")
-                                    st.rerun()
-                        buyer_here = row["own_profile_id"] == row["buyer_id"]
-                        if live_deal and is_current:
-                            st.caption("The purchase has started: see the payment below.")
-                        elif is_current and buyer_here:
-                            st.caption("Tap Buy Now to reserve it and see where to pay "
-                                       "(bank transfer, within 48 hours).")
-                        elif is_current:
-                            st.caption("Waiting for the buyer to tap Buy Now. They then see "
-                                       "your bank details and have 48 hours to pay.")
                     if (current and current["id"] == message["id"] and message["status"] == "pending"
                             and not own and negotiation_available):
                         offer_ui.response_buttons(selected, message)
+                if message["type"] == "offer":
                     messaging_ui.chat_timestamp(message)
                 else:
                     st.text(message["body"])

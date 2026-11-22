@@ -65,16 +65,18 @@ def test_every_offer_and_counteroffer_has_one_bottom_timestamp(ui, actor, sender
     assert final.key == 'chat-time-offer-' + OID
     assert [c.value for c in final.caption] == ['00:30']
     assert sum(c.value == '00:30' for c in card.caption) == 1
-    assert any(t.value == f'Status: {status.title()}' for t in card.text)
-    assert any(c.value == 'Original listing price: €20.00' for c in card.caption)
+    if status == 'accepted':  # the accepted card: one tag, the listing price crossed out
+        assert any('~~€20.00~~' in h.value for h in card.subheader)
+    else:
+        assert any(t.value == f'Status: {status.title()}' for t in card.text)
+        assert any(c.value == 'Original listing price: €20.00' for c in card.caption)
     if actor != sender:
         assert card.text[0].value == ROW['other_name']
     buy = [b for b in card.button if b.label == 'Buy Now']
     if status == 'accepted' and actor == 7:
         assert len(buy) == 1 and buy[0].key == 'buy_now_' + OID
-        assert buy[0].disabled and buy[0].proto.type == 'primary'
-        with pytest.raises(AppTestError, match='disabled button'):
-            buy[0].click()
+        # The buyer can start the purchase (bank transfer, see deals.buy_now).
+        assert not buy[0].disabled and buy[0].proto.type == 'primary'
     else:
         assert not buy
     responses = [b.label for b in card.button if b.label in ('Accept', 'Decline', 'Counteroffer')]
