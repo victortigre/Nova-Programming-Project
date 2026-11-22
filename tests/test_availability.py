@@ -8,6 +8,7 @@ from io import BytesIO
 from PIL import Image
 
 import listings
+from deal_helpers import give_bank_details
 from fake_database import FakeDatabase
 
 TODAY = date(2026, 12, 1)
@@ -65,6 +66,7 @@ GOOD = dict(title="A good test title", description="A description long enough to
 def _db():
     db = FakeDatabase()
     db.add_profile("ana@novasbe.pt")
+    give_bank_details(db, "ana@novasbe.pt")  # needed to sell for money
     return db
 
 

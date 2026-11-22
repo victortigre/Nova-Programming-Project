@@ -31,7 +31,8 @@ def flow(monkeypatch):
     monkeypatch.setattr(database, "database_is_set_up", lambda: True)
     monkeypatch.setattr(ui, "apply_style", lambda: None)
     buyer = {"id": 7, "name": "Test buyer", "rules_accepted_at": "2026-11-20"}
-    seller = {"id": 8, "name": "Test seller", "rules_accepted_at": "2026-11-20"}
+    seller = {"id": 8, "name": "Test seller", "rules_accepted_at": "2026-11-20",
+              "bank_holder": "Test seller", "iban": "PT50000201231234567890154"}
     item = {"id": 10, "seller_id": 8, "title": "Stored listing", "description": "Stored description",
             "price_cents": 1234, "status": "active", "photo_paths": [],
             "category": "Furniture", "condition": "Good", "pickup_area": "Lisbon centre"}

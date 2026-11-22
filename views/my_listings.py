@@ -22,6 +22,7 @@ import database
 import deals
 import listings
 import payment_ui
+import payments
 import reviews
 import ui
 from accounts import logged_in_user, verified_nova_email
@@ -152,6 +153,13 @@ def listing_card(listing: dict) -> None:
 
 
 groups = listings.my_listings(database, email)
+# Selling for money needs bank details: buyers pay by bank transfer (deals.py).
+if (not payments.has_bank_details(database.get_profile(email))
+        and any(item.get("price_cents") for item in groups[listings.ACTIVE])):
+    st.warning("Buyers can't buy your items until you add your bank details on My profile.",
+               icon=":material/account_balance:")
+    st.page_link("views/profile.py", label="Add my bank details",
+                 icon=":material/account_balance:")
 if not any(groups.values()):
     st.info("You haven't listed anything yet.")
     st.page_link("views/sell_item.py", label="Sell an item", icon="➕")
