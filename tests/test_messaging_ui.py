@@ -8,6 +8,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 import database
+import deals
 import accounts
 import messaging_repository as repository
 
@@ -34,6 +35,8 @@ def ui(monkeypatch):
                          ("send_message", {"id": 1}), ("mark_read", None)):
         mocks[name] = MagicMock(return_value=result)
         monkeypatch.setattr(repository, name, mocks[name])
+    # No purchase was started from this chat (a test that needs one sets its own).
+    monkeypatch.setattr(deals, "deal_in_chat", lambda db, email, conversation_id: None)
     return AppTest.from_file(PAGE), mocks, user
 
 

@@ -11,6 +11,7 @@ from streamlit.testing.v1 import AppTest
 
 import accounts
 import deals
+import payment_ui
 from deal_helpers import finish_purchase, start_purchase
 from fake_database import FakeDatabase
 
@@ -29,6 +30,9 @@ def db(monkeypatch):
     monkeypatch.setattr(accounts, "logged_in_user", lambda: None)
     monkeypatch.setattr(accounts, "verified_nova_email", lambda user: SELLER)
     monkeypatch.setitem(sys.modules, "database", db)
+    # payment_ui (the payment buttons) may have been loaded by an earlier test.
+    # It then still holds the real database, so it gets the pretend one too.
+    monkeypatch.setattr(payment_ui, "database", db)
     return db
 
 
