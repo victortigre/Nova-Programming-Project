@@ -53,7 +53,7 @@ def test_inbox_name_listing_and_preview_are_stacked(ui):
 
 
 @pytest.mark.parametrize('photo', [None, 'https://photos.example.invalid/profile.jpg'])
-def test_chat_header_toolbar_refresh_and_back_preserve_state(ui, photo):
+def test_chat_header_without_manual_refresh_and_back_preserves_state(ui, photo):
     app, mocks, _ = ui
     mocks['get_conversation_details'].return_value = {**ROW, 'other_photo_url': photo}
     app.run()
@@ -62,7 +62,8 @@ def test_chat_header_toolbar_refresh_and_back_preserve_state(ui, photo):
     toolbar = next(c for c in app.get('flex_container') if c.key == 'chat-toolbar')
     left, right = toolbar.get('column')[0], toolbar.get('column')[-1]
     assert left.button[0].label == '← Back to Inbox'
-    assert right.button[0].label == 'Refresh chat'
+    assert not right.button
+    assert not any(b.label == 'Refresh chat' for b in app.button)
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
     assert header.subheader[0].value == ROW['other_name']
     assert not header.caption
@@ -72,7 +73,7 @@ def test_chat_header_toolbar_refresh_and_back_preserve_state(ui, photo):
     assert app.get('divider')
     mocks['mark_read'].assert_called_once_with(CID)
     before = mocks['get_chat_events'].call_count
-    right.button[0].click().run()
+    app.run()  # Normal app reruns still reload the conversation.
     assert not app.exception and mocks['get_chat_events'].call_count == before + 1
     assert app.session_state['messaging_selected'] == CID
     assert app.chat_input[0].key == 'compose_' + CID
