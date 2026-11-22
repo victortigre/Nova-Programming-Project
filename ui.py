@@ -380,12 +380,15 @@ def _badge(item: dict) -> str:
 
 
 def listing_card(item: dict, photo_url: str | None, *, key: str,
-                 saved: bool | None = None, on_heart=None) -> bool:
+                 saved: bool | None = None, on_heart=None, on_open=None) -> bool:
     """Show one listing as a card. Returns True when its price button is clicked.
 
     `key` must be different for every card on the page. Leave `saved` as
     None to show no heart (for example on your own listing). Otherwise
     `on_heart` is called when the heart is clicked.
+    `on_open`, when given, is called when the price button is clicked, BEFORE
+    the page runs again. That is faster than reacting to the returned True,
+    which needs the page to run a second time.
     """
     with card(key):
         if photo_url:
@@ -411,7 +414,18 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
                       help="Remove from saved" if saved else "Save for later")
         with st.container(horizontal_alignment="center"):
             return st.button(listings.format_price(item["price_cents"]), key=f"price-{key}",
-                             icon=":material/shopping_basket:", help="Open this listing")
+                             icon=":material/shopping_basket:", help="Open this listing",
+                             on_click=on_open)
+
+
+def open_on_browse(listing_id: int, **address) -> None:
+    """Ask app.py to open this listing on Browse. For `on_open` of a card on
+    another page (a profile). app.py then goes there straight away, without
+    drawing the page that is being left first, so the click feels faster.
+
+    `address` adds more parts to the address of Browse, next to ?listing=.
+    """
+    st.session_state["jump_to_listing"] = {"listing": listing_id, **address}
 
 
 def chip(text: str, warm: bool = False) -> str:

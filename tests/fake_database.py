@@ -51,6 +51,9 @@ class FakeDatabase:
         listing = self.listings.get(listing_id)
         return dict(listing) if listing else None
 
+    def listings_by_ids(self, listing_ids):
+        return {lid: dict(self.listings[lid]) for lid in listing_ids if lid in self.listings}
+
     def _newest_first(self, rows):
         return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"], reverse=True)]
 
@@ -250,10 +253,10 @@ class FakeDatabase:
     def reviews_by(self, reviewer_id):
         return [dict(r) for r in self.reviews if r["reviewer_id"] == reviewer_id]
 
-    # --- bank details and chats (only what deals.py reads) ---------------------
+    # --- payment methods and chats (only what deals.py reads) ---------------------
 
-    def save_bank_details(self, email, holder, iban):
-        self.profiles[email].update({"bank_holder": holder, "iban": iban})
+    def save_payment_methods(self, email, methods):
+        self.profiles[email].update(methods)
 
     def add_chat(self, chat_id, listing_id, buyer_id, seller_id):
         self.conversations[chat_id] = {"id": chat_id, "listing_id": listing_id,

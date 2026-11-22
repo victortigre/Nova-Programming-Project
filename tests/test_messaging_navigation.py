@@ -43,7 +43,10 @@ def navigation(monkeypatch):
         url_path=choices[0].url_path, run=lambda: None,
     ))
     monkeypatch.setattr(st, "navigation", nav)
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=30)
+    # A generous time limit: the whole app runs here, which can take a few
+    # seconds when all the tests run together.
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"),
+                            default_timeout=30)
     # Synthetic configuration only, stored in the test instance, never on disk.
     app.secrets["auth"] = {"auth0": {
         "client_id": "test-client", "client_secret": "test-only",

@@ -76,6 +76,7 @@ CHAT_CSS = """
 [class*="st-key-dm-"] button:disabled { opacity: 1 !important; cursor: not-allowed; }
 [class*="st-key-dm-"] button:focus-visible { outline: 3px solid #A898FF; outline-offset: 2px; }
 [class*="st-key-dm-original-price-"] { padding-top: 8px !important; }
+[class*="st-key-dm-offer-details-"] { padding-top: 8px !important; }
 [class*="st-key-dm-event-"] { gap: 4px !important; }
 /* Received bubbles stay light grey. Only their internal sender name is blue. */
 [class*="st-key-dm-event-other-"] {
@@ -112,22 +113,16 @@ CHAT_CSS = """
 LISTING_ACTION_CSS = """
 
 .st-key-listing-actions button { min-height: 3rem; border-radius: 14px; }
-.st-key-listing-actions [class*="st-key-offer-"] button {
-    background: #ECEEF3;
-    color: #202433;
-    border: 1px solid #DDE0E7;
-}
-.st-key-listing-actions [class*="st-key-offer-"] button p { color: #202433; }
-.st-key-listing-actions [class*="st-key-offer-"] button:hover {
-    background: #E0E3EB;
-    border-color: #9C96B2;
-}
+/* Make an Offer and Contact Seller look the same: white, with a thin border. */
+.st-key-listing-actions [class*="st-key-offer-"] button,
 .st-key-listing-actions [class*="st-key-contact-"] button {
     background: #FFFFFF;
     color: #202433;
     border: 1px solid #C9CDD7;
 }
+.st-key-listing-actions [class*="st-key-offer-"] button p,
 .st-key-listing-actions [class*="st-key-contact-"] button p { color: #202433; }
+.st-key-listing-actions [class*="st-key-offer-"] button:hover,
 .st-key-listing-actions [class*="st-key-contact-"] button:hover {
     background: #F5F4FA;
     border-color: #8E83BB;

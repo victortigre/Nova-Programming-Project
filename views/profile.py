@@ -40,32 +40,40 @@ if profile is not None:
 with ui.card("profile-form"):
     show_profile_form(email, profile)
 
-# --- Bank details (payments.py) -----------------------------------------------------
-# Buyers pay sellers by bank transfer. When a buyer taps Buy Now, they see these
-# details in the chat, so they know where to send the money. Nobody else sees them.
+# --- How you get paid (payments.py) ---------------------------------------------------
+# Buyers pay sellers directly. When a buyer taps Buy Now, they see these details
+# in the chat, so they know how to pay. Nobody else sees them.
 if profile is not None:
-    with ui.card("bank"):
-        st.markdown("**Bank details for receiving payments**")
-        st.caption("Shown only to a buyer after you agree a price and they tap Buy Now, "
-                   "never on your public profile. You need them to sell items.")
-        if message := st.session_state.pop("bank_message", None):
+    with ui.card("payment-methods"):
+        st.markdown("**How you get paid**")
+        st.caption("Bank transfer, cash in person, or both (at least one, to sell something). "
+                   "Your IBAN is shown only to a buyer after they tap Buy Now, never on your "
+                   "public profile.")
+        if message := st.session_state.pop("payment_methods_message", None):
             st.success(message)
-        if payments.has_bank_details(profile):
-            st.text(f"{profile['bank_holder']}\n{payments.show_iban(profile['iban'])}")
-        with st.form("bank-form", border=False):
+        if payments.can_be_paid(profile):
+            st.caption(f"You accept: {payments.accepted_labels(profile)}")
+        with st.form("payment-methods-form", border=False):
+            st.markdown("Bank transfer")
             holder = st.text_input("Account holder", value=profile.get("bank_holder") or "",
                                    max_chars=payments.MAX_HOLDER_LENGTH,
                                    placeholder="Name as it appears at your bank")
             iban = st.text_input("IBAN", value=payments.show_iban(profile.get("iban")),
-                                 placeholder="PT50 0002 0123 1234 5678 9015 4")
-            if st.form_submit_button("Save bank details", type="primary"):
+                                 placeholder="PT50 0000 0000 0000 0000 0000 0",
+                                 help="This is a course project: no real money moves, so a "
+                                      "made-up IBAN with the right shape (PT and 23 digits) "
+                                      "works fine for trying it out.")
+            cash = st.checkbox("I accept cash in person",
+                               value=bool(profile.get("accepts_cash")))
+            if st.form_submit_button("Save", type="primary"):
                 try:
-                    payments.save_bank_details(database, email, holder, iban)
-                except payments.BankDetailsError as exc:
+                    payments.save_payment_methods(database, email, holder=holder, iban=iban,
+                                                  cash=cash)
+                except payments.PaymentMethodsError as exc:
                     for error in exc.errors:
                         st.error(error)
                 else:
-                    st.session_state["bank_message"] = "Bank details saved."
+                    st.session_state["payment_methods_message"] = "Saved."
                     st.rerun()
 
 # --- My ratings (reviews.py) ----------------------------------------------------
@@ -126,11 +134,11 @@ if profile is not None:
                 for column, item in zip(row, saved_items[start:start + SAVED_COLUMNS]):
                     cover = item["photo_paths"][0] if item["photo_paths"] else None
                     with column:
-                        clicked = ui.listing_card(
+                        # The price button opens the listing on Browse (app.py does it).
+                        ui.listing_card(
                             item, links.get(cover), key=f"saved-{item['id']}",
-                            saved=True, on_heart=partial(unsave, item["id"]))
-                    if clicked:
-                        st.switch_page("views/browse.py", query_params={"listing": item["id"]})
+                            saved=True, on_heart=partial(unsave, item["id"]),
+                            on_open=partial(ui.open_on_browse, item["id"]))
 
 # The menu bar has no room for the account, so signing out is here.
 with ui.card("account"):

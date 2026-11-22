@@ -226,15 +226,15 @@ def pickup_label(listing: dict) -> str:
             else None) or listing.get("pickup_area", "")
 
 
-NO_BANK_DETAILS = ("Add your bank details on My profile before selling something: buyers "
-                   "pay you by bank transfer. Free items don't need them.")
+NO_PAYMENT_METHOD = ("Add how you get paid on My profile (bank transfer or cash) before "
+                     "selling something. Free items don't need it.")
 
 
 def _bank_details_errors(seller: dict, free) -> list[str]:
-    """Selling for money needs bank details (buyers pay by transfer, see deals.py)."""
-    if free is True or payments.has_bank_details(seller):
+    """Selling for money needs a way to get paid (see payments.py and deals.py)."""
+    if free is True or payments.can_be_paid(seller):
         return []
-    return [NO_BANK_DETAILS]
+    return [NO_PAYMENT_METHOD]
 
 
 def _seller_profile(db, email: str) -> dict:
@@ -381,6 +381,15 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
 _WAITING, _ACCEPTED = "requested", "accepted"
 DEAL_IN_PROGRESS = ("This item is reserved for a buyer who asked through the app. "
                     "Confirm or cancel that deal first.")
+_COMPLETED = "completed"
+SOLD_THROUGH_APP = ("This item was sold through the app, so it stays in your Sold tab. "
+                    "The buyer keeps their purchase and you can still rate each other. "
+                    "It is no longer shown on Browse.")
+
+
+def sold_through_app(db, listing_id: int) -> bool:
+    """True if a buyer bought this listing through the app (a completed deal)."""
+    return bool(db.requests_for_listing(listing_id, [_COMPLETED]))
 
 
 def _refuse_if_deal_in_progress(db, listing_id: int) -> list[dict]:
@@ -395,9 +404,14 @@ def delete_listing(db, listing_id: int, seller_email: str) -> None:
     """Remove the listing and its photos for good.
 
     Not while a buyer is accepted. Requests still waiting are deleted with it.
+    Not after it was sold through the app either: the database deletes a
+    listing's deals together with the listing, so the buyer would lose the
+    purchase from "My purchases" and could no longer rate the seller.
     """
     listing, seller = _own_listing(db, listing_id, seller_email)
     _refuse_if_deal_in_progress(db, listing_id)
+    if sold_through_app(db, listing_id):
+        raise ListingError([SOLD_THROUGH_APP])
     db.delete_listing(listing_id, seller["id"])
     if listing["photo_paths"]:
         db.delete_listing_photos(listing["photo_paths"])

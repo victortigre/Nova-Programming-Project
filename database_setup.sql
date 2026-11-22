@@ -198,6 +198,11 @@ alter table profiles add column if not exists bank_holder text
     check (char_length(bank_holder) <= 70);
 alter table profiles add column if not exists iban text
     check (iban ~ '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$');
+-- Whether a seller also accepts cash in person (see payments.py).
+alter table profiles add column if not exists accepts_cash boolean not null default false;
+-- How the buyer paid (or will pay, for cash): bank or cash.
+alter table purchase_requests add column if not exists payment_method text
+    check (payment_method in ('bank', 'cash'));
 -- A deal started with Buy Now in a chat: the agreed price, the chat, the
 -- deadline to pay (48 hours), when the buyer said they paid, and when the
 -- seller said the money hadn't arrived.

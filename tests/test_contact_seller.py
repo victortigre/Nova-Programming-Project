@@ -79,7 +79,7 @@ def flow(monkeypatch):
 def test_contact_opens_chat_on_first_visit_and_repeated_contact_reuses_it(flow):
     app = flow.app.run()
     assert not app.exception
-    assert any(button.label == "Request to Purchase" for button in app.button)
+    assert any(button.label == "Buy Now" for button in app.button)  # at the listed price
     assert any(link.label == "Report this listing" for link in app.get("page_link"))
     app.button(key="contact-10").click().run()
     assert not app.exception

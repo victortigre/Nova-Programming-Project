@@ -122,6 +122,31 @@ def flip_saved(listing_id: int, tab: str = "browse") -> None:
         st.session_state["stay_on_saved_tab"] = True
 
 
+# --- Buy Now (on the item page) ------------------------------------------------------
+def buy_now(listing_id: int) -> None:
+    """Buy at the listed price: open (or reuse) the chat with the seller, start
+    the purchase there (deals.py checks everything again, including that the
+    seller can be paid) and go to the chat, which shows how to pay."""
+    try:
+        with st.spinner("Reserving it for you…"):
+            conversation = messaging_repository.get_or_create_conversation(listing_id)
+            deals.buy_at_listed_price(database, email, conversation["id"])
+    except deals.ListingError as exc:
+        st.error(" ".join(exc.errors))
+    except (deals.NotAllowed, deals.NotFound, ValueError) as exc:
+        st.error(str(exc))
+    except Exception:
+        st.error("Buying isn't available right now. Please try again later.")
+    else:
+        if st.session_state.get("messaging_account") != email:
+            st.session_state.pop("messaging_pending", None)
+        st.session_state["messaging_account"] = email
+        st.session_state["messaging_selected"] = conversation["id"]
+        st.session_state["messaging_history_limit"] = 50
+        st.session_state["payment_message"] = "Reserved for you! See below how to pay the seller."
+        st.switch_page("views/messaging.py")
+
+
 def save_button(listing_id: int, *, where: str) -> None:
     if not saving_ready:
         return
@@ -179,46 +204,26 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                seller_paid_ok = payments.has_bank_details(seller)
-                if item["status"] == listings.ACTIVE and item["price_cents"] and not seller_paid_ok:
-                    st.caption("This seller hasn't added their bank details yet, so it can't be "
-                               "bought right now. You can still contact them.")
-                elif item["status"] == listings.ACTIVE and item["price_cents"]:
+                accepted = payments.accepted_labels(seller)
+                if item["status"] == listings.ACTIVE and item["price_cents"]:
                     st.caption("**Buy Now** at this price, or make an offer to agree a "
-                               "different one in the chat. You pay the seller by bank "
-                               "transfer within 48 hours.")
+                               "different one in the chat. You pay the seller directly"
+                               + (f": {accepted}." if accepted else "."))
                 elif item["status"] == listings.ACTIVE:
                     st.caption("This item is free: contact the seller to arrange the pickup.")
                 can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
                 with st.container(key="listing-actions"):
-                    if (can_contact and item["status"] == listings.ACTIVE and item["price_cents"]
-                            and seller_paid_ok):
+                    # Always shown for priced items on sale. If the seller can't be
+                    # paid yet, deals.py refuses and the reason appears here.
+                    if can_contact and item["status"] == listings.ACTIVE and item["price_cents"]:
                         # Buy at the listed price: open (or reuse) the chat with the
                         # seller, start the purchase there (deals.py checks everything
                         # again) and show where to pay.
                         if st.button("Buy Now", key=f"buy-now-{item['id']}", type="primary",
                                      icon=":material/shopping_bag:", width="stretch"):
-                            try:
-                                with st.spinner("Reserving it for you…"):
-                                    conversation = messaging_repository.get_or_create_conversation(item["id"])
-                                    deals.buy_at_listed_price(database, email, conversation["id"])
-                            except deals.ListingError as exc:
-                                st.error(" ".join(exc.errors))
-                            except (deals.NotAllowed, deals.NotFound, ValueError) as exc:
-                                st.error(str(exc))
-                            except Exception:
-                                st.error("Buying isn't available right now. Please try again later.")
-                            else:
-                                if st.session_state.get("messaging_account") != email:
-                                    st.session_state.pop("messaging_pending", None)
-                                st.session_state["messaging_account"] = email
-                                st.session_state["messaging_selected"] = conversation["id"]
-                                st.session_state["messaging_history_limit"] = 50
-                                st.session_state["payment_message"] = (
-                                    "Reserved for you! Pay by bank transfer within 48 hours.")
-                                st.switch_page("views/messaging.py")
+                            buy_now(item["id"])
                     if can_contact:
                         offer_column, contact_column = st.columns(2)
                         # A free item has no price to negotiate.
@@ -276,16 +281,16 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
             cover = item["photo_paths"][0] if item["photo_paths"] else None
             with column:
                 own = my_id == item["seller_id"]
-                clicked = ui.listing_card(
+                # on_open runs before the page is drawn again, so one click
+                # draws the listing straight away instead of the list first.
+                ui.listing_card(
                     item,
                     links.get(cover),
                     key=f"{tab}-{item['id']}",
                     saved=None if (own or not saving_ready) else item["id"] in saved,
                     on_heart=partial(flip_saved, item["id"], tab),
+                    on_open=partial(open_listing, item["id"]),
                 )
-            if clicked:
-                open_listing(item["id"])
-                st.rerun()
 
 
 # --- What needs your attention ------------------------------------------------
@@ -336,7 +341,7 @@ if to_do.get("pay"):
     notices.append(dict(
         key=f"pay-{to_do['pay']}", emoji="🏦",
         title=f"You have {plural(to_do['pay'], 'item', 'items')} to pay for",
-        text="Pay by bank transfer within 48 hours, then tap “I've paid”.",
+        text="Pay the seller within 48 hours (or in cash when you meet), then confirm.",
         page=PURCHASES, label="Pay", tone="green"))
 
 # Dismissals last for this session only; the task itself is unchanged.
