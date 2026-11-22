@@ -486,14 +486,14 @@ def test_deleting_with_only_waiting_requests_is_allowed(db):
     assert db.get_request(rid) is None  # deleted with the listing
 
 
-# --- selling for money needs bank details (buyers pay by bank transfer) -------------
+# --- selling for money needs a way to get paid (payments.py) ------------------------
 
 def test_no_bank_details_no_selling_for_money():
     db = FakeDatabase()
     db.add_profile(ANA)
     with pytest.raises(listings.ListingError) as error:
         new_listing(db, free=False, price_cents=2000)
-    assert listings.NO_BANK_DETAILS in error.value.errors
+    assert listings.NO_PAYMENT_METHOD in error.value.errors
     assert db.listings == {}
 
 
@@ -506,13 +506,13 @@ def test_free_items_need_no_bank_details():
 
 def test_a_free_item_cannot_become_paid_or_be_relisted_paid_without_bank_details(db):
     lid = new_listing(db, free=True, price_cents=None)
-    db.profiles[ANA].update({"iban": None, "bank_holder": None})
-    with pytest.raises(listings.ListingError, match="bank details"):
+    db.profiles[ANA].update({"iban": None, "bank_holder": None})  # no way to get paid
+    with pytest.raises(listings.ListingError, match="way to get paid"):
         edit(db, lid, free=False, price_cents=2000)
     paid = new_listing(db, free=True, price_cents=None)
     db.listings[paid]["price_cents"] = 2000
     db.listings[paid]["status"] = listings.SOLD
-    with pytest.raises(listings.ListingError, match="bank details"):
+    with pytest.raises(listings.ListingError, match="way to get paid"):
         listings.relist(db, paid, ANA)
 
 

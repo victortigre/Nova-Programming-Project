@@ -94,13 +94,13 @@ def save_profile(
     return saved[0]
 
 
-def save_bank_details(email: str, holder: str, iban: str) -> None:
-    """Store where this student receives payments (see payments.py).
+def save_payment_methods(email: str, methods: dict) -> None:
+    """Store how this student gets paid (see payments.py): bank_holder, iban,
+    revolut, paypal, mbway, accepts_cash.
 
     Only shown to the buyer and seller of one of their deals, never publicly.
     """
-    _client().table("profiles").update(
-        {"bank_holder": holder, "iban": iban}).eq("email", email).execute()
+    _client().table("profiles").update(methods).eq("email", email).execute()
     get_profile.clear()
 
 
