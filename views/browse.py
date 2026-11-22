@@ -122,7 +122,7 @@ def flip_saved(listing_id: int, tab: str = "browse") -> None:
         st.session_state["stay_on_saved_tab"] = True
 
 
-# --- Buy Now (item page and grid cards) -------------------------------------------
+# --- Buy Now (on the item page) ------------------------------------------------------
 def buy_now(listing_id: int) -> None:
     """Buy at the listed price: open (or reuse) the chat with the seller, start
     the purchase there (deals.py checks everything again, including that the
@@ -204,22 +204,20 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                seller_paid_ok = payments.can_be_paid(seller)
-                if item["status"] == listings.ACTIVE and item["price_cents"] and not seller_paid_ok:
-                    st.caption("This seller hasn't added a way to get paid yet, so it can't be "
-                               "bought right now. You can still contact them.")
-                elif item["status"] == listings.ACTIVE and item["price_cents"]:
+                accepted = payments.accepted_labels(seller)
+                if item["status"] == listings.ACTIVE and item["price_cents"]:
                     st.caption("**Buy Now** at this price, or make an offer to agree a "
-                               "different one in the chat. You pay the seller directly: "
-                               f"{payments.accepted_labels(seller)}.")
+                               "different one in the chat. You pay the seller directly"
+                               + (f": {accepted}." if accepted else "."))
                 elif item["status"] == listings.ACTIVE:
                     st.caption("This item is free: contact the seller to arrange the pickup.")
                 can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
                 with st.container(key="listing-actions"):
-                    if (can_contact and item["status"] == listings.ACTIVE and item["price_cents"]
-                            and seller_paid_ok):
+                    # Always shown for priced items on sale. If the seller can't be
+                    # paid yet, deals.py refuses and the reason appears here.
+                    if can_contact and item["status"] == listings.ACTIVE and item["price_cents"]:
                         # Buy at the listed price: open (or reuse) the chat with the
                         # seller, start the purchase there (deals.py checks everything
                         # again) and show where to pay.
@@ -292,10 +290,6 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                     saved=None if (own or not saving_ready) else item["id"] in saved,
                     on_heart=partial(flip_saved, item["id"], tab),
                     on_open=partial(open_listing, item["id"]),
-                    # Buy Now right from the grid: priced, on sale, not your own.
-                    on_buy=(partial(buy_now, item["id"])
-                            if not own and item["status"] == listings.ACTIVE
-                            and item["price_cents"] else None),
                 )
 
 
