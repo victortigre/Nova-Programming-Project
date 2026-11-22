@@ -119,8 +119,6 @@ def test_buy_now_card_keeps_widget_and_places_compact_timestamp_last(ui):
     assert card.get('flex_container')[-1].key == 'chat-time-offer-' + OID
     buy = app.button(key='buy_now_' + OID)
     assert not buy.disabled and buy.proto.type == 'primary'  # the buyer can start the purchase
-    with pytest.raises(AppTestError, match='disabled button'):
-        buy.click()
     assert 'width: 78% !important' in messaging_ui.CHAT_CSS
     assert 'padding: 14px 18px !important' in messaging_ui.CHAT_CSS
     assert 'button' not in messaging_ui.COMPACT_CHAT_CSS
