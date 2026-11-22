@@ -6,16 +6,13 @@ Every visit starts here. First it checks who is at the door. Only a
 verified Nova student gets through to the pages listed at the bottom.
 """
 
-import time
-
 import streamlit as st
 
 import database
 import deals
 import messaging_repository
 import ui
-from accounts import (admin_emails, email_is_verified, is_admin, logged_in_user, may_resend,
-                      nova_email, resend_verification_email)
+from accounts import admin_emails, email_is_verified, is_admin, logged_in_user, nova_email
 from profiles import DONE, onboarding_step
 
 
@@ -106,33 +103,21 @@ if email is None:
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
-# 4. Nova address, but the emailed link was not clicked yet: no entry.
+# 4. Nova address, but the email was not confirmed yet: no entry.
+# Auth0 confirms the email with a code typed in while signing up. We do not
+# use links for this: the university's mail filter opens every link in an
+# email by itself, which confirmed accounts nobody had confirmed.
 if not email_is_verified(user_info):
     st.header("Confirm your email")
     st.info(
-        f"We sent a confirmation link to **{email}**. "
-        "Click it, then come back here and press the button below."
+        f"Your email **{email}** is not confirmed yet. "
+        "Sign in again and type in the code we email you."
     )
     st.caption(
-        "Nothing in your inbox after a few minutes? Look in your Junk or Spam folder. "
+        "No code in your inbox after a few minutes? Look in your Junk or Spam folder. "
         "The email comes from Auth0, the service that handles our sign-in."
     )
-    # Pressing the button runs this file again, and logged_in_user() then
-    # asks Auth0 whether the email is confirmed now.
-    if st.button("I clicked the link", type="primary"):
-        st.caption(
-            "Your email is not confirmed yet. If you did click the link, "
-            "sign in again to finish."
-        )
-        st.button("Sign in again", on_click=st.login, args=("auth0",))
-    if st.button("Send the email again"):
-        if not may_resend(st.session_state.get("confirmation_resent_at"), time.time()):
-            st.warning("We just sent it. Please wait a minute before asking again.")
-        elif resend_verification_email(user_info):
-            st.session_state["confirmation_resent_at"] = time.time()
-            st.success(f"Sent a new link to **{email}**. Check your inbox and your Junk folder.")
-        else:
-            st.error("Sorry, we could not send the email right now. Please try again later.")
+    st.button("Sign in again", type="primary", on_click=st.login, args=("auth0",))
     st.button("Sign out", on_click=st.logout)
     st.stop()
 
@@ -165,12 +150,12 @@ def attention_counts():
         tasks = deals.to_do(database, email)
     except Exception:
         tasks = {"sales": 0, "purchases": 0}
-    try:
-        unread = len(messaging_repository.unread_conversations())
-    except Exception:
-        unread = 0
-    # The two offer questions share one request for the student's chats.
+    # Everything below asks "who is signed in" and "which chats" only once.
     with messaging_repository.checked_once():
+        try:
+            unread = len(messaging_repository.unread_conversations())
+        except Exception:
+            unread = 0
         try:
             offers = len(messaging_repository.offers_to_answer())
         except Exception:
@@ -190,53 +175,8 @@ def attention_signature(tasks, unread, offers, answers=()):
     return (unread, offers, tuple(sorted(tasks.items())), answers)
 
 
-# The Inbox count works like Instagram's direct messages: chats with messages this
-# student hasn't opened yet. 0 (no badge) if messaging isn't set up in the database.
-to_do, unread_inbox, offers_waiting, offer_answers = attention_counts()
-# Remember what the menu and notifications show right now, so the timer below only
-# reruns the page when a NEW message/offer/request actually appears.
-st.session_state["attention_signature"] = attention_signature(
-    to_do, unread_inbox, offers_waiting, offer_answers)
-
-
 def with_count(title: str, count: int) -> str:
     return f"{title} ({count})" if count else title
-
-
-browse = st.Page("views/browse.py", title="Browse", icon=":material/search:", default=True)
-pages = [
-    browse,
-    st.Page("views/sell_item.py", title="Sell an item", icon=":material/add_circle:"),
-    # Your own items and the buyers who asked for them, on one page.
-    st.Page("views/my_listings.py", title=with_count("My listings", to_do["sales"]),
-            icon=":material/inventory_2:"),
-    st.Page("views/purchases.py", title=with_count("My purchases", to_do["purchases"]),
-            icon=":material/shopping_bag:"),
-    st.Page("views/messaging.py", title=with_count("Inbox", unread_inbox),
-            icon=":material/chat:"),
-    st.Page("views/profile.py", title="My profile", icon=":material/person:"),
-    # Linked from "My profile" and "Sell an item", so it is not shown in the menu.
-    st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:",
-            visibility="hidden"),
-    # Opened through links to one student, so it is not shown in the menu.
-    st.Page("views/public_profile.py", title="Student profile", url_path="student",
-            visibility="hidden"),
-    # Opened through the "Report" links on a listing or a profile.
-    st.Page("views/report.py", title="Report", url_path="report", visibility="hidden"),
-    # The last Welcome step ("You're in!") is shown once, right after the rules.
-    st.Page("views/welcome.py", title="Welcome", url_path="welcome", visibility="hidden"),
-]
-# Only admins get the Admin page. The admin.py functions check it again.
-if is_admin(email, admin_emails()):
-    pages.append(st.Page("views/admin.py", title="Admin", icon=":material/flag:"))
-
-navigation = st.navigation(pages, position="top")
-if st.session_state.pop("onboarding_just_finished", False):
-    st.switch_page("views/welcome.py")
-
-# Which listing is open on Browse is part of the address (/?listing=12, see
-# views/browse.py). The logo and "Browse" in the menu lead to the address
-# without it, so they always show the full list of items.
 
 
 # Live updates with no action from the user: every few seconds this quietly
@@ -246,9 +186,71 @@ if st.session_state.pop("onboarding_just_finished", False):
 # something changed, so there's no flicker while nothing is going on.
 @st.fragment(run_every="5s")
 def live_updates():
+    # While the whole page loads, the counts were asked for a moment ago (below).
+    # Asking again right away would only make every click slower.
+    if st.session_state.pop("attention_just_counted", False):
+        return
     if attention_signature(*attention_counts()) != st.session_state.get("attention_signature"):
         st.rerun(scope="app")
 
 
-live_updates()
-navigation.run()
+# One page load = one check of the signed-in student and one request for their
+# chats, shared by the menu counts here and by the page that is shown below
+# (see checked_once in messaging_repository.py).
+with messaging_repository.checked_once():
+    # A listing card on a profile page was clicked (ui.open_on_browse): this run
+    # only leads to Browse, which counts again. So it shows the counts from a
+    # moment ago instead of asking the database twice for one click.
+    jump_to_listing = st.session_state.pop("jump_to_listing", None)
+    if jump_to_listing is not None and "attention_counts" in st.session_state:
+        counts = st.session_state["attention_counts"]
+    else:
+        counts = st.session_state["attention_counts"] = attention_counts()
+    # The Inbox count works like Instagram's direct messages: chats with messages this
+    # student hasn't opened yet. 0 (no badge) if messaging isn't set up in the database.
+    to_do, unread_inbox, offers_waiting, offer_answers = counts
+    # Remember what the menu and notifications show right now, so the timer above only
+    # reruns the page when a NEW message/offer/request actually appears.
+    st.session_state["attention_signature"] = attention_signature(
+        to_do, unread_inbox, offers_waiting, offer_answers)
+
+    browse = st.Page("views/browse.py", title="Browse", icon=":material/search:", default=True)
+    pages = [
+        browse,
+        st.Page("views/sell_item.py", title="Sell an item", icon=":material/add_circle:"),
+        # Your own items and the buyers who asked for them, on one page.
+        st.Page("views/my_listings.py", title=with_count("My listings", to_do["sales"]),
+                icon=":material/inventory_2:"),
+        st.Page("views/purchases.py", title=with_count("My purchases", to_do["purchases"]),
+                icon=":material/shopping_bag:"),
+        st.Page("views/messaging.py", title=with_count("Inbox", unread_inbox),
+                icon=":material/chat:"),
+        st.Page("views/profile.py", title="My profile", icon=":material/person:"),
+        # Linked from "My profile" and "Sell an item", so it is not shown in the menu.
+        st.Page("views/house_rules.py", title="House rules", icon=":material/gavel:",
+                visibility="hidden"),
+        # Opened through links to one student, so it is not shown in the menu.
+        st.Page("views/public_profile.py", title="Student profile", url_path="student",
+                visibility="hidden"),
+        # Opened through the "Report" links on a listing or a profile.
+        st.Page("views/report.py", title="Report", url_path="report", visibility="hidden"),
+        # The last Welcome step ("You're in!") is shown once, right after the rules.
+        st.Page("views/welcome.py", title="Welcome", url_path="welcome", visibility="hidden"),
+    ]
+    # Only admins get the Admin page. The admin.py functions check it again.
+    if is_admin(email, admin_emails()):
+        pages.append(st.Page("views/admin.py", title="Admin", icon=":material/flag:"))
+
+    navigation = st.navigation(pages, position="top")
+    if st.session_state.pop("onboarding_just_finished", False):
+        st.switch_page("views/welcome.py")
+    if jump_to_listing is not None:
+        st.switch_page("views/browse.py", query_params=jump_to_listing)
+
+    # Which listing is open on Browse is part of the address (/?listing=12, see
+    # views/browse.py). The logo and "Browse" in the menu lead to the address
+    # without it, so they always show the full list of items.
+
+    st.session_state["attention_just_counted"] = True
+    live_updates()
+    navigation.run()

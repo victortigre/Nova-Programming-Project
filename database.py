@@ -131,6 +131,15 @@ def get_listing(listing_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
+def listings_by_ids(listing_ids: list[int]) -> dict[int, dict]:
+    """{listing id: listing} for many listings, in one request."""
+    wanted = sorted({lid for lid in listing_ids if lid is not None})
+    if not wanted:
+        return {}
+    rows = _client().table("listings").select("*").in_("id", wanted).execute().data
+    return {row["id"]: row for row in rows}
+
+
 def listings_of_seller(seller_id: int) -> list[dict]:
     """Return every listing of one seller, newest first."""
     return (
@@ -394,6 +403,15 @@ def names_of(profile_ids: list[int]) -> dict[int, str]:
     return {row["id"]: row["name"] for row in rows}
 
 
+def photo_paths_of(profile_ids: list[int]) -> dict[int, str]:
+    """{profile id: stored photo name} for the students who have a photo, in one request."""
+    wanted = sorted({pid for pid in profile_ids if pid is not None})
+    if not wanted:
+        return {}
+    rows = _client().table("profiles").select("id, photo_path").in_("id", wanted).execute().data
+    return {row["id"]: row["photo_path"] for row in rows if row.get("photo_path")}
+
+
 # --- Reviews ------------------------------------------------------------------
 #
 # After a completed deal, buyer and seller each rate the other once (1 to 5 stars, plus optional feedback).
@@ -546,6 +564,11 @@ def delete_photo(path: str) -> None:
 def photo_url(path: str | None) -> str | None:
     """Return a one-hour link to a profile photo, or None without a photo."""
     return _signed_url(PHOTO_BUCKET, path)
+
+
+def photo_urls(paths: list[str]) -> dict[str, str]:
+    """Return {photo name: link} for many profile photos, in one request at most."""
+    return _signed_urls(PHOTO_BUCKET, paths)
 
 
 def upload_listing_photo(picture: bytes) -> str:

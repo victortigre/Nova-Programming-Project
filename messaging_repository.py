@@ -118,7 +118,7 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
     """Participant-only previews including offer creation and responses.
 
     One request for the whole list (database.messaging_inbox), however many
-    chats there are (optional profile photos add a lookup per participant).
+    chats there are (optional profile photos add two requests in total).
     The newest event decides the order: the last message, or
     the offer made or answered most recently.
     """
@@ -129,24 +129,32 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
         unread = set(database.messaging_unread_conversations(actor))
     except Exception:
         unread = set()
-    summaries = []
-    photos = {}  # Reuse optional lookups for repeated participants in this load.
-    for item in database.messaging_inbox(actor):
+    items = database.messaging_inbox(actor)
+    # Membership first: nothing about another student is looked up before it.
+    for item in items:
         row = item["conversation"]
         require_conversation_participant(actor, row["buyer_id"], row["seller_id"])
+
+    def other_in(row: dict) -> int:
+        return row["seller_id"] if actor == row["buyer_id"] else row["buyer_id"]
+
+    # The photos of everyone in the list: one request for where they are stored
+    # and one for their links, however many chats there are.
+    photos = {}
+    if include_photos and items:
+        try:
+            paths = database.photo_paths_of([other_in(item["conversation"]) for item in items])
+            links = database.photo_urls(list(paths.values())) if paths else {}
+            photos = {other_id: links.get(path) for other_id, path in paths.items()}
+        except Exception:
+            photos = {}  # Optional photos must never hide authorized conversations.
+    summaries = []
+    for item in items:
+        row = item["conversation"]
         summary = {**row, "other_name": item.get("other_name") or "Profile unavailable",
                    "own_profile_id": actor, "unread": row["id"] in unread}
         if include_photos:
-            other_id = row["seller_id"] if actor == row["buyer_id"] else row["buyer_id"]
-            if other_id not in photos:
-                photos[other_id] = None
-                try:
-                    other = database.get_profile_by_id(other_id)
-                    if other and other.get("photo_path"):
-                        photos[other_id] = database.photo_url(other["photo_path"])
-                except Exception:
-                    pass  # Optional photos must never hide authorized conversations.
-            summary["other_photo_url"] = photos[other_id]
+            summary["other_photo_url"] = photos.get(other_in(row))
         latest = item.get("last_message")
         summary["last_message"] = latest
         events = []

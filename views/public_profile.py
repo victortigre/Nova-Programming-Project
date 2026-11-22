@@ -9,6 +9,7 @@ Without a number the page shows the visitor's own profile.
 """
 
 from datetime import date
+from functools import partial
 
 import streamlit as st
 
@@ -101,18 +102,17 @@ for start in range(0, len(listings), columns_per_row):
     for column, listing in zip(row, listings[start:start + columns_per_row]):
         cover = listing["photo_paths"][0] if listing.get("photo_paths") else None
         with column:
-            clicked = ui.listing_card(
+            # The price button opens the listing on Browse (app.py does it), where
+            # it can be saved or reported.
+            # "id" is carried along on purpose. When Streamlit changes page it also
+            # rewrites the address of the page being left, and without "id" the
+            # browser's Back button would come back to your own profile instead
+            # of this student's.
+            ui.listing_card(
                 listing, links.get(cover),
                 key=f"profile-{listing['id']}",
+                on_open=partial(ui.open_on_browse, listing["id"], id=shown["id"]),
             )
-        # The price button opens the listing on Browse, where it can be saved or reported.
-        # "id" is carried along on purpose. When Streamlit changes page it also
-        # rewrites the address of the page being left, and without "id" the
-        # browser's Back button would come back to your own profile instead
-        # of this student's.
-        if clicked:
-            st.switch_page("views/browse.py",
-                           query_params={"listing": listing["id"], "id": shown["id"]})
 
 # Nobody reports themselves, so the Report link only shows on other profiles.
 if not is_own_profile:

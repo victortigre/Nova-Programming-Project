@@ -137,11 +137,11 @@ if profile is not None:
                 for column, item in zip(row, saved_items[start:start + SAVED_COLUMNS]):
                     cover = item["photo_paths"][0] if item["photo_paths"] else None
                     with column:
-                        clicked = ui.listing_card(
+                        # The price button opens the listing on Browse (app.py does it).
+                        ui.listing_card(
                             item, links.get(cover), key=f"saved-{item['id']}",
-                            saved=True, on_heart=partial(unsave, item["id"]))
-                    if clicked:
-                        st.switch_page("views/browse.py", query_params={"listing": item["id"]})
+                            saved=True, on_heart=partial(unsave, item["id"]),
+                            on_open=partial(ui.open_on_browse, item["id"]))
 
 # The menu bar has no room for the account, so signing out is here.
 with ui.card("account"):
