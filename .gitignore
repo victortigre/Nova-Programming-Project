@@ -239,3 +239,6 @@ credentials.json
 *.pfx
 id_rsa
 id_ed25519
+
+# Claude Code local settings
+.claude/

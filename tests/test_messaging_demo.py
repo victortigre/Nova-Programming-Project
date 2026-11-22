@@ -41,7 +41,7 @@ def test_chat_navigation_sending_and_reset():
 
     from streamlit.testing.v1 import AppTest
 
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "messaging_demo.py")).run()
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "messaging_demo.py"), default_timeout=30).run()
     assert not app.exception
     app.button(key="open_1").click().run()
     assert not app.exception

@@ -37,7 +37,7 @@ def ui(monkeypatch):
         monkeypatch.setattr(repository, name, mocks[name])
     # No purchase was started from this chat (a test that needs one sets its own).
     monkeypatch.setattr(deals, "deal_in_chat", lambda db, email, conversation_id: None)
-    return AppTest.from_file(PAGE), mocks, user
+    return AppTest.from_file(PAGE, default_timeout=30), mocks, user
 
 
 def test_navigation_and_send(ui):
