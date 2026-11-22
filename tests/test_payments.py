@@ -1,4 +1,5 @@
-"""Tests for bank details (payments.py): checking an IBAN and saving it.
+"""Tests for how sellers get paid (payments.py): bank transfer (IBAN) and cash in
+person, checking what they type and saving it.
 
 Run them with:  pytest
 """
@@ -9,6 +10,17 @@ import payments
 from deal_helpers import TEST_IBAN
 from fake_database import FakeDatabase
 
+JOANA = "joana@novasbe.pt"
+
+
+@pytest.fixture
+def db():
+    db = FakeDatabase()
+    db.add_profile(JOANA)
+    return db
+
+
+# --- IBAN ----------------------------------------------------------------------------
 
 @pytest.mark.parametrize("iban", [
     TEST_IBAN,
@@ -35,29 +47,54 @@ def test_iban_is_shown_in_groups_of_four():
     assert payments.show_iban(TEST_IBAN) == "PT50 0002 0123 1234 5678 9015 4"
 
 
-def test_bank_details_need_a_name_and_a_valid_iban():
-    assert payments.check_bank_details("Joana Gomes", TEST_IBAN) == []
-    assert payments.check_bank_details("", TEST_IBAN) == ["Write the name of the account holder."]
-    assert payments.check_bank_details("Joana", "") == ["Write your IBAN."]
-    assert "isn't valid" in payments.check_bank_details("Joana", "PT50 1234")[0]
-    assert "at most" in payments.check_bank_details("x" * 71, TEST_IBAN)[0]
+# --- checking everything together --------------------------------------------------------
+
+def test_one_method_is_enough_and_any_one_will_do():
+    assert payments.check_payment_methods(holder="Joana Gomes", iban=TEST_IBAN) == []
+    assert payments.check_payment_methods(cash=True) == []
+    assert payments.check_payment_methods(holder="Joana Gomes", iban=TEST_IBAN, cash=True) == []
 
 
-def test_saving_stores_the_clean_iban_on_your_own_profile():
-    db = FakeDatabase()
-    db.add_profile("joana@novasbe.pt")
-    payments.save_bank_details(db, "joana@novasbe.pt", "  Joana Gomes ",
-                               "pt50 0002 0123 1234 5678 9015 4")
-    profile = db.get_profile("joana@novasbe.pt")
-    assert profile["bank_holder"] == "Joana Gomes" and profile["iban"] == TEST_IBAN
-    assert payments.has_bank_details(profile)
+def test_at_least_one_method_is_needed():
+    assert payments.check_payment_methods() == [
+        "Choose at least one way to get paid: bank transfer or cash."]
 
 
-def test_saving_refuses_bad_details_and_unknown_students():
-    db = FakeDatabase()
-    db.add_profile("joana@novasbe.pt")
-    with pytest.raises(payments.BankDetailsError):
-        payments.save_bank_details(db, "joana@novasbe.pt", "Joana", "PT50 1234")
-    with pytest.raises(payments.BankDetailsError):
-        payments.save_bank_details(db, "someone@gmail.com", "Joana", TEST_IBAN)
-    assert not payments.has_bank_details(db.get_profile("joana@novasbe.pt"))
+def test_a_wrong_iban_is_refused_even_if_cash_is_accepted_too():
+    errors = payments.check_payment_methods(holder="Joana", iban="PT50 1234", cash=True)
+    assert len(errors) == 1 and "isn't valid" in errors[0]
+
+
+def test_bank_transfer_needs_both_the_name_and_the_iban():
+    assert "account holder" in payments.check_payment_methods(iban=TEST_IBAN)[0]
+    assert "write your IBAN" in payments.check_payment_methods(holder="Joana")[0]
+
+
+# --- saving and reading ------------------------------------------------------------------
+
+def test_saving_stores_clean_values_on_your_own_profile(db):
+    payments.save_payment_methods(db, JOANA, holder=" Joana Gomes ",
+                                  iban="pt50 0002 0123 1234 5678 9015 4", cash=True)
+    profile = db.get_profile(JOANA)
+    assert profile["iban"] == TEST_IBAN and profile["bank_holder"] == "Joana Gomes"
+    assert profile["accepts_cash"] is True
+    assert [m["key"] for m in payments.methods_of(profile)] == ["bank", "cash"]
+    assert payments.accepted_labels(profile) == "Bank transfer · Cash in person"
+
+
+def test_cash_only_seller_can_be_paid_and_has_no_details(db):
+    payments.save_payment_methods(db, JOANA, cash=True)
+    profile = db.get_profile(JOANA)
+    assert payments.can_be_paid(profile)
+    assert payments.methods_of(profile) == [{"key": "cash", "label": "Cash in person",
+                                             "details": []}]
+
+
+def test_saving_refuses_bad_details_and_unknown_students(db):
+    with pytest.raises(payments.PaymentMethodsError):
+        payments.save_payment_methods(db, JOANA, holder="Joana", iban="PT50 1234")
+    with pytest.raises(payments.PaymentMethodsError):
+        payments.save_payment_methods(db, JOANA)  # nothing at all
+    with pytest.raises(payments.PaymentMethodsError):
+        payments.save_payment_methods(db, "someone@gmail.com", cash=True)
+    assert not payments.can_be_paid(db.get_profile(JOANA))
