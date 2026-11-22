@@ -198,6 +198,15 @@ alter table profiles add column if not exists bank_holder text
     check (char_length(bank_holder) <= 70);
 alter table profiles add column if not exists iban text
     check (iban ~ '^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$');
+-- Other ways to get paid (see payments.py): Revolut @username or phone, PayPal
+-- email or paypal.me link, MB WAY mobile number, and whether cash is accepted.
+alter table profiles add column if not exists revolut text check (char_length(revolut) <= 40);
+alter table profiles add column if not exists paypal text check (char_length(paypal) <= 100);
+alter table profiles add column if not exists mbway text check (char_length(mbway) <= 20);
+alter table profiles add column if not exists accepts_cash boolean not null default false;
+-- How the buyer paid (or will pay, for cash): bank, revolut, paypal, mbway, cash.
+alter table purchase_requests add column if not exists payment_method text
+    check (payment_method in ('bank', 'revolut', 'paypal', 'mbway', 'cash'));
 -- A deal started with Buy Now in a chat: the agreed price, the chat, the
 -- deadline to pay (48 hours), when the buyer said they paid, and when the
 -- seller said the money hadn't arrived.

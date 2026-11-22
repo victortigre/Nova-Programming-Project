@@ -3,4 +3,4 @@ requests
 supabase
 pillow
 pytest
-# Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-22 bank details required
+# Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-22 payment methods
