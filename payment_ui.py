@@ -42,21 +42,17 @@ def _label(method: str | None) -> str:
     return payments.METHOD_LABELS.get(method or "", "another way")
 
 
-def _how_to_pay(details: dict) -> None:
-    """Every way the seller accepts, with the details ready to copy."""
+def _bank_details(method: dict) -> None:
+    """The seller's account holder and IBAN, ready to copy."""
     with st.container(border=True):
-        price = listings.format_price(details["amount_cents"])
-        st.markdown(f"**Pay {price} with one of these**" if len(details["methods"]) > 1
-                    else f"**Pay {price}**")
-        for method in details["methods"]:
-            if method["key"] == payments.CASH:
-                st.markdown("**Cash in person**")
-                st.caption("Pay when you meet to pick it up.")
-                continue
-            st.markdown(f"**{method['label']}**")
-            for caption, value in method["details"]:
-                st.caption(caption)
-                st.code(value, language=None)
+        for caption, value in method["details"]:
+            st.caption(caption)
+            st.code(value, language=None)
+
+
+def _choice_label(key: str) -> str:
+    return {payments.BANK: "Bank transfer (within 48 hours)",
+            payments.CASH: "Cash in person (when you meet)"}.get(key, _label(key))
 
 
 def buyer_box(deal: dict, email: str, where: str) -> None:
@@ -87,33 +83,46 @@ def buyer_box(deal: dict, email: str, where: str) -> None:
         if st.button("Cancel purchase", key=f"{where}-cancel-{rid}"):
             _do(deals.cancel_deal, rid, email, "Purchase cancelled. The item is back on sale.")
         return
-    if deal.get("payment_missing_at"):
-        st.warning("The seller says the payment **hasn't arrived**. Check your payment and "
-                   "talk to them in the chat. When it's sorted, tap “I've paid” again.",
-                   icon=":material/error:")
+    methods = {m["key"]: m for m in details["methods"]}
+    missing = bool(deal.get("payment_missing_at"))
+    # First choose how to pay (when the seller accepts both): a bank transfer has
+    # 48 hours, cash is paid in person when you meet, with no deadline.
+    if missing or payments.CASH not in methods:
+        choice = payments.BANK
+    elif payments.BANK not in methods:
+        choice = payments.CASH
     else:
-        due = deals.pay_by_text(deal)
-        st.warning(f"Pay **{_price(deal)}**"
-                   + (f" by **{due}**. If you don't, the purchase is cancelled automatically."
-                      if due else ", then tap “I've paid”."), icon=":material/schedule:")
-    _how_to_pay(details)
-    online = [m for m in details["methods"] if m["key"] != payments.CASH]
-    if online:
-        how = online[0]["key"]
-        if len(online) > 1:
-            how = st.radio("How did you pay?", [m["key"] for m in online],
-                           format_func=_label, horizontal=True, key=f"{where}-method-{rid}")
-        if st.button("I've paid", key=f"{where}-paid-{rid}", type="primary",
-                     icon=":material/check:"):
+        choice = st.radio("How do you want to pay?", [payments.BANK, payments.CASH],
+                          format_func=_choice_label, horizontal=True,
+                          key=f"{where}-choice-{rid}")
+    if choice == payments.BANK and payments.BANK in methods:
+        if missing:
+            st.warning("The seller says the payment **hasn't arrived**. Check your transfer "
+                       "and talk to them in the chat. When it's sorted, tap “I've paid” again.",
+                       icon=":material/error:")
+        else:
+            due = deals.pay_by_text(deal)
+            st.warning(f"Pay **{_price(deal)}** by bank transfer"
+                       + (f" by **{due}**. If you don't, the purchase is cancelled "
+                          "automatically." if due else ", then tap “I've paid”."),
+                       icon=":material/schedule:")
+        _bank_details(methods[payments.BANK])
+        columns = st.columns(2)
+        if columns[0].button("I've paid", key=f"{where}-paid-{rid}", type="primary",
+                             icon=":material/check:"):
             _do(deals.mark_paid, rid, email,
-                "Thanks! The seller will check and confirm.", how)
-    columns = st.columns(2)
-    if any(m["key"] == payments.CASH for m in details["methods"]) and columns[0].button(
-            "Pay in cash when we meet", key=f"{where}-cash-{rid}"):
-        _do(deals.choose_cash, rid, email,
-            "Cash it is. Agree in the chat where and when to meet.")
-    if not deal.get("payment_missing_at") and columns[1].button(
-            "Cancel purchase", key=f"{where}-cancel-{rid}"):
+                "Thanks! The seller will check and confirm.", payments.BANK)
+    else:
+        st.info(f"Pay **{_price(deal)} in cash** when you meet to pick it up. There's no "
+                "deadline: agree the time and place in the chat. Tap the button below to "
+                "choose cash, so the 48 hours for bank transfers don't apply.",
+                icon=":material/payments:")
+        columns = st.columns(2)
+        if columns[0].button("Pay in cash when we meet", key=f"{where}-cash-{rid}",
+                             type="primary", icon=":material/check:"):
+            _do(deals.choose_cash, rid, email,
+                "Cash it is. Agree in the chat where and when to meet.")
+    if not missing and columns[1].button("Cancel purchase", key=f"{where}-cancel-{rid}"):
         _do(deals.cancel_deal, rid, email, "Purchase cancelled. The item is back on sale.")
 
 
