@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 import deals
-from deal_helpers import finish_purchase, give_bank_details, start_purchase
+from deal_helpers import TEST_IBAN, finish_purchase, give_bank_details, start_purchase
 from deals import ACCEPTED, CANCELLED, COMPLETED, DECLINED, REQUESTED
 from fake_database import FakeDatabase
 from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound
@@ -69,7 +69,7 @@ def test_buy_now_needs_an_accepted_offer(db):
 
 def test_buy_now_needs_the_sellers_bank_details(db):
     lid = a_listing(db)
-    with pytest.raises(ListingError, match="way to get paid"):
+    with pytest.raises(ListingError, match="bank details"):
         deals.buy_now(db, BUYER, a_chat(db, lid))
     assert db.get_listing(lid)["status"] == ACTIVE
 
@@ -133,7 +133,7 @@ def test_buying_at_the_listed_price_has_the_same_checks(db):
     lid = a_listing(db)
     db.listings[lid]["price_cents"] = 1600
     chat = a_plain_chat(db, lid)
-    with pytest.raises(ListingError, match="way to get paid"):
+    with pytest.raises(ListingError, match="bank details"):
         deals.buy_at_listed_price(db, BUYER, chat)
     give_bank_details(db, SELLER)
     with pytest.raises(NotAllowed):
@@ -149,9 +149,8 @@ def test_the_buyer_sees_the_sellers_bank_details(db):
     lid = a_listing(db)
     deal = start_purchase(db, lid, BUYER, price_cents=4500)
     details = deals.payment_details(db, deal["id"], BUYER)
-    assert [m["key"] for m in details["methods"]] == ["bank"]
-    assert details["methods"][0]["details"] == [
-        ("Account holder", "Test Seller"), ("IBAN", "PT50 0002 0123 1234 5678 9015 4")]
+    assert details["holder"] == "Test Seller"
+    assert details["iban"].replace(" ", "") == TEST_IBAN
     assert details["amount_cents"] == 4500
     assert details["reference"] == f"Nova Marketplace #{deal['id']}"
 
@@ -178,7 +177,7 @@ def test_the_deal_is_found_from_its_chat_by_both_sides_only(db):
 def test_paid_and_confirmed_marks_it_sold(db):
     lid = a_listing(db)
     deal = start_purchase(db, lid, BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     assert db.get_request(deal["id"])["status"] == ACCEPTED  # not yet: the seller checks
     deals.confirm_payment(db, deal["id"], SELLER)
     assert db.get_request(deal["id"])["status"] == COMPLETED
@@ -195,8 +194,8 @@ def test_only_the_buyer_says_paid_and_only_the_seller_confirms(db):
     deal = start_purchase(db, a_listing(db), BUYER)
     for who in (SELLER, OTHER):
         with pytest.raises(NotAllowed):
-            deals.mark_paid(db, deal["id"], who, "bank")
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+            deals.mark_paid(db, deal["id"], who)
+    deals.mark_paid(db, deal["id"], BUYER)
     for who in (BUYER, OTHER):
         with pytest.raises(NotAllowed):
             deals.confirm_payment(db, deal["id"], who)
@@ -207,21 +206,21 @@ def test_only_the_buyer_says_paid_and_only_the_seller_confirms(db):
 def test_not_received_sends_it_back_to_the_buyer(db):
     lid = a_listing(db)
     deal = start_purchase(db, lid, BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     deals.payment_not_received(db, deal["id"], SELLER)
     fresh = db.get_request(deal["id"])
     assert fresh["paid_at"] is None and fresh["payment_missing_at"]
     assert fresh["status"] == ACCEPTED and db.get_listing(lid)["status"] == RESERVED
-    deals.mark_paid(db, deal["id"], BUYER, "bank")  # the buyer checks and says it again
+    deals.mark_paid(db, deal["id"], BUYER)  # the buyer checks and says it again
     deals.confirm_payment(db, deal["id"], SELLER)
     assert db.get_listing(lid)["status"] == SOLD
 
 
 def test_saying_paid_twice_is_refused(db):
     deal = start_purchase(db, a_listing(db), BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     with pytest.raises(ListingError, match="already said"):
-        deals.mark_paid(db, deal["id"], BUYER, "bank")
+        deals.mark_paid(db, deal["id"], BUYER)
 
 
 # --- the 48 hours to pay ----------------------------------------------------------------
@@ -249,7 +248,7 @@ def test_not_cancelled_before_the_48_hours(db):
 
 def test_once_the_buyer_said_paid_there_is_no_automatic_cancel(db):
     deal = start_purchase(db, a_listing(db), BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     much_later = datetime.now(timezone.utc) + timedelta(days=30)
     assert deals.cancel_overdue(db, BUYER, now=much_later) == 0
     assert db.get_request(deal["id"])["status"] == ACCEPTED
@@ -257,7 +256,7 @@ def test_once_the_buyer_said_paid_there_is_no_automatic_cancel(db):
 
 def test_after_not_received_there_is_no_automatic_cancel(db):
     deal = start_purchase(db, a_listing(db), BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     deals.payment_not_received(db, deal["id"], SELLER)
     overdue(db, deal["id"])
     assert deals.cancel_overdue(db, SELLER) == 0
@@ -267,7 +266,7 @@ def test_paying_after_the_48_hours_is_refused(db):
     deal = start_purchase(db, a_listing(db), BUYER)
     overdue(db, deal["id"])
     with pytest.raises(ListingError, match="48 hours"):
-        deals.mark_paid(db, deal["id"], BUYER, "bank")
+        deals.mark_paid(db, deal["id"], BUYER)
 
 
 # --- cancelling -------------------------------------------------------------------------
@@ -284,7 +283,7 @@ def test_either_side_can_cancel_before_paying(db, who):
 @pytest.mark.parametrize("who", [BUYER, SELLER])
 def test_nobody_can_cancel_while_the_seller_checks_the_payment(db, who):
     deal = start_purchase(db, a_listing(db), BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     with pytest.raises(ListingError, match="says they paid"):
         deals.cancel_deal(db, deal["id"], who)
 
@@ -292,7 +291,7 @@ def test_nobody_can_cancel_while_the_seller_checks_the_payment(db, who):
 def test_after_not_received_only_the_seller_can_cancel(db):
     lid = a_listing(db)
     deal = start_purchase(db, lid, BUYER)
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     deals.payment_not_received(db, deal["id"], SELLER)
     with pytest.raises(ListingError, match="didn't arrive"):
         deals.cancel_deal(db, deal["id"], BUYER)
@@ -312,7 +311,7 @@ def test_strangers_cannot_cancel_and_finished_deals_stay_finished(db):
 
 def test_missing_deal_is_not_found(db):
     with pytest.raises(NotFound):
-        deals.mark_paid(db, 999, BUYER, "bank")
+        deals.mark_paid(db, 999, BUYER)
     with pytest.raises(NotFound):
         deals.cancel_deal(db, 999, BUYER)
 
@@ -335,7 +334,7 @@ def test_to_do_counts_what_each_side_must_do(db):
     deal = start_purchase(db, a_listing(db), BUYER)
     assert deals.to_do(db, BUYER)["purchases"] == 1     # pay
     assert deals.to_do(db, SELLER)["sales"] == 0        # nothing yet
-    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    deals.mark_paid(db, deal["id"], BUYER)
     assert deals.to_do(db, BUYER)["purchases"] == 0
     assert deals.to_do(db, SELLER)["check_payment"] == 1
     deals.confirm_payment(db, deal["id"], SELLER)
@@ -358,58 +357,3 @@ def test_blocked_students_cannot_buy(db):
     db.profiles[BUYER]["blocked_at"] = "now"
     with pytest.raises(NotAllowed, match="blocked"):
         deals.buy_now(db, BUYER, a_chat(db, lid))
-
-
-# --- other ways to pay: Revolut, PayPal, MB WAY, cash ------------------------------------
-
-def seller_accepts(db, **methods):
-    db.save_payment_methods(SELLER, methods)
-
-
-def test_a_seller_with_only_mbway_can_be_bought_from(db):
-    seller_accepts(db, mbway="+351 912 345 678")
-    deal = start_purchase(db, a_listing(db), BUYER)
-    details = deals.payment_details(db, deal["id"], BUYER)
-    assert details["methods"][0]["details"] == [("MB WAY number", "+351 912 345 678")]
-    deals.mark_paid(db, deal["id"], BUYER, "mbway")
-    assert db.get_request(deal["id"])["payment_method"] == "mbway"
-
-
-def test_the_buyer_can_only_say_they_paid_with_a_method_the_seller_accepts(db):
-    seller_accepts(db, revolut="@seller")
-    deal = start_purchase(db, a_listing(db), BUYER)
-    for method in ("paypal", "bank", "cash", None, "bitcoin"):
-        with pytest.raises(ListingError, match="Choose how you paid"):
-            deals.mark_paid(db, deal["id"], BUYER, method)
-    deals.mark_paid(db, deal["id"], BUYER, "revolut")
-
-
-def test_cash_has_no_deadline_and_the_seller_confirms_when_they_meet(db):
-    seller_accepts(db, accepts_cash=True)
-    lid = a_listing(db)
-    deal = start_purchase(db, lid, BUYER)
-    deals.choose_cash(db, deal["id"], BUYER)
-    fresh = db.get_request(deal["id"])
-    assert deals.paying_cash(fresh) and deals.pay_due(fresh) is None
-    overdue(db, deal["id"], hours=200)
-    assert deals.cancel_overdue(db, BUYER) == 0  # no automatic cancel for cash
-    assert deals.to_do(db, SELLER)["check_payment"] == 1
-    deals.confirm_payment(db, deal["id"], SELLER)  # cash received
-    assert db.get_listing(lid)["status"] == SOLD
-
-
-def test_cash_only_if_the_seller_accepts_it(db):
-    seller_accepts(db, paypal="seller@example.com")
-    deal = start_purchase(db, a_listing(db), BUYER)
-    with pytest.raises(ListingError, match="doesn't accept cash"):
-        deals.choose_cash(db, deal["id"], BUYER)
-
-
-def test_either_side_can_cancel_a_cash_deal_before_they_meet(db):
-    seller_accepts(db, accepts_cash=True)
-    lid = a_listing(db)
-    deal = start_purchase(db, lid, BUYER)
-    deals.choose_cash(db, deal["id"], BUYER)
-    deals.cancel_deal(db, deal["id"], SELLER)
-    assert db.get_listing(lid)["status"] == ACTIVE
-

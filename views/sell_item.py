@@ -45,12 +45,11 @@ if edit_id:
         editing = None
 
 st.header("Edit listing" if editing else "Sell an item")
-if not payments.can_be_paid(profile):
-    st.warning("Add at least one way to get paid on My profile (bank transfer, Revolut, "
-               "PayPal, MB WAY or cash) before selling something. You can still give "
-               "items away for free.",
+if not payments.has_bank_details(profile):
+    st.warning("Add your bank details on My profile before selling something: buyers "
+               "pay you by bank transfer. You can still give items away for free.",
                icon=":material/account_balance:")
-    st.page_link("views/profile.py", label="Add how I get paid",
+    st.page_link("views/profile.py", label="Add my bank details",
                  icon=":material/account_balance:")
 if editing and st.button("← Cancel editing"):
     st.session_state.pop("edit_listing_id", None)

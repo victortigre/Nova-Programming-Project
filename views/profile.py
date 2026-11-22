@@ -40,43 +40,32 @@ if profile is not None:
 with ui.card("profile-form"):
     show_profile_form(email, profile)
 
-# --- How you get paid (payments.py) ---------------------------------------------------
-# Buyers pay sellers directly. When a buyer taps Buy Now, they see these details
-# in the chat, so they know how to pay. Nobody else sees them.
+# --- Bank details (payments.py) -----------------------------------------------------
+# Buyers pay sellers by bank transfer. When a buyer taps Buy Now, they see these
+# details in the chat, so they know where to send the money. Nobody else sees them.
 if profile is not None:
-    with ui.card("payment-methods"):
-        st.markdown("**How you get paid**")
-        st.caption("Fill in the ways you accept (at least one, to sell something). Shown only "
-                   "to a buyer after they tap Buy Now, never on your public profile.")
-        if message := st.session_state.pop("payment_methods_message", None):
+    with ui.card("bank"):
+        st.markdown("**Bank details for receiving payments**")
+        st.caption("Shown only to a buyer after you agree a price and they tap Buy Now, "
+                   "never on your public profile. You need them to sell items.")
+        if message := st.session_state.pop("bank_message", None):
             st.success(message)
-        if payments.can_be_paid(profile):
-            st.caption(f"You accept: {payments.accepted_labels(profile)}")
-        with st.form("payment-methods-form", border=False):
-            st.markdown("Bank transfer")
+        if payments.has_bank_details(profile):
+            st.text(f"{profile['bank_holder']}\n{payments.show_iban(profile['iban'])}")
+        with st.form("bank-form", border=False):
             holder = st.text_input("Account holder", value=profile.get("bank_holder") or "",
                                    max_chars=payments.MAX_HOLDER_LENGTH,
                                    placeholder="Name as it appears at your bank")
             iban = st.text_input("IBAN", value=payments.show_iban(profile.get("iban")),
                                  placeholder="PT50 0002 0123 1234 5678 9015 4")
-            revolut = st.text_input("Revolut", value=profile.get("revolut") or "",
-                                    max_chars=40, placeholder="@yourname or phone number")
-            paypal = st.text_input("PayPal", value=profile.get("paypal") or "",
-                                   max_chars=100, placeholder="you@example.com or paypal.me/you")
-            mbway = st.text_input("MB WAY", value=profile.get("mbway") or "",
-                                  max_chars=20, placeholder="912 345 678")
-            cash = st.checkbox("I accept cash in person",
-                               value=bool(profile.get("accepts_cash")))
-            if st.form_submit_button("Save", type="primary"):
+            if st.form_submit_button("Save bank details", type="primary"):
                 try:
-                    payments.save_payment_methods(database, email, holder=holder, iban=iban,
-                                                  revolut=revolut, paypal=paypal,
-                                                  mbway=mbway, cash=cash)
-                except payments.PaymentMethodsError as exc:
+                    payments.save_bank_details(database, email, holder, iban)
+                except payments.BankDetailsError as exc:
                     for error in exc.errors:
                         st.error(error)
                 else:
-                    st.session_state["payment_methods_message"] = "Saved."
+                    st.session_state["bank_message"] = "Bank details saved."
                     st.rerun()
 
 # --- My ratings (reviews.py) ----------------------------------------------------
