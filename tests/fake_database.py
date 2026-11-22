@@ -51,6 +51,9 @@ class FakeDatabase:
         listing = self.listings.get(listing_id)
         return dict(listing) if listing else None
 
+    def listings_by_ids(self, listing_ids):
+        return {lid: dict(self.listings[lid]) for lid in listing_ids if lid in self.listings}
+
     def _newest_first(self, rows):
         return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"], reverse=True)]
 

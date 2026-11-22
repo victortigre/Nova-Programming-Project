@@ -95,10 +95,11 @@ def show_deal(deal: dict) -> None:
     with st.container(border=True):
         title = listings.plain_text(listing.get("title", "(this listing was removed)"))
         st.markdown(f"**{title}** · {listings.format_price(deals.price_of(deal, listing))}")
-        seller = (database.get_profile_by_id(listing["seller_id"])
-                  if listing.get("seller_id") else None)
-        if seller:
-            st.caption(f"Seller: {listings.plain_text(seller['name'])}")
+        # The name came along with the deals (deals.my_purchases), so showing
+        # it needs no extra request per deal.
+        seller_name = deal.get("seller_name")
+        if seller_name:
+            st.caption(f"Seller: {listings.plain_text(seller_name)}")
 
         if status == deals.REQUESTED:
             # An old "Request to buy" from before Buy Now.
@@ -114,7 +115,7 @@ def show_deal(deal: dict) -> None:
 
         elif status == deals.COMPLETED:
             st.markdown(":green[✅ Paid and confirmed by the seller. Enjoy!]")
-            rate_the_seller(request_id, listings.plain_text(seller["name"]) if seller
+            rate_the_seller(request_id, listings.plain_text(seller_name) if seller_name
                             else "the seller")
 
         elif status == deals.DECLINED:

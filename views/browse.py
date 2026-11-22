@@ -283,20 +283,20 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
             cover = item["photo_paths"][0] if item["photo_paths"] else None
             with column:
                 own = my_id == item["seller_id"]
-                clicked = ui.listing_card(
+                # on_open runs before the page is drawn again, so one click
+                # draws the listing straight away instead of the list first.
+                ui.listing_card(
                     item,
                     links.get(cover),
                     key=f"{tab}-{item['id']}",
                     saved=None if (own or not saving_ready) else item["id"] in saved,
                     on_heart=partial(flip_saved, item["id"], tab),
+                    on_open=partial(open_listing, item["id"]),
                     # Buy Now right from the grid: priced, on sale, not your own.
                     on_buy=(partial(buy_now, item["id"])
                             if not own and item["status"] == listings.ACTIVE
                             and item["price_cents"] else None),
                 )
-            if clicked:
-                open_listing(item["id"])
-                st.rerun()
 
 
 # --- What needs your attention ------------------------------------------------

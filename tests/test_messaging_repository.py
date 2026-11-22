@@ -533,15 +533,18 @@ def test_optional_inbox_photos_use_other_participant_once_per_load(context, monk
     monkeypatch.setattr(database, 'messaging_inbox', lambda aid: [
         inbox_row(first), inbox_row({**first, 'id': MID})])
     monkeypatch.setattr(database, 'messaging_unread_conversations', lambda aid: [CID])
-    lookup = MagicMock(return_value={'photo_path': 'stored-photo.jpg'})
-    sign = MagicMock(return_value='https://photos.example.invalid/photo.jpg')
-    monkeypatch.setattr(database, 'get_profile_by_id', lookup)
-    monkeypatch.setattr(database, 'photo_url', sign)
+    # Two chats with the same student: one request for where the photos are
+    # stored and one for their links, not one per chat.
+    lookup = MagicMock(return_value={other: 'stored-photo.jpg'})
+    sign = MagicMock(return_value={'stored-photo.jpg': 'https://photos.example.invalid/photo.jpg'})
+    monkeypatch.setattr(database, 'photo_paths_of', lookup)
+    monkeypatch.setattr(database, 'photo_urls', sign)
     rows = repo.get_inbox(include_photos=True)
     assert all(row['other_photo_url'] == 'https://photos.example.invalid/photo.jpg' for row in rows)
     assert next(row for row in rows if row['id'] == CID)['unread']
-    lookup.assert_called_once_with(other)
-    sign.assert_called_once_with('stored-photo.jpg')
+    lookup.assert_called_once()
+    assert set(lookup.call_args.args[0]) == {other}
+    sign.assert_called_once_with(['stored-photo.jpg'])
 
 
 @pytest.mark.parametrize('failure', ['missing_profile', 'no_photo', 'lookup_error', 'sign_error'])
@@ -549,13 +552,14 @@ def test_optional_inbox_photo_failure_keeps_conversations(context, monkeypatch, 
     row = {**context[3], 'created_at': '2026-11-20T10:00:00+00:00'}
     monkeypatch.setattr(database, 'messaging_inbox', lambda actor: [inbox_row(row)])
     monkeypatch.setattr(database, 'messaging_unread_conversations', lambda actor: [])
-    lookup = MagicMock(return_value=None if failure == 'missing_profile' else
-                       {} if failure == 'no_photo' else {'photo_path': 'photo.jpg'})
+    # A missing profile and a profile without a photo both come back as "no path".
+    lookup = MagicMock(return_value={} if failure in ('missing_profile', 'no_photo')
+                       else {8: 'photo.jpg'})
     sign = MagicMock(side_effect=RuntimeError('private photo error'))
     if failure == 'lookup_error':
         lookup.side_effect = RuntimeError('private profile error')
-    monkeypatch.setattr(database, 'get_profile_by_id', lookup)
-    monkeypatch.setattr(database, 'photo_url', sign)
+    monkeypatch.setattr(database, 'photo_paths_of', lookup)
+    monkeypatch.setattr(database, 'photo_urls', sign)
     result = repo.get_inbox(include_photos=True)
     assert result[0]['id'] == CID and result[0]['other_photo_url'] is None
     assert 'private' not in str(result)
@@ -567,8 +571,8 @@ def test_inbox_photo_lookup_does_not_bypass_membership(context, monkeypatch):
     monkeypatch.setattr(database, 'messaging_inbox', lambda actor: [
         inbox_row({'id': CID, 'buyer_id': 90, 'seller_id': 91})])
     lookup, sign = MagicMock(), MagicMock()
-    monkeypatch.setattr(database, 'get_profile_by_id', lookup)
-    monkeypatch.setattr(database, 'photo_url', sign)
+    monkeypatch.setattr(database, 'photo_paths_of', lookup)
+    monkeypatch.setattr(database, 'photo_urls', sign)
     with pytest.raises(ValueError):
         repo.get_inbox(include_photos=True)
     lookup.assert_not_called()

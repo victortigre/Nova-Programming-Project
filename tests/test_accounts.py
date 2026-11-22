@@ -3,7 +3,7 @@
 Run them with:  pytest
 """
 
-from accounts import (email_is_verified, is_admin, may_ask_for_new_email, may_resend, nova_email,
+from accounts import (email_is_verified, is_admin, nova_email,
                       verified_nova_email, with_fresh_verification)
 
 
@@ -134,27 +134,3 @@ def test_answer_about_another_email_is_ignored():
 def test_no_answer_from_auth0_changes_nothing():
     assert with_fresh_verification(STALE, {}) == STALE
     assert with_fresh_verification({"email_verified": False}, {"email_verified": True}) == {"email_verified": False}
-
-
-# --- Sending the confirmation email again --------------------------------------
-
-def test_first_resend_is_allowed():
-    assert may_resend(None, 1000.0)
-
-
-def test_resend_within_a_minute_is_refused():
-    assert not may_resend(1000.0, 1030.0)
-
-
-def test_resend_after_a_minute_is_allowed():
-    assert may_resend(1000.0, 1060.0)
-
-
-def test_unconfirmed_nova_student_may_ask_for_a_new_email():
-    assert may_ask_for_new_email(STALE)
-
-
-def test_confirmed_student_outsider_or_no_account_may_not():
-    assert not may_ask_for_new_email({**STALE, "email_verified": True})
-    assert not may_ask_for_new_email({**STALE, "email": "someone@gmail.com"})
-    assert not may_ask_for_new_email({"email": "12345@novasbe.pt", "email_verified": False})

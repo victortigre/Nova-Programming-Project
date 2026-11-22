@@ -59,6 +59,7 @@ def test_unified_inbox_uses_one_real_actor_for_buying_and_selling(ui, monkeypatc
     monkeypatch.setattr(database, 'messaging_unread_conversations', lambda actor: [])
     monkeypatch.setattr(database, 'messaging_conversation', lambda cid, actor: rows.get(cid))
     monkeypatch.setattr(database, 'get_profile_by_id', lambda pid: {'name': {8: 'Seller', 9: 'Buyer'}[pid]})
+    monkeypatch.setattr(database, 'photo_paths_of', lambda ids: {})  # nobody has a photo
     monkeypatch.setattr(database, 'get_listing', lambda lid: {'status': 'active'})
     monkeypatch.setattr(database, 'messaging_messages', lambda *args: [])
     monkeypatch.setattr(database, 'messaging_offers', lambda *args: [])

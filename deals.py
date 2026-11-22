@@ -405,11 +405,21 @@ def requests_on_listing(db, listing_id: int, seller_email: str,
 
 def my_purchases(db, buyer_email: str,
                  statuses=(REQUESTED, ACCEPTED, COMPLETED, DECLINED, CANCELLED)) -> list[dict]:
-    """The buyer's deals, each with its listing attached, newest first."""
+    """The buyer's deals, newest first. Each has its "listing" attached (None if
+    it was removed) and the "seller_name" (None if unknown).
+
+    All listings come in one request and all names in another, however many
+    deals there are.
+    """
     buyer = _profile(db, buyer_email)
+    requests = db.requests_by_buyer(buyer["id"], list(statuses))
+    listings = db.listings_by_ids([request["listing_id"] for request in requests])
+    names = db.names_of([listing["seller_id"] for listing in listings.values()])
     out = []
-    for request in db.requests_by_buyer(buyer["id"], list(statuses)):
-        out.append({**request, "listing": db.get_listing(request["listing_id"])})
+    for request in requests:
+        listing = listings.get(request["listing_id"])
+        out.append({**request, "listing": listing,
+                    "seller_name": names.get(listing["seller_id"]) if listing else None})
     return out
 
 
