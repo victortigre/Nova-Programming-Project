@@ -19,6 +19,7 @@ import listings
 import messaging_repository
 import messaging_ui
 import offer_ui
+import payments
 import ui
 from accounts import logged_in_user, verified_nova_email
 from profiles import DONE, onboarding_step
@@ -163,7 +164,11 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                if item["status"] == listings.ACTIVE and item["price_cents"]:
+                seller_paid_ok = payments.has_bank_details(seller)
+                if item["status"] == listings.ACTIVE and item["price_cents"] and not seller_paid_ok:
+                    st.caption("This seller hasn't added their bank details yet, so it can't be "
+                               "bought right now. You can still contact them.")
+                elif item["status"] == listings.ACTIVE and item["price_cents"]:
                     st.caption("**Buy Now** at this price, or make an offer to agree a "
                                "different one in the chat. You pay the seller by bank "
                                "transfer within 48 hours.")
@@ -173,7 +178,8 @@ if viewing is not None:
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
                 with st.container(key="listing-actions"):
-                    if can_contact and item["status"] == listings.ACTIVE and item["price_cents"]:
+                    if (can_contact and item["status"] == listings.ACTIVE and item["price_cents"]
+                            and seller_paid_ok):
                         # Buy at the listed price: open (or reuse) the chat with the
                         # seller, start the purchase there (deals.py checks everything
                         # again) and show where to pay.

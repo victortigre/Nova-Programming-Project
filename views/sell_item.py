@@ -45,8 +45,8 @@ if edit_id:
 
 st.header("Edit listing" if editing else "Sell an item")
 if not payments.has_bank_details(profile):
-    st.warning("Add your bank details on My profile, so buyers can pay you by bank "
-               "transfer. Without them, nobody can buy your items.",
+    st.warning("Add your bank details on My profile before selling something: buyers "
+               "pay you by bank transfer. You can still give items away for free.",
                icon=":material/account_balance:")
     st.page_link("views/profile.py", label="Add my bank details",
                  icon=":material/account_balance:")

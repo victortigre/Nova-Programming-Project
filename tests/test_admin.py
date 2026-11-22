@@ -11,6 +11,7 @@ import pytest
 import admin
 import listings
 import reports
+from deal_helpers import give_bank_details
 from fake_database import FakeDatabase
 
 BOSS = "boss@novasbe.pt"  # the admin
@@ -33,6 +34,8 @@ def db():
     db.add_profile(ANA, "Ana")
     db.add_profile(TOM, "Tom")
     db.add_profile(EVA, "Eva")
+    for seller in (ANA, TOM):  # needed to sell for money
+        give_bank_details(db, seller)
     db.photos["sofa.jpg"] = b"picture"
     db.tom_listing = db.insert_listing({"seller_id": tom_id(db), "title": "Old sofa",
                                         "photo_paths": ["sofa.jpg"]})

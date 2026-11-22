@@ -11,7 +11,7 @@ import pytest
 from PIL import Image
 
 import deals
-from deal_helpers import start_purchase
+from deal_helpers import give_bank_details, start_purchase
 import listings
 from fake_database import FakeDatabase
 from listings import ListingError, NotAllowed, NotFound
@@ -37,6 +37,7 @@ def db():
     db = FakeDatabase()
     for email in (ANA, TOM):
         db.add_profile(email)
+        give_bank_details(db, email)  # needed to sell for money
     return db
 
 
@@ -483,3 +484,34 @@ def test_deleting_with_only_waiting_requests_is_allowed(db):
     listings.delete_listing(db, lid, ANA)
     assert db.get_listing(lid) is None
     assert db.get_request(rid) is None  # deleted with the listing
+
+
+# --- selling for money needs bank details (buyers pay by bank transfer) -------------
+
+def test_no_bank_details_no_selling_for_money():
+    db = FakeDatabase()
+    db.add_profile(ANA)
+    with pytest.raises(listings.ListingError) as error:
+        new_listing(db, free=False, price_cents=2000)
+    assert listings.NO_BANK_DETAILS in error.value.errors
+    assert db.listings == {}
+
+
+def test_free_items_need_no_bank_details():
+    db = FakeDatabase()
+    db.add_profile(ANA)
+    lid = new_listing(db, free=True, price_cents=None)
+    assert db.get_listing(lid)["price_cents"] == 0
+
+
+def test_a_free_item_cannot_become_paid_or_be_relisted_paid_without_bank_details(db):
+    lid = new_listing(db, free=True, price_cents=None)
+    db.profiles[ANA].update({"iban": None, "bank_holder": None})
+    with pytest.raises(listings.ListingError, match="bank details"):
+        edit(db, lid, free=False, price_cents=2000)
+    paid = new_listing(db, free=True, price_cents=None)
+    db.listings[paid]["price_cents"] = 2000
+    db.listings[paid]["status"] = listings.SOLD
+    with pytest.raises(listings.ListingError, match="bank details"):
+        listings.relist(db, paid, ANA)
+

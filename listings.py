@@ -31,6 +31,7 @@ import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
+import payments
 from accounts import nova_email
 from photos import PhotoError, check_photo_count, prepare_photos
 
@@ -222,6 +223,17 @@ def pickup_label(listing: dict) -> str:
             else None) or listing.get("pickup_area", "")
 
 
+NO_BANK_DETAILS = ("Add your bank details on My profile before selling something: buyers "
+                   "pay you by bank transfer. Free items don't need them.")
+
+
+def _bank_details_errors(seller: dict, free) -> list[str]:
+    """Selling for money needs bank details (buyers pay by transfer, see deals.py)."""
+    if free is True or payments.has_bank_details(seller):
+        return []
+    return [NO_BANK_DETAILS]
+
+
 def _seller_profile(db, email: str) -> dict:
     """The profile of the person selling. Every listing belongs to a profile."""
     seller = nova_email({"email": email})
@@ -282,7 +294,7 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
                   condition=condition, pickup_area=pickup_area,
                   category_other=category_other, pickup_area_other=pickup_area_other,
                   available_from=available_from)
-    errors = check_listing(**fields)
+    errors = check_listing(**fields) + _bank_details_errors(seller, free)
     count_errors = check_photo_count(len(photos))
     errors += count_errors
     if not count_errors:
@@ -337,7 +349,7 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
                   condition=condition, pickup_area=pickup_area,
                   category_other=category_other, pickup_area_other=pickup_area_other,
                   available_from=available_from)
-    errors = check_listing(**fields)
+    errors = check_listing(**fields) + _bank_details_errors(seller, free)
     new_photos = list(new_photos)
     count_errors = check_photo_count(len(keep_photo_paths) + len(new_photos))
     errors += count_errors
@@ -423,4 +435,8 @@ def mark_sold(db, listing_id: int, seller_email: str) -> None:
 
 
 def relist(db, listing_id: int, seller_email: str) -> None:
+    listing, seller = _own_listing(db, listing_id, seller_email)
+    errors = _bank_details_errors(seller, not listing.get("price_cents"))
+    if errors:
+        raise ListingError(errors)
     _move(db, listing_id, seller_email, ACTIVE)
