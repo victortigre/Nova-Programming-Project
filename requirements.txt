@@ -3,4 +3,4 @@ requests
 supabase
 pillow
 pytest
-# Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-22 iban and cash
+# Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-22 buy now on cards
