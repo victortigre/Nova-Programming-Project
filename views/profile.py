@@ -59,7 +59,10 @@ if profile is not None:
                                    max_chars=payments.MAX_HOLDER_LENGTH,
                                    placeholder="Name as it appears at your bank")
             iban = st.text_input("IBAN", value=payments.show_iban(profile.get("iban")),
-                                 placeholder="PT50 0002 0123 1234 5678 9015 4")
+                                 placeholder="PT50 0000 0000 0000 0000 0000 0",
+                                 help="This is a course project: no real money moves, so a "
+                                      "made-up IBAN with the right shape (PT and 23 digits) "
+                                      "works fine for trying it out.")
             cash = st.checkbox("I accept cash in person",
                                value=bool(profile.get("accepts_cash")))
             if st.form_submit_button("Save", type="primary"):
