@@ -419,3 +419,29 @@ def test_either_side_can_cancel_a_cash_deal_before_they_meet(db):
     deals.choose_cash(db, deal["id"], BUYER)
     deals.cancel_deal(db, deal["id"], SELLER)
     assert db.get_listing(lid)["status"] == ACTIVE
+
+
+# --- the notifications on Browse, with names ----------------------------------------------
+
+def test_waiting_on_me_names_the_other_student(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER, price_cents=2000)
+    pay = deals.waiting_on_me(db, BUYER)["pay"]
+    assert [(p["request_id"], p["seller_name"], p["price_cents"], p["cash"]) for p in pay] == [
+        (deal["id"], "Seller", 2000, False)]
+    assert deals.waiting_on_me(db, SELLER)["check_payment"] == []
+    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    check = deals.waiting_on_me(db, SELLER)["check_payment"]
+    assert [(c["buyer_name"], c["title"], c["paid"]) for c in check] == [
+        ("Buyer", "Desk lamp", True)]
+    assert deals.waiting_on_me(db, BUYER)["pay"] == []
+
+
+def test_waiting_on_me_shows_cash_deals_to_both(db):
+    db.save_payment_methods(SELLER, {"accepts_cash": True})
+    deal = start_purchase(db, a_listing(db), BUYER)
+    deals.choose_cash(db, deal["id"], BUYER)
+    assert deals.waiting_on_me(db, BUYER)["pay"][0]["cash"] is True
+    check = deals.waiting_on_me(db, SELLER)["check_payment"][0]
+    assert check["cash"] is True and check["paid"] is False
+

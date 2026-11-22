@@ -316,12 +316,27 @@ except Exception:
 # part of each key, so a card that was dismissed comes back when there is new
 # activity (another buyer, a new offer).
 notices = []
-if to_do.get("check_payment"):
-    notices.append(dict(
-        key=f"check-payment-{to_do['check_payment']}", emoji="💶",
-        title=f"{plural(to_do['check_payment'], 'buyer says', 'buyers say')} they paid you",
-        text="Check your bank account, then confirm the payment on My listings.",
-        page=SALES, label="Confirm"))
+# Who exactly is waiting: one card per deal, with the other student's name.
+try:
+    waiting = deals.waiting_on_me(database, email)
+except Exception:  # buying isn't set up in the database yet
+    waiting = {"pay": [], "check_payment": []}
+for deal in waiting["check_payment"]:
+    name, title = html.escape(deal["buyer_name"]), html.escape(deal["title"])
+    price = listings.format_price(deal["price_cents"])
+    if deal["paid"]:
+        notices.append(dict(
+            key=f"check-payment-{deal['request_id']}-paid", emoji="💶",
+            title=f"{name} says they paid you {price}",
+            text=f"For {title}. Check that it arrived, then confirm on My listings.",
+            page=SALES, label="Confirm"))
+    else:
+        notices.append(dict(
+            key=f"check-payment-{deal['request_id']}-cash", emoji="💶",
+            title=f"{name} will pay you {price} in cash",
+            text=f"For {title}. Agree where to meet in the chat, and confirm on My listings "
+                 "once you have the money.",
+            page=SALES, label="Open"))
 if to_do.get("answer"):
     notices.append(dict(
         key=f"answer-{to_do['answer']}", emoji="🛍️",
@@ -337,11 +352,16 @@ for item in offers_waiting:
         text=f"For {html.escape(item['listing_title'])}. "
              "Accept, decline or counter in your Inbox.",
         page="views/messaging.py", label="See offer", open_chat=item["conversation_id"]))
-if to_do.get("pay"):
+for deal in waiting["pay"]:
+    name, title = html.escape(deal["seller_name"]), html.escape(deal["title"])
+    price = listings.format_price(deal["price_cents"])
     notices.append(dict(
-        key=f"pay-{to_do['pay']}", emoji="🏦",
-        title=f"You have {plural(to_do['pay'], 'item', 'items')} to pay for",
-        text="Pay the seller within 48 hours (or in cash when you meet), then confirm.",
+        key=f"pay-{deal['request_id']}-{'cash' if deal['cash'] else 'bank'}", emoji="🏦",
+        title=(f"Meet {name} and pay {price} in cash" if deal["cash"]
+               else f"Pay {name} {price}"),
+        text=(f"For {title}. Agree the time and place in the chat." if deal["cash"]
+              else f"For {title}. Pay within 48 hours (bank transfer), or choose cash "
+                   "in person, then confirm."),
         page=PURCHASES, label="Pay", tone="green"))
 
 # Dismissals last for this session only; the task itself is unchanged.
