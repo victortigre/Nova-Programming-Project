@@ -259,6 +259,20 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 [class*="st-key-notice-"] .stButton button * {{ color: #FFFFFF !important; }}
 [class*="st-key-notice-"] .stButton button:hover {{ background: #4B32D9; }}
+/* The ✕ that dismisses a notification: small and grey, no button shape. */
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button {{
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    padding: 0 4px !important; min-height: 0 !important; width: auto;
+}}
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button * {{
+    color: #A3A8B6 !important; font-size: 0.95rem;
+}}
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover {{
+    background: transparent !important;
+}}
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover * {{
+    color: #5C5C70 !important;
+}}
 </style>
 """
 
@@ -350,14 +364,16 @@ def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
             words, button = st.columns([4, 1.3], vertical_alignment="center")
         else:
             words, button, close = st.columns([4, 1.3, 0.5], vertical_alignment="center")
-            close.button("✕", key=f"notice-dismiss-{key}", on_click=on_dismiss, args=(key,),
+            # Keys start "noticeclose-"/"noticeopen-", not "notice-": the card's
+            # own style (border, shadow) must not be copied onto these buttons.
+            close.button("✕", key=f"noticeclose-{key}", on_click=on_dismiss, args=(key,),
                          help="Dismiss this notification")
         words.html(f'<div class="nm-notice"><div class="nm-notice-icon">{emoji}</div>'
                    f'<div><div class="nm-notice-title">{title}</div>'
                    f'<div class="nm-notice-text">{text}</div></div></div>')
         if open_chat is None:
             button.page_link(page, label=label, icon=":material/arrow_forward:")
-        elif button.button(label, key=f"notice-open-{key}", icon=":material/arrow_forward:"):
+        elif button.button(label, key=f"noticeopen-{key}", icon=":material/arrow_forward:"):
             st.session_state.messaging_selected = open_chat
             st.session_state.messaging_history_limit = 50
             st.switch_page(page)
