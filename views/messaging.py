@@ -198,9 +198,7 @@ def show_chat(selected: str) -> None:
                     st.rerun()  # The whole page: it switches back to the inbox.
             with participant:
                 participant_header = st.empty()
-            with refresh:
-                with st.container(horizontal_alignment="right"):
-                    st.button("Refresh chat")
+            # Preserve the empty right column so the participant header stays aligned.
         with st.container(key="chat-header-divider"):
             st.divider()
         limit = st.session_state.get("messaging_history_limit", 50)
