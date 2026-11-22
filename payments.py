@@ -43,16 +43,17 @@ def show_iban(iban: str | None) -> str:
 
 
 def iban_is_valid(iban: str | None) -> bool:
-    """The international check every bank uses (ISO 13616, "mod 97").
+    """Does it LOOK like an IBAN? Country letters, then the right amount of digits.
 
-    Catches almost every typo: a wrong or swapped digit makes it fail.
+    A Portuguese IBAN is PT + 23 digits (25 characters); other countries have
+    15 to 34 characters. On purpose there is NO bank checksum ("mod 97"): this
+    is a course project, nobody pays real money, so a made-up IBAN with the
+    right shape (PT50 0000 0000 0000 0000 0000 0) must be accepted for demos.
     """
     iban = clean_iban(iban)
-    if not re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}", iban):
-        return False
-    moved = iban[4:] + iban[:4]
-    as_number = "".join(str(int(ch, 36)) for ch in moved)  # A=10, B=11, ... Z=35
-    return int(as_number) % 97 == 1
+    if iban.startswith("PT"):
+        return bool(re.fullmatch(r"PT[0-9]{23}", iban))
+    return bool(re.fullmatch(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}", iban))
 
 
 # --- checking and saving ---------------------------------------------------------------
@@ -74,8 +75,8 @@ def check_payment_methods(*, holder=None, iban=None, cash=False) -> list[str]:
         if not clean_iban(iban):
             errors.append("Bank transfer: write your IBAN.")
         elif not iban_is_valid(iban):
-            errors.append("Bank transfer: this IBAN isn't valid. Check it on your bank app, "
-                          "for example PT50 0002 0123 1234 5678 9015 4.")
+            errors.append("Bank transfer: this doesn't look like an IBAN. A Portuguese one is "
+                          "PT and 23 digits, for example PT50 0000 0000 0000 0000 0000 0.")
     if not (holder or clean_iban(iban) or cash):
         errors.append("Choose at least one way to get paid: bank transfer or cash.")
     return errors
