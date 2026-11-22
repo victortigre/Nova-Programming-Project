@@ -112,12 +112,13 @@ def test_buy_now_card_keeps_widget_and_places_compact_timestamp_last(ui):
     assert 'chat-compact-offer-' + OID in keys
     assert 'chat-time-offer-' + OID in keys
     card = next(c for c in app.get('flex_container') if c.key == 'dm-other-offer-' + OID)
-    assert [t.value for t in card.text] == [ROW['other_name'], 'Status: Accepted', 'Agreed note', "You have accepted the seller's counteroffer."]
+    first = ROW['other_name'].split(' ')[0]
+    assert [t.value for t in card.text] == [ROW['other_name'], 'Agreed note', f"You accepted {first}'s offer."]
     # The newly approved redesign includes accepted cards, but not button logic.
     assert not any('2026' in t.value or '·' in t.value for t in card.caption)
     assert card.get('flex_container')[-1].key == 'chat-time-offer-' + OID
     buy = app.button(key='buy_now_' + OID)
-    assert buy.disabled and buy.proto.type == 'primary'
+    assert not buy.disabled and buy.proto.type == 'primary'  # the buyer can start the purchase
     with pytest.raises(AppTestError, match='disabled button'):
         buy.click()
     assert 'width: 78% !important' in messaging_ui.CHAT_CSS

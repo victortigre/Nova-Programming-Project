@@ -446,6 +446,13 @@ def chat_timestamp(event: dict) -> None:
 
 # Applied only by the open-chat fragment; no Inbox, navigation or button rules.
 OPEN_CHAT_CSS = """
+[class*="st-key-next-step-"] {
+    background: #F1F2F6;
+    border-radius: 10px;
+    padding: 10px 12px;
+    gap: 2px;
+}
+[class*="st-key-next-step-"] p { margin: 0; }
 .st-key-open-chat-surface {
     background: #FFFFFF; border-radius: 16px; padding: 14px 18px;
     gap: 0.65rem !important; min-width: 0;

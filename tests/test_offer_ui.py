@@ -187,11 +187,13 @@ def test_offer_response_updates_card_and_offers_buy_now(ui, monkeypatch, action,
     monkeypatch.setattr(repository, f"{action.lower()}_offer", response)
     click(app, action)
     assert response.call_args.args[:2] == (CID, OID)
-    assert any(item.value == f"Status: {status.title()}" for item in app.text)
     if status == "accepted":
-        assert any(item.value == "Offer Accepted — €15.00" for item in app.subheader)
+        assert not any(item.value == "Status: Accepted" for item in app.text)
+        assert any(item.value.startswith("€15.00") for item in app.subheader)
         assert not next(button for button in app.button if "Buy Now" in button.label).disabled
-        assert any(item.value.startswith("Tap Buy Now to reserve it") for item in app.caption)
+        assert any(item.value.startswith("Reserves the item") for item in app.caption)
+    else:
+        assert any(item.value == f"Status: {status.title()}" for item in app.text)
     assert app.chat_input
 
 
