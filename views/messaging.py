@@ -207,11 +207,15 @@ def show_chat(selected: str) -> None:
                                     st.session_state["payment_message"] = (
                                         "Reserved for you! Pay by bank transfer within 48 hours.")
                                     st.rerun()
+                        buyer_here = row["own_profile_id"] == row["buyer_id"]
                         if live_deal and is_current:
                             st.caption("The purchase has started: see the payment below.")
-                        else:
+                        elif is_current and buyer_here:
                             st.caption("Tap Buy Now to reserve it and see where to pay "
                                        "(bank transfer, within 48 hours).")
+                        elif is_current:
+                            st.caption("Waiting for the buyer to tap Buy Now. They then see "
+                                       "your bank details and have 48 hours to pay.")
                     if (current and current["id"] == message["id"] and message["status"] == "pending"
                             and not own and negotiation_available):
                         offer_ui.response_buttons(selected, message)

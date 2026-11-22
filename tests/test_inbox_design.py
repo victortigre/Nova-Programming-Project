@@ -142,7 +142,8 @@ def test_accepted_card_is_role_aware_and_only_the_buyer_gets_buy_now(ui, monkeyp
         (8, 8): 'The buyer has accepted your offer.',
     }[actor, sender]
     assert any(t.value == expected for t in app.text)
-    assert any(c.value.startswith('Tap Buy Now to reserve it') for c in app.caption)
+    hint = 'Tap Buy Now to reserve it' if actor == 7 else 'Waiting for the buyer to tap Buy Now'
+    assert any(c.value.startswith(hint) for c in app.caption)
     assert not any(b.label in ('Accept', 'Decline', 'Counteroffer', 'Send Offer') for b in app.button)
     buy = [b for b in app.button if b.label == 'Buy Now']
     if actor == 7:
