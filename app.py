@@ -169,25 +169,34 @@ def attention_counts():
         unread = len(messaging_repository.unread_conversations())
     except Exception:
         unread = 0
-    try:
-        offers = len(messaging_repository.offers_to_answer())
-    except Exception:
-        offers = 0
-    return tasks, unread, offers
+    # The two offer questions share one request for the student's chats.
+    with messaging_repository.checked_once():
+        try:
+            offers = len(messaging_repository.offers_to_answer())
+        except Exception:
+            offers = 0
+        try:
+            answers = messaging_repository.offer_statuses()
+        except Exception:
+            answers = ()
+    return tasks, unread, offers, answers
 
 
-def attention_signature(tasks, unread, offers):
+def attention_signature(tasks, unread, offers, answers=()):
     """A small fingerprint of everything shown in the badges and notifications,
-    so the auto-refresh below can tell when something new has arrived."""
-    return (unread, offers, tuple(sorted(tasks.items())))
+    so the auto-refresh below can tell when something new has arrived. `answers`
+    is the status of the offers in this student's chats: it changes when the
+    other person accepts or declines, so an open chat then updates by itself."""
+    return (unread, offers, tuple(sorted(tasks.items())), answers)
 
 
 # The Inbox count works like Instagram's direct messages: chats with messages this
 # student hasn't opened yet. 0 (no badge) if messaging isn't set up in the database.
-to_do, unread_inbox, offers_waiting = attention_counts()
+to_do, unread_inbox, offers_waiting, offer_answers = attention_counts()
 # Remember what the menu and notifications show right now, so the timer below only
 # reruns the page when a NEW message/offer/request actually appears.
-st.session_state["attention_signature"] = attention_signature(to_do, unread_inbox, offers_waiting)
+st.session_state["attention_signature"] = attention_signature(
+    to_do, unread_inbox, offers_waiting, offer_answers)
 
 
 def with_count(title: str, count: int) -> str:
@@ -225,12 +234,9 @@ navigation = st.navigation(pages, position="top")
 if st.session_state.pop("onboarding_just_finished", False):
     st.switch_page("views/welcome.py")
 
-# Clicking the logo (or "Browse" in the menu) from another page always shows
-# the full list of items, not the listing that happened to be open last time.
-came_from = st.session_state.get("last_page")
-st.session_state["last_page"] = navigation.url_path
-if navigation.url_path == browse.url_path and came_from != browse.url_path:
-    st.session_state.pop("view_listing", None)
+# Which listing is open on Browse is part of the address (/?listing=12, see
+# views/browse.py). The logo and "Browse" in the menu lead to the address
+# without it, so they always show the full list of items.
 
 
 # Live updates with no action from the user: every few seconds this quietly

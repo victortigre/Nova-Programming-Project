@@ -1,10 +1,9 @@
-"""My purchases: the items you've asked to buy, and confirming you received them.
+"""My purchases: the items you're buying, and paying for them by bank transfer.
 
-A buyer sees every deal they're in, cancels a request, and — once the seller has
-accepted and you've met — confirms you received the item. The item is only marked
-sold as soon as you confirm you got it. After that, you rate the seller.
-Requests that ended without a sale (declined, cancelled) stay visible under
-"Closed", so a buyer always learns what happened.
+After "Buy Now" in a chat, the buyer sees where to pay (the seller's IBAN) and
+has 48 hours to pay and tap "I've paid". When the seller confirms the money
+arrived, the item is sold and the buyer can rate the seller. Purchases that
+ended without a sale (cancelled) stay visible under "Closed".
 """
 
 import streamlit as st
@@ -13,6 +12,7 @@ import database
 import deals
 import listings
 import reviews
+import payment_ui
 import ui
 from accounts import logged_in_user, verified_nova_email
 
@@ -30,6 +30,7 @@ if database.get_profile(email) is None:
 
 if "deal_message" in st.session_state:
     st.success(st.session_state.pop("deal_message"))
+payment_ui.show_message()
 
 
 def act(action, request_id: int, done_message: str, *extra) -> None:
@@ -55,8 +56,8 @@ except Exception:
     st.stop()
 
 if not purchases:
-    st.info("You haven't asked to buy anything yet. "
-            "Find something on Browse and tap “Request to buy”.")
+    st.info("You haven't bought anything yet. Find something on Browse, agree a price "
+            "with the seller in the chat, and tap “Buy Now”.")
     st.page_link("views/browse.py", label="Browse items", icon=":material/search:")
     st.stop()
 
@@ -92,54 +93,26 @@ def show_deal(deal: dict) -> None:
     status = deal["status"]
     with st.container(border=True):
         title = listings.plain_text(listing.get("title", "(this listing was removed)"))
-        st.markdown(f"**{title}** · {listings.format_price(listing.get('price_cents', 0))}")
+        st.markdown(f"**{title}** · {listings.format_price(deals.price_of(deal, listing))}")
         seller = (database.get_profile_by_id(listing["seller_id"])
                   if listing.get("seller_id") else None)
         if seller:
             st.caption(f"Seller: {listings.plain_text(seller['name'])}")
 
-        price = listing.get("price_cents") or 0
         if status == deals.REQUESTED:
-            st.markdown(":grey[Waiting for the seller to accept your request…]")
-            if price:
-                st.caption(f"When the seller accepts, {listings.format_price(price)} "
-                           "is held from your Nova credits.")
+            # An old "Request to buy" from before Buy Now.
+            st.markdown(":grey[Waiting for the seller to answer your request…]")
             if st.button("Cancel request", key=f"cancel-{request_id}"):
                 act(deals.cancel_deal, request_id, "Request cancelled.")
 
         elif status == deals.ACCEPTED:
-            if deal.get("seller_confirmed_at"):
-                # Handed over: 48 hours to confirm. No cancelling any more.
-                st.warning(f"The seller says they handed it over. Check the item and confirm "
-                           f"by **{deals.due_text(deal)}**. After that, the payment goes to "
-                           "the seller automatically.",
-                           icon=":material/schedule:")
-                if st.button("I received it, all OK", key=f"recv-{request_id}",
-                             type="primary"):
-                    act(deals.confirm_received, request_id,
-                        "Thanks! " + (f"{listings.format_price(price)} went to the seller."
-                                      if price else "Enjoy!"))
-            else:
-                st.markdown(":green[Accepted! Meet the seller to collect it, then confirm below.]")
-                if price:
-                    st.caption(f"{listings.format_price(price)} is held from your credits. "
-                               "Confirming sends it to the seller, so only confirm once "
-                               "you have the item.")
-                if st.button("I received the item", key=f"recv-{request_id}", type="primary"):
-                    act(deals.confirm_received, request_id,
-                        "Thanks! " + (f"{listings.format_price(price)} went to the seller."
-                                      if price else "Enjoy!"))
+            payment_ui.buyer_box(deal, email, where="purchases")
             if listing.get("seller_id"):
                 st.page_link("views/public_profile.py", label="View the seller's profile",
                              icon=":material/person:", query_params={"id": listing["seller_id"]})
-            # Cancelling is only possible before the hand-over.
-            if (not deal.get("seller_confirmed_at")
-                    and st.button("Cancel deal", key=f"cancel-{request_id}")):
-                act(deals.cancel_deal, request_id,
-                    "Deal cancelled." + (" Your credits are back." if price else ""))
 
         elif status == deals.COMPLETED:
-            st.markdown(":green[✅ Done — you confirmed you got it. Enjoy!]")
+            st.markdown(":green[✅ Paid and confirmed by the seller. Enjoy!]")
             rate_the_seller(request_id, listings.plain_text(seller["name"]) if seller
                             else "the seller")
 

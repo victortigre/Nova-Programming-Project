@@ -8,9 +8,9 @@ import streamlit as st
 import browsing
 import database
 import listings
+import payments
 import reviews
 import ui
-import wallet
 from accounts import logged_in_user, verified_nova_email
 from profile_form import show_profile_form
 
@@ -40,71 +40,33 @@ if profile is not None:
 with ui.card("profile-form"):
     show_profile_form(email, profile)
 
-# --- Nova credits (wallet.py) ------------------------------------------------------
-# Pretend money for this course project: add some with the buttons, spend it
-# on items, receive it when you sell.
-
-
-def add_credits(amount_cents: int) -> None:
-    try:
-        wallet.add_credits(database, email, amount_cents)
-        st.session_state["wallet_message"] = f"Added {wallet.euros(amount_cents)} in credits."
-    except (wallet.WalletError, wallet.NotAllowed) as exc:
-        st.session_state["wallet_error"] = str(exc)
-
-
-def add_typed_credits() -> None:
-    """Read the euros typed in the box and add that amount (so a big top-up
-    like €4,000 doesn't need many button clicks)."""
-    try:
-        cents = listings.parse_price(st.session_state.get("topup-amount", ""))
-    except ValueError:
-        st.session_state["wallet_error"] = "Enter an amount like 40 or 4000."
-        return
-    if not cents:
-        st.session_state["wallet_error"] = "Enter an amount to add."
-        return
-    add_credits(cents)
-    st.session_state["topup-amount"] = ""  # empty the box after a successful add
-
-
+# --- Bank details (payments.py) -----------------------------------------------------
+# Buyers pay sellers by bank transfer. When a buyer taps Buy Now, they see these
+# details in the chat, so they know where to send the money. Nobody else sees them.
 if profile is not None:
-    with ui.card("wallet"):
-        st.markdown("**Nova credits**")
-        try:
-            balance = wallet.my_balance(database, email)
-            history = wallet.my_history(database, email)
-        except Exception:  # the wallet table isn't in the database yet
-            balance, history = None, []
-        if balance is None:
-            st.caption("Credits aren't set up in the database yet. Whoever manages the "
-                       "database needs to run `database_setup.sql`.")
-        else:
-            st.html(f'<p class="nm-price">{wallet.euros(balance)}</p>')
-            st.caption("Demo credits for this course project, not real money. When a seller "
-                       "accepts your request, the price is held; it goes to the seller when "
-                       "you confirm you got the item.")
-            if message := st.session_state.pop("wallet_message", None):
-                st.success(message)
-            if error := st.session_state.pop("wallet_error", None):
-                st.error(error)
-            for column, amount in zip(st.columns(len(wallet.TOP_UP_AMOUNTS)),
-                                      wallet.TOP_UP_AMOUNTS):
-                column.button(f"+ {wallet.euros(amount)}", key=f"topup-{amount}",
-                              on_click=add_credits, args=(amount,), width="stretch")
-            st.caption("Or type any amount:")
-            box, add = st.columns([3, 1], vertical_alignment="bottom")
-            box.text_input("Amount (€)", key="topup-amount", placeholder="e.g. 4000",
-                           label_visibility="collapsed")
-            add.button("Add", key="topup-custom", on_click=add_typed_credits, width="stretch")
-            if history:
-                with st.expander("History"):
-                    for entry in history[:30]:
-                        amount = entry["amount_cents"]
-                        sign = ":green[+" if amount > 0 else "−"
-                        end = "]" if amount > 0 else ""
-                        st.markdown(f"{sign}{wallet.euros(abs(amount))}{end} · "
-                                    f"{listings.plain_text(entry['text'])}")
+    with ui.card("bank"):
+        st.markdown("**Bank details for receiving payments**")
+        st.caption("Shown only to a buyer after you agree a price and they tap Buy Now, "
+                   "never on your public profile. You need them to sell items.")
+        if message := st.session_state.pop("bank_message", None):
+            st.success(message)
+        if payments.has_bank_details(profile):
+            st.text(f"{profile['bank_holder']}\n{payments.show_iban(profile['iban'])}")
+        with st.form("bank-form", border=False):
+            holder = st.text_input("Account holder", value=profile.get("bank_holder") or "",
+                                   max_chars=payments.MAX_HOLDER_LENGTH,
+                                   placeholder="Name as it appears at your bank")
+            iban = st.text_input("IBAN", value=payments.show_iban(profile.get("iban")),
+                                 placeholder="PT50 0002 0123 1234 5678 9015 4")
+            if st.form_submit_button("Save bank details", type="primary"):
+                try:
+                    payments.save_bank_details(database, email, holder, iban)
+                except payments.BankDetailsError as exc:
+                    for error in exc.errors:
+                        st.error(error)
+                else:
+                    st.session_state["bank_message"] = "Bank details saved."
+                    st.rerun()
 
 # --- My ratings (reviews.py) ----------------------------------------------------
 # What other students said about you after finished deals. You rate others
@@ -168,8 +130,7 @@ if profile is not None:
                             item, links.get(cover), key=f"saved-{item['id']}",
                             saved=True, on_heart=partial(unsave, item["id"]))
                     if clicked:
-                        st.session_state["open_listing"] = item["id"]
-                        st.switch_page("views/browse.py")
+                        st.switch_page("views/browse.py", query_params={"listing": item["id"]})
 
 # The menu bar has no room for the account, so signing out is here.
 with ui.card("account"):

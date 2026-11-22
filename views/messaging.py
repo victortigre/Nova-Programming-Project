@@ -8,12 +8,16 @@ Reads run inside repository.checked_once(), so a page load checks the
 signed-in student and the chat once instead of once per question.
 """
 
+import html
 from datetime import datetime
 from uuid import uuid4
 
 import streamlit as st
 from streamlit.errors import StreamlitAPIException
 
+import database
+import deals
+import payment_ui
 from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
 from listings import format_price
@@ -63,6 +67,12 @@ def try_send(pending: dict) -> None:
     try:
         with st.spinner("Sending message…"):
             repository.send_message(pending["conversation_id"], pending["body"], pending["id"])
+    except ValueError as error:
+        # The message itself was refused (for example only spaces). Trying the
+        # same text again cannot work, so it is not kept as "pending": the
+        # student can simply type a new message.
+        st.session_state.pop("messaging_pending", None)
+        report_error(error)
     except Exception as error:
         report_error(error)
     else:
@@ -105,6 +115,63 @@ def show_inbox() -> None:
                                     st.rerun()  # Keep navigation as a whole-page rerun.
                 if index < len(rows) - 1:
                     st.divider()
+
+
+def accepted_offer_card(message: dict, row: dict, current: dict | None, live_deal: bool,
+                        negotiation_available: bool, selected: str) -> None:
+    """An accepted offer: one "Offer accepted" tag, the price (the listing price
+    crossed out), who accepted, and what happens next for this side."""
+    amount, original = message["amount_cents"], row.get("price_cents")
+    st.badge("Offer accepted", icon=":material/check:", color="green")
+    crossed = (f"  :grey[~~{format_price(original)}~~]"
+               if original and original != amount else "")
+    st.subheader(format_price(amount) + crossed)
+    first = (row.get("other_name") or "They").split(" ")[0]
+    i_proposed = message["sender_id"] == row["own_profile_id"]
+    # In its own keyed box with some space on top: the chat styles pull the
+    # line under a subheader up into it otherwise.
+    with st.container(key=f"dm-accepted-by-{message['id']}"):
+        if message.get("note"):
+            st.text(message["note"])
+        st.text(f"{first} accepted your offer." if i_proposed
+                else f"You accepted {first}'s offer.")
+    buyer_here = row["own_profile_id"] == row["buyer_id"]
+    is_current = current is not None and current["id"] == message["id"]
+    if is_current and live_deal:
+        next_step(message, "The purchase has started", "See the payment below.")
+        return
+    if buyer_here:
+        # Buy Now starts the purchase at this price (deals.buy_now checks
+        # everything again) and shows where to pay below.
+        can_buy = is_current and negotiation_available and not live_deal
+        if st.button("Buy Now", key=f"buy_now_{message['id']}", type="primary",
+                     disabled=not can_buy, width="stretch"):
+            try:
+                deals.buy_now(database, email, selected)
+            except deals.ListingError as exc:
+                st.error(" ".join(exc.errors))
+            except (deals.NotAllowed, deals.NotFound) as exc:
+                st.error(str(exc))
+            except Exception:
+                st.error("Buying isn't available right now. Please try again later.")
+            else:
+                st.session_state["payment_message"] = (
+                    "Reserved for you! Pay by bank transfer within 48 hours.")
+                st.rerun()
+        if can_buy:
+            st.caption("Reserves the item and shows where to pay. You have 48 hours.")
+    elif is_current and negotiation_available:
+        next_step(message, f"Next: {first} pays you",
+                  "They tap Buy Now, see your bank details and have 48 hours to transfer.")
+
+
+def next_step(message: dict, title: str, text: str) -> None:
+    """A small grey box with a clock: what happens next. One html block, so the
+    title and its line can't overlap. Names are escaped before they go in."""
+    with st.container(key=f"next-step-{message['id']}"):
+        st.html('<div class="nm-next-step"><span class="nm-next-icon">🕒</span><div>'
+                f'<div class="nm-next-title">{html.escape(title)}</div>'
+                f'<div class="nm-next-text">{html.escape(text)}</div></div></div>')
 
 
 @st.fragment
@@ -160,37 +227,49 @@ def show_chat(selected: str) -> None:
         elif len(history) == 100:
             st.caption("Showing the latest 100 chat events.")
         current = latest_offers[0] if latest_offers else None
+        # A purchase started from this chat with Buy Now (deals.py), if any.
+        try:
+            deal = deals.deal_in_chat(database, email, selected)
+        except Exception:  # buying isn't set up in the database yet
+            deal = None
+        live_deal = deal is not None and deal["status"] in (deals.ACCEPTED, deals.COMPLETED)
+        payment_ui.show_message()
         for message, separator, show_avatar in messaging_ui.chat_event_groups(history):
             if separator:
                 messaging_ui.date_separator(separator)
             with messaging_ui.message_bubble(message, row, compact=True,
                                              show_avatar=show_avatar) as own:
-                if message["type"] == "offer":
+                if message["type"] == "offer" and message["status"] == "accepted":
+                    accepted_offer_card(message, row, current, live_deal, negotiation_available,
+                                        selected)
+                elif message["type"] == "offer":
                     st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
-                    accepted = message["status"] == "accepted"
-                    st.subheader(f"Offer Accepted — {format_price(message['amount_cents'])}" if accepted
-                                 else format_price(message["amount_cents"]))
+                    st.subheader(format_price(message["amount_cents"]))
                     with st.container(key=f"dm-original-price-{message['id']}"):
                         st.caption(f"Original listing price: {format_price(row['price_cents'])}")
                     st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
                     if message.get("note"):
                         st.text(message["note"])
-                    if accepted:
-                        st.text(messaging_ui.accepted_offer_description(message, row))
-                        if row["own_profile_id"] == row["buyer_id"]:
-                            # Presentation only. No checkout callback or purchase write.
-                            st.button("Buy Now", key=f"buy_now_{message['id']}",
-                                      type="primary", disabled=True, width="stretch")
-                        st.caption("Accepting this offer does not reserve or pay for the item.")
                     if (current and current["id"] == message["id"] and message["status"] == "pending"
                             and not own and negotiation_available):
                         offer_ui.response_buttons(selected, message)
+                if message["type"] == "offer":
                     messaging_ui.chat_timestamp(message)
                 else:
                     st.text(message["body"])
                     messaging_ui.chat_timestamp(message)
+        # The payment of this chat's purchase: where to pay, and each side's buttons.
+        if live_deal:
+            with st.container(border=True, key=f"chat-payment-{deal['id']}"):
+                st.markdown("**Payment**")
+                if row["own_profile_id"] == row["buyer_id"]:
+                    payment_ui.buyer_box(deal, email, where="chat")
+                else:
+                    payment_ui.seller_box(deal, email, where="chat",
+                                          buyer_name=row["other_name"])
+        # A free item has no price to negotiate, so no offer form for it.
         if (row["own_profile_id"] == row["buyer_id"] and negotiation_available
-                and (not current or current["status"] == "declined")):
+                and row["price_cents"] and (not current or current["status"] == "declined")):
             with st.expander("Make an Offer"):
                 offer_ui.show_form(f"chat-{selected}", default_cents=row["price_cents"], conversation_id=selected)
         pending = st.session_state.get("messaging_pending")

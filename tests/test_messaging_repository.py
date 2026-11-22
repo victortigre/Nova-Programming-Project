@@ -573,3 +573,24 @@ def test_inbox_photo_lookup_does_not_bypass_membership(context, monkeypatch):
         repo.get_inbox(include_photos=True)
     lookup.assert_not_called()
     sign.assert_not_called()
+
+
+def test_offer_statuses_change_when_an_offer_is_answered(context, monkeypatch):
+    mine = {**context[3], "listing_title_snapshot": "Bike"}
+    offer = {"id": MID, "status": "pending", "amount_cents": 4500, "sender_id": 7,
+             "parent_offer_id": None, "created_at": "2026-11-20T10:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox",
+                        lambda actor: [inbox_row(mine, "Seller name", last_offer=offer)])
+    before = repo.offer_statuses()
+    assert before == ((CID, MID, "pending"),)
+    offer["status"] = "accepted"
+    assert repo.offer_statuses() != before
+
+
+def test_offer_notices_and_statuses_share_one_inbox_request(context, monkeypatch):
+    query = MagicMock(return_value=[inbox_row(context[3])])
+    monkeypatch.setattr(database, "messaging_inbox", query)
+    with repo.checked_once():
+        repo.offers_to_answer()
+        repo.offer_statuses()
+    query.assert_called_once_with(7)

@@ -13,6 +13,8 @@ import streamlit as st
 
 import database
 import listings
+import payments
+import photos
 from accounts import logged_in_user, verified_nova_email
 
 SELL = "Sell for a price"
@@ -43,6 +45,12 @@ if edit_id:
         editing = None
 
 st.header("Edit listing" if editing else "Sell an item")
+if not payments.has_bank_details(profile):
+    st.warning("Add your bank details on My profile before selling something: buyers "
+               "pay you by bank transfer. You can still give items away for free.",
+               icon=":material/account_balance:")
+    st.page_link("views/profile.py", label="Add my bank details",
+                 icon=":material/account_balance:")
 if editing and st.button("← Cancel editing"):
     st.session_state.pop("edit_listing_id", None)
     st.switch_page("views/my_listings.py")
@@ -165,6 +173,8 @@ if editing:
 uploads = st.file_uploader(
     "Add photos (JPG or PNG)" if editing else "Photos (1 to 5, JPG or PNG)",
     type=["jpg", "jpeg", "png"], accept_multiple_files=True, key=key("photos"),
+    # The same limit photos.py checks, so the box shows "10MB" and not 200MB.
+    max_upload_size=photos.MAX_UPLOAD_BYTES // (1024 * 1024),
 )
 
 # --- saving --------------------------------------------------------------------

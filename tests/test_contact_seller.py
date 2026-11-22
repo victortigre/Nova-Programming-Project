@@ -14,7 +14,6 @@ import database
 import deals
 import messaging_repository as repository
 import ui
-import wallet
 
 CID = "11111111-1111-4111-8111-111111111111"
 
@@ -31,9 +30,9 @@ def flow(monkeypatch):
     monkeypatch.setattr(database, "_client", MagicMock(side_effect=AssertionError("No live access")))
     monkeypatch.setattr(database, "database_is_set_up", lambda: True)
     monkeypatch.setattr(ui, "apply_style", lambda: None)
-    monkeypatch.setattr(wallet, "my_balance", lambda db, email: 5000)
     buyer = {"id": 7, "name": "Test buyer", "rules_accepted_at": "2026-11-20"}
-    seller = {"id": 8, "name": "Test seller", "rules_accepted_at": "2026-11-20"}
+    seller = {"id": 8, "name": "Test seller", "rules_accepted_at": "2026-11-20",
+              "bank_holder": "Test seller", "iban": "PT50000201231234567890154"}
     item = {"id": 10, "seller_id": 8, "title": "Stored listing", "description": "Stored description",
             "price_cents": 1234, "status": "active", "photo_paths": [],
             "category": "Furniture", "condition": "Good", "pickup_area": "Lisbon centre"}
@@ -46,10 +45,10 @@ def flow(monkeypatch):
     monkeypatch.setattr(browsing, "saved_ids", lambda *args: set())
     monkeypatch.setattr(browsing, "saved_listings", lambda *args: [])
     monkeypatch.setattr(deals, "to_do", lambda *args: {
-        "sales": 0, "purchases": 0, "answer": 0, "confirm_sale": 0, "confirm_received": 0, "confirm_return": 0,
+        "sales": 0, "purchases": 0, "answer": 0, "pay": 0, "check_payment": 0,
     })
-    purchase = MagicMock()
-    monkeypatch.setattr(deals, "request_to_buy", purchase)
+    purchase = MagicMock()  # buying starts in the chat now (Buy Now), never from Browse
+    monkeypatch.setattr(deals, "buy_now", purchase)
     rows = {}
 
     def insert(payload):
@@ -175,11 +174,13 @@ def test_previous_accounts_pending_text_is_not_carried_into_chat(flow):
     assert flow.app.chat_input
 
 
-def test_contact_does_not_change_request_to_buy(flow):
+def test_browse_buys_now_at_the_listed_price_not_request_to_purchase(flow):
     flow.app.run()
-    flow.app.button(key="buy-10").click().run()
     assert not flow.app.exception
-    flow.purchase.assert_called_once_with(database, 10, "buyer@novasbe.pt")
+    assert not any(button.label == "Request to Purchase" for button in flow.app.button)
+    assert any("Buy Now" in item.value for item in flow.app.caption)
+    assert flow.app.button(key="buy-now-10").label == "Buy Now"  # at the listed price
+    flow.purchase.assert_not_called()
     flow.creation.assert_not_called()
 
 
@@ -223,34 +224,19 @@ def test_current_accounts_pending_message_is_preserved(flow):
     assert flow.app.chat_input[0].disabled
 
 
-def test_wallet_caption_and_regular_purchase_survive_offer_integration(flow):
-    app = flow.app.run()
-    assert not app.exception
-    assert any("Your Nova credits: €50.00" in item.value for item in app.caption)
-    assert any(button.label == "Make an Offer" for button in app.button)
-    app.button(key="buy-10").click().run()
-    flow.purchase.assert_called_once_with(database, 10, "buyer@novasbe.pt")
-    flow.creation.assert_not_called()
-
-
-def test_final_three_listing_actions_preserve_purchase_callback(flow):
+def test_listing_actions_are_offer_and_contact(flow):
     app = flow.app.run()
     assert not app.exception
     labels = [b.label for b in app.button if b.key in ('offer-10', 'contact-10', 'buy-10')]
-    assert labels == ["Make an Offer", "Contact Seller", "Request to Purchase"]
+    assert labels == ["Make an Offer", "Contact Seller"]
     assert app.button(key='offer-10').proto.type == 'secondary'
     assert app.button(key='contact-10').proto.type == 'secondary'
-    assert app.button(key='buy-10').proto.type == 'primary'
-    assert not any(app.button(key=key).disabled for key in ('offer-10', 'contact-10', 'buy-10'))
     actions = next(c for c in app.get('flex_container') if c.key == 'listing-actions')
     columns = actions.get('column')
     assert len(columns) == 2
     assert columns[0].button[0].label == 'Make an Offer'
     assert columns[1].button[0].label == 'Contact Seller'
-    assert all(b.label != 'Request to Purchase' for c in columns for b in c.button)
-    app.button(key='buy-10').click().run()
-    assert not app.exception
-    flow.purchase.assert_called_once_with(database, 10, 'buyer@novasbe.pt')
+    flow.purchase.assert_not_called()
     flow.creation.assert_not_called()
 
 

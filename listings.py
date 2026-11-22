@@ -31,6 +31,7 @@ import re
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
+import payments
 from accounts import nova_email
 from photos import PhotoError, check_photo_count, prepare_photos
 
@@ -89,6 +90,9 @@ def parse_price(text) -> int | None:
         return None
     if cleaned.count(".") > 1 or not cleaned.replace(".", "").isdigit():
         raise ValueError("Price must be a number, like 15 or 15,50.")
+    # 12,999 is not a price in euros and cents. Say so instead of rounding it.
+    if "." in cleaned and len(cleaned.split(".")[1]) > 2:
+        raise ValueError("Price can have at most two decimals, like 15,50.")
     return euros_to_cents(cleaned)
 
 
@@ -222,6 +226,17 @@ def pickup_label(listing: dict) -> str:
             else None) or listing.get("pickup_area", "")
 
 
+NO_BANK_DETAILS = ("Add your bank details on My profile before selling something: buyers "
+                   "pay you by bank transfer. Free items don't need them.")
+
+
+def _bank_details_errors(seller: dict, free) -> list[str]:
+    """Selling for money needs bank details (buyers pay by transfer, see deals.py)."""
+    if free is True or payments.has_bank_details(seller):
+        return []
+    return [NO_BANK_DETAILS]
+
+
 def _seller_profile(db, email: str) -> dict:
     """The profile of the person selling. Every listing belongs to a profile."""
     seller = nova_email({"email": email})
@@ -282,7 +297,7 @@ def create_listing(db, seller_email: str, *, title: str, description: str,
                   condition=condition, pickup_area=pickup_area,
                   category_other=category_other, pickup_area_other=pickup_area_other,
                   available_from=available_from)
-    errors = check_listing(**fields)
+    errors = check_listing(**fields) + _bank_details_errors(seller, free)
     count_errors = check_photo_count(len(photos))
     errors += count_errors
     if not count_errors:
@@ -337,7 +352,7 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
                   condition=condition, pickup_area=pickup_area,
                   category_other=category_other, pickup_area_other=pickup_area_other,
                   available_from=available_from)
-    errors = check_listing(**fields)
+    errors = check_listing(**fields) + _bank_details_errors(seller, free)
     new_photos = list(new_photos)
     count_errors = check_photo_count(len(keep_photo_paths) + len(new_photos))
     errors += count_errors
@@ -357,10 +372,10 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
 
 
 # --- listings with a buyer (see deals.py) -----------------------------------------
-# A buyer can ask to buy a listing through the app ("Request to buy"). Once the
-# seller accepted one, that deal decides the status: the seller confirms or
-# cancels the deal, and can't use the Reserve, Sold, Relist or Delete buttons. Otherwise
-# the buyer would still see "Accepted" for an item that is back on sale.
+# A buyer can start buying a listing through the app (Buy Now in the chat). Once
+# they did, that deal decides the status: the seller confirms the payment or
+# cancels the deal, and can't use the Reserve, Sold, Relist or Delete buttons.
+# Otherwise the buyer would still be paying for an item that is back on sale.
 # (The names are the same as in deals.py, which can't be imported here:
 # deals.py imports this file.)
 _WAITING, _ACCEPTED = "requested", "accepted"
@@ -423,4 +438,8 @@ def mark_sold(db, listing_id: int, seller_email: str) -> None:
 
 
 def relist(db, listing_id: int, seller_email: str) -> None:
+    listing, seller = _own_listing(db, listing_id, seller_email)
+    errors = _bank_details_errors(seller, not listing.get("price_cents"))
+    if errors:
+        raise ListingError(errors)
     _move(db, listing_id, seller_email, ACTIVE)

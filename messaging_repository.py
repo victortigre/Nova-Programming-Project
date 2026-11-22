@@ -299,6 +299,11 @@ def get_or_create_conversation(listing_id: int) -> dict:
     return row
 
 
+def _inbox_rows(actor: int) -> list[dict]:
+    """Every chat of this student. Inside checked_once() it is asked for once."""
+    return _remember(("inbox", actor), lambda: database.messaging_inbox(actor))
+
+
 def offers_to_answer() -> list[dict]:
     """Offers and counteroffers waiting for the signed-in student's answer.
 
@@ -306,13 +311,29 @@ def offers_to_answer() -> list[dict]:
     for all chats: the same one the Inbox uses.
     """
     actor = _actor()
-    items = database.messaging_inbox(actor)
+    items = _inbox_rows(actor)
     newest = {item["conversation"]["id"]: item.get("newest_offer") for item in items}
     other_names = {item["conversation"]["id"]: item.get("other_name") for item in items}
     waiting = offers_waiting_for(actor, [item["conversation"] for item in items], newest.get)
     # The sender is the other person in that chat, whose name came along.
     return [{**item, "sender_name": other_names.get(item["conversation_id"]) or "A student"}
             for item in waiting]
+
+
+def offer_statuses() -> tuple:
+    """A small fingerprint of the offers in the signed-in student's chats:
+    (chat, offer, status) for the offer made or answered most recently in each.
+
+    It changes when the other person accepts, declines or counters. app.py
+    watches it, so an open chat shows the answer without pressing Refresh.
+    """
+    statuses = []
+    for item in _inbox_rows(_actor()):
+        offer = item.get("last_offer")
+        if offer:
+            statuses.append((str(item["conversation"]["id"]), str(offer.get("id")),
+                             offer.get("status")))
+    return tuple(sorted(statuses))
 
 
 def get_offers(conversation_id: str, *, limit: int = 50, offset: int = 0) -> list[dict]:
@@ -401,8 +422,8 @@ def get_chat_events(conversation_id: str, *, limit: int = 50) -> list[dict]:
 def get_buy_now_agreement(conversation_id: str) -> dict | None:
     """Buyer-only agreement display; never authorizes checkout or a reservation.
 
-    No wallet or payment data is read. A future wallet-backed checkout must
-    independently validate the agreement, existing purchases and availability.
+    No payment data is read. The purchase itself is deals.buy_now, which
+    validates the agreement, existing purchases and availability again.
     """
     actor = _actor()
     conversation = _authorized(conversation_id, actor)

@@ -19,8 +19,8 @@ import listings
 import messaging_repository
 import messaging_ui
 import offer_ui
+import payments
 import ui
-import wallet
 from accounts import logged_in_user, verified_nova_email
 from profiles import DONE, onboarding_step
 
@@ -63,12 +63,21 @@ def status_note(status: str) -> str:
     return ""
 
 
+# Which listing is open is written in the address (/?listing=12), not kept in
+# memory. So "Browse" or the logo in the menu (address without ?listing=) always
+# shows the full list again, and the browser's Back button closes the listing.
 def open_listing(listing_id: int) -> None:
-    st.session_state["view_listing"] = listing_id
+    st.query_params["listing"] = str(listing_id)
 
 
 def close_listing() -> None:
-    st.session_state.pop("view_listing", None)
+    st.query_params.clear()
+
+
+def listing_in_address() -> int | None:
+    """The listing number from the address, or None if there is none (or nonsense)."""
+    text = str(st.query_params.get("listing", ""))
+    return int(text) if text.isdigit() else None
 
 
 def turn_photo(listing_id: int, step: int) -> None:
@@ -105,8 +114,12 @@ def photo_viewer(listing_id: int, urls: list[str]) -> None:
                               on_click=pick_photo, args=(listing_id, place))
 
 
-def flip_saved(listing_id: int) -> None:
+def flip_saved(listing_id: int, tab: str = "browse") -> None:
     browsing.toggle_saved(database, my_id, listing_id)
+    # The tab is called "Saved (2)". Removing a heart changes that number, and
+    # Streamlit then opens the first tab again. Remember to stay on Saved.
+    if tab == "saved":
+        st.session_state["stay_on_saved_tab"] = True
 
 
 def save_button(listing_id: int, *, where: str) -> None:
@@ -123,8 +136,8 @@ def save_button(listing_id: int, *, where: str) -> None:
 # --- detail view --------------------------------------------------------------
 # Another page (a student's profile) can ask Browse to open one listing.
 if "open_listing" in st.session_state:
-    st.session_state["view_listing"] = st.session_state.pop("open_listing")
-viewing = st.session_state.get("view_listing")
+    open_listing(st.session_state.pop("open_listing"))
+viewing = listing_in_address()
 if viewing is not None:
     item = listings.get_listing(database, viewing)
     if item is None:
@@ -158,25 +171,58 @@ if viewing is not None:
             listed_note = listings.listed_text(item)
             if listed_note:
                 st.caption(f"🗓️ {listed_note}")
-            st.write(plain(item["description"]))
+            # st.text shows it exactly as typed: no formatting, and a web
+            # address in it does not become a link.
+            st.text(item["description"])
             if message := st.session_state.pop("deal_message", None):
                 st.success(message)
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                if item["status"] == listings.ACTIVE and item["price_cents"]:
-                    try:
-                        st.caption(f"Your Nova credits: "
-                                   f"{wallet.euros(wallet.my_balance(database, email))}")
-                    except Exception:  # credits aren't set up in the database yet
-                        pass
+                seller_paid_ok = payments.has_bank_details(seller)
+                if item["status"] == listings.ACTIVE and item["price_cents"] and not seller_paid_ok:
+                    st.caption("This seller hasn't added their bank details yet, so it can't be "
+                               "bought right now. You can still contact them.")
+                elif item["status"] == listings.ACTIVE and item["price_cents"]:
+                    st.caption("**Buy Now** at this price, or make an offer to agree a "
+                               "different one in the chat. You pay the seller by bank "
+                               "transfer within 48 hours.")
+                elif item["status"] == listings.ACTIVE:
+                    st.caption("This item is free: contact the seller to arrange the pickup.")
                 can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
                 with st.container(key="listing-actions"):
+                    if (can_contact and item["status"] == listings.ACTIVE and item["price_cents"]
+                            and seller_paid_ok):
+                        # Buy at the listed price: open (or reuse) the chat with the
+                        # seller, start the purchase there (deals.py checks everything
+                        # again) and show where to pay.
+                        if st.button("Buy Now", key=f"buy-now-{item['id']}", type="primary",
+                                     icon=":material/shopping_bag:", width="stretch"):
+                            try:
+                                with st.spinner("Reserving it for you…"):
+                                    conversation = messaging_repository.get_or_create_conversation(item["id"])
+                                    deals.buy_at_listed_price(database, email, conversation["id"])
+                            except deals.ListingError as exc:
+                                st.error(" ".join(exc.errors))
+                            except (deals.NotAllowed, deals.NotFound, ValueError) as exc:
+                                st.error(str(exc))
+                            except Exception:
+                                st.error("Buying isn't available right now. Please try again later.")
+                            else:
+                                if st.session_state.get("messaging_account") != email:
+                                    st.session_state.pop("messaging_pending", None)
+                                st.session_state["messaging_account"] = email
+                                st.session_state["messaging_selected"] = conversation["id"]
+                                st.session_state["messaging_history_limit"] = 50
+                                st.session_state["payment_message"] = (
+                                    "Reserved for you! Pay by bank transfer within 48 hours.")
+                                st.switch_page("views/messaging.py")
                     if can_contact:
                         offer_column, contact_column = st.columns(2)
-                        if item["status"] == listings.ACTIVE:
+                        # A free item has no price to negotiate.
+                        if item["status"] == listings.ACTIVE and item["price_cents"]:
                             if offer_column.button("Make an Offer", key=f"offer-{item['id']}",
                                                    type="secondary", icon=":material/local_offer:", width="stretch"):
                                 st.session_state.messaging_offer_browse = item["id"]
@@ -199,21 +245,7 @@ if viewing is not None:
                                 st.session_state["messaging_selected"] = conversation["id"]
                                 st.session_state["messaging_history_limit"] = 50
                                 st.switch_page("views/messaging.py")
-                    if item["status"] == listings.ACTIVE:
-                        if st.button("Request to Purchase", key=f"buy-{item['id']}",
-                                     type="primary", icon=":material/shopping_bag:", width="stretch"):
-                            try:
-                                deals.request_to_buy(database, item["id"], email)
-                                st.session_state["deal_message"] = (
-                                    "Request sent! Track it in My purchases.")
-                            except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
-                                st.session_state["deal_error"] = (
-                                    exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
-                            except Exception:
-                                st.session_state["deal_error"] = (
-                                    "Buying isn't set up yet. Please try again later.")
-                            st.rerun()
-                    elif item["status"] == listings.RESERVED:
+                    if item["status"] == listings.RESERVED:
                         st.caption("This item is reserved for another buyer.")
                     if (can_contact and item["status"] == listings.ACTIVE
                             and st.session_state.get("messaging_offer_browse") == item["id"]):
@@ -249,7 +281,7 @@ def listing_grid(items: list[dict], tab: str, columns: int = 3) -> None:
                     links.get(cover),
                     key=f"{tab}-{item['id']}",
                     saved=None if (own or not saving_ready) else item["id"] in saved,
-                    on_heart=partial(flip_saved, item["id"]),
+                    on_heart=partial(flip_saved, item["id"], tab),
                 )
             if clicked:
                 open_listing(item["id"])
@@ -265,7 +297,7 @@ def plural(count: int, one: str, many: str) -> str:
 try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
-    to_do = {"answer": 0, "confirm_received": 0}
+    to_do = {"answer": 0, "pay": 0, "check_payment": 0}
 SALES, PURCHASES = "views/my_listings.py", "views/purchases.py"
 
 # Offers and counteroffers waiting for an answer (Inbox). Empty if messaging
@@ -279,11 +311,18 @@ except Exception:
 # part of each key, so a card that was dismissed comes back when there is new
 # activity (another buyer, a new offer).
 notices = []
-if to_do["answer"]:
+if to_do.get("check_payment"):
+    notices.append(dict(
+        key=f"check-payment-{to_do['check_payment']}", emoji="💶",
+        title=f"{plural(to_do['check_payment'], 'buyer says', 'buyers say')} they paid you",
+        text="Check your bank account, then confirm the payment on My listings.",
+        page=SALES, label="Confirm"))
+if to_do.get("answer"):
     notices.append(dict(
         key=f"answer-{to_do['answer']}", emoji="🛍️",
-        title=f"{plural(to_do['answer'], 'buyer wants', 'buyers want')} to buy your items",
-        text="Accept or decline the request on My listings.", page=SALES, label="Answer"))
+        title=f"{plural(to_do['answer'], 'old request', 'old requests')} to buy your items",
+        text="Buying now works through the chat. Decline these on My listings.",
+        page=SALES, label="Open"))
 for item in offers_waiting:
     kind = "a counteroffer" if item["counter"] else "an offer"
     notices.append(dict(
@@ -293,12 +332,12 @@ for item in offers_waiting:
         text=f"For {html.escape(item['listing_title'])}. "
              "Accept, decline or counter in your Inbox.",
         page="views/messaging.py", label="See offer", open_chat=item["conversation_id"]))
-if to_do["confirm_received"]:
+if to_do.get("pay"):
     notices.append(dict(
-        key=f"confirm-received-{to_do['confirm_received']}", emoji="🤝",
-        title=f"{plural(to_do['confirm_received'], 'seller', 'sellers')} accepted your request",
-        text="Meet them, then confirm you got the item.", page=PURCHASES, label="Open",
-        tone="green"))
+        key=f"pay-{to_do['pay']}", emoji="🏦",
+        title=f"You have {plural(to_do['pay'], 'item', 'items')} to pay for",
+        text="Pay by bank transfer within 48 hours, then tap “I've paid”.",
+        page=PURCHASES, label="Pay", tone="green"))
 
 # Dismissals last for this session only; the task itself is unchanged.
 dismissed = st.session_state.setdefault("dismissed_notices", set())
@@ -329,7 +368,11 @@ if len(visible) > NOTICES_SHOWN:
 # --- Browse and Saved tabs ----------------------------------------------------
 # In a keyed container, so ui.py can put the heart picture in front of "Saved".
 with st.container(key="browse-tabs"):
-    browse_tab, saved_tab = st.tabs(["All items", f"Saved ({len(saved)})"])
+    saved_label = f"Saved ({len(saved)})"
+    # After removing a heart on the Saved tab, open that tab again (see flip_saved).
+    stay_on_saved = st.session_state.pop("stay_on_saved_tab", False)
+    browse_tab, saved_tab = st.tabs(["All items", saved_label],
+                                    default=saved_label if stay_on_saved else None)
 
 with browse_tab:
     query = st.text_input("Search", placeholder="Search desks, books, bikes...",

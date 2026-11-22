@@ -119,7 +119,7 @@ def test_bubbles_follow_authenticated_actor_and_preserve_history(ui, actor, phot
 
 @pytest.mark.parametrize('actor', [7, 8])
 @pytest.mark.parametrize('sender', [7, 8])
-def test_accepted_card_is_role_aware_and_cannot_checkout(ui, monkeypatch, actor, sender):
+def test_accepted_card_is_role_aware_and_only_the_buyer_gets_buy_now(ui, monkeypatch, actor, sender):
     app, mocks, _ = ui
     mocks['get_conversation_details'].return_value = {**ROW, 'own_profile_id': actor}
     accepted = {**OFFER, 'status': 'accepted', 'sender_id': sender}
@@ -127,30 +127,28 @@ def test_accepted_card_is_role_aware_and_cannot_checkout(ui, monkeypatch, actor,
     mocks['get_chat_events'].return_value = [previous, accepted]
     mocks['get_offers'].return_value = [accepted]
     writes = []
-    for name in ('wallet_hold', 'wallet_settle', 'wallet_add_entry', 'insert_request', 'update_request', 'update_listing'):
-        mock = MagicMock(side_effect=AssertionError('UI must not create purchases or holds'))
+    for name in ('insert_request', 'update_request', 'update_listing'):
+        mock = MagicMock(side_effect=AssertionError('Showing the chat must not create purchases'))
         monkeypatch.setattr(database, name, mock)
         writes.append(mock)
     app, _ = open_chat(ui)
-    assert any(h.value == 'Offer Accepted — €15.00' for h in app.subheader)
+    # One "Offer accepted" tag; the price with the listing price crossed out.
+    assert any(h.value.startswith('€15.00') and '~~€20.00~~' in h.value for h in app.subheader)
     assert any(t.value == 'Status: Superseded' for t in app.text)
-    assert any(t.value == 'Status: Accepted' for t in app.text)
-    expected = {
-        (7, 7): 'The seller has accepted your offer.',
-        (7, 8): "You have accepted the seller's counteroffer.",
-        (8, 7): "You have accepted the buyer's offer.",
-        (8, 8): 'The buyer has accepted your offer.',
-    }[actor, sender]
+    assert not any(t.value == 'Status: Accepted' for t in app.text)
+    first = ROW['other_name'].split(' ')[0]
+    expected = (f'{first} accepted your offer.' if actor == sender
+                else f"You accepted {first}'s offer.")
     assert any(t.value == expected for t in app.text)
-    assert any(c.value == 'Accepting this offer does not reserve or pay for the item.' for c in app.caption)
+    if actor == 7:
+        assert any(c.value.startswith('Reserves the item and shows where to pay') for c in app.caption)
+    else:
+        assert any('pays you' in e.proto.body for e in app.get('html'))
     assert not any(b.label in ('Accept', 'Decline', 'Counteroffer', 'Send Offer') for b in app.button)
     buy = [b for b in app.button if b.label == 'Buy Now']
     if actor == 7:
-        assert len(buy) == 1 and buy[0].disabled and buy[0].proto.type == 'primary'
-        # Streamlit rejects the interaction just as a browser does.
-        with pytest.raises(AppTestError, match='disabled button'):
-            buy[0].click()
-        assert not app.exception
+        # The buyer can start the purchase; nothing is written until they tap it.
+        assert len(buy) == 1 and not buy[0].disabled and buy[0].proto.type == 'primary'
     else:
         assert not buy
     app.chat_input[0].set_value('Message after acceptance').run()
@@ -169,7 +167,7 @@ def test_historical_acceptance_never_claims_item_is_unreserved(ui, status):
     mocks['get_chat_events'].return_value = [accepted]
     mocks['get_offers'].return_value = [accepted]
     app, _ = open_chat(ui)
-    assert any(h.value == 'Offer Accepted — €15.00' for h in app.subheader)
+    assert any(h.value.startswith('€15.00') for h in app.subheader)
     assert next(b for b in app.button if b.label == 'Buy Now').disabled
     assert any('Negotiation is unavailable' in item.value for item in list(app.info) + list(app.caption))
     assert not any('has not been reserved' in item.value for item in app.caption)

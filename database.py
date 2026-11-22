@@ -94,6 +94,16 @@ def save_profile(
     return saved[0]
 
 
+def save_bank_details(email: str, holder: str, iban: str) -> None:
+    """Store where this student receives payments (see payments.py).
+
+    Only shown to the buyer and seller of one of their deals, never publicly.
+    """
+    _client().table("profiles").update(
+        {"bank_holder": holder, "iban": iban}).eq("email", email).execute()
+    get_profile.clear()
+
+
 def accept_house_rules(email: str) -> None:
     """Remember that the student with this email agreed to the house rules (now)."""
     now = datetime.now(timezone.utc).isoformat()
@@ -291,6 +301,17 @@ def get_request(request_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
+def request_for_conversation(conversation_id: str) -> dict | None:
+    """The newest deal started from this chat with Buy Now, or None."""
+    rows = (
+        _client().table("purchase_requests").select("*")
+        .eq("conversation_id", conversation_id)
+        .order("created_at", desc=True).order("id", desc=True).limit(1)
+        .execute().data
+    )
+    return rows[0] if rows else None
+
+
 def live_request(buyer_id: int, listing_id: int) -> dict | None:
     """This buyer's requested-or-accepted request for this listing, or None."""
     rows = (
@@ -435,6 +456,22 @@ def block_profile(profile_id: int) -> None:
     _client().table("profiles").update({"blocked_at": _now()}).eq("id", profile_id).execute()
     get_profile.clear()
     _listings_changed()  # the blocked student's listings leave the feed
+
+
+def unblock_profile(profile_id: int) -> None:
+    """Take the block off a student again."""
+    _client().table("profiles").update({"blocked_at": None}).eq("id", profile_id).execute()
+    get_profile.clear()
+    _listings_changed()  # their listings are back in the feed
+
+
+def blocked_profiles() -> list[dict]:
+    """Return every blocked student, the one blocked longest ago first."""
+    return (
+        _client().table("profiles").select("id,name,blocked_at")
+        .not_.is_("blocked_at", "null").order("blocked_at")
+        .execute().data
+    )
 
 
 def admin_delete_listing(listing_id: int) -> None:
@@ -622,41 +659,6 @@ def messaging_conversation_for_listing(listing_id: int, buyer_id: int) -> dict |
             .eq("original_listing_id", listing_id).eq("buyer_id", buyer_id)
             .limit(1).execute().data)
     return rows[0] if rows else None
-
-
-# --- Wallet (Nova credits, see wallet.py) ---------------------------------------
-# The rules are in wallet.py. The two steps that must never run twice or spend
-# the same credits twice (hold, settle) are database functions in
-# database_setup.sql, so the check and the change happen in one step.
-
-
-def wallet_entries_of(profile_id: int) -> list[dict]:
-    """Every wallet line of one student, newest first."""
-    return (
-        _client().table("wallet_entries").select("*").eq("profile_id", profile_id)
-        .order("created_at", desc=True).order("id", desc=True)
-        .execute().data
-    )
-
-
-def wallet_add_entry(row: dict) -> dict:
-    """Store one wallet line (only used for added credits)."""
-    return _client().table("wallet_entries").insert(row).execute().data[0]
-
-
-def wallet_hold(profile_id: int, request_id: int, amount_cents: int, note: str | None) -> bool:
-    """Hold money for a deal if the balance is enough (one step, in the database)."""
-    return bool(_client().rpc("wallet_hold", {
-        "p_profile": profile_id, "p_request": request_id,
-        "p_amount": amount_cents, "p_note": note,
-    }).execute().data)
-
-
-def wallet_settle(request_id: int, kind: str, profile_id: int) -> bool:
-    """Release a deal's held money to the seller, or refund it to the buyer (once)."""
-    return bool(_client().rpc("wallet_settle", {
-        "p_request": request_id, "p_kind": kind, "p_profile": profile_id,
-    }).execute().data)
 
 
 def messaging_offers(conversation_id: str, limit: int, offset: int) -> list[dict]:

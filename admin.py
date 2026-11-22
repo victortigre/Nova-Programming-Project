@@ -5,6 +5,8 @@ Feature (area 5 of the MVP, Trust & safety):
     remove_listing   delete the reported listing and its photos
     block_user       block the reported student (for a listing: its seller)
                      and call off every deal they are in
+    blocked_students every student who is blocked right now
+    unblock_user     let a blocked student back in (to undo a mistake)
     dismiss_report   close the report without doing anything else
 
 Rules that keep this safe:
@@ -80,6 +82,7 @@ def open_reports(db, admin_email: str) -> list[dict]:
             kind = "listing"
             listing = db.get_listing(report["listing_id"])
             what = listing["title"] if listing else "(listing removed)"
+            student = db.get_profile_by_id(listing["seller_id"]) if listing else None
         else:
             kind = "student"
             student = db.get_profile_by_id(report["reported_profile_id"])
@@ -93,8 +96,18 @@ def open_reports(db, admin_email: str) -> list[dict]:
             "details": report["details"],
             "reporter": reporter["name"] if reporter else "(student removed)",
             "created_at": report["created_at"],
+            # False when there is nobody to block, or it is the admin themselves
+            # (block_user refuses that). The page then shows no Block button.
+            "can_block": student is not None and not is_admin(student["email"], [admin_email]),
         })
     return shown
+
+
+def blocked_students(db, admin_email: str) -> list[dict]:
+    """Every student who is blocked right now: id, name and blocked_at."""
+    _check_admin(admin_email)
+    return [{"id": student["id"], "name": student["name"], "blocked_at": student["blocked_at"]}
+            for student in db.blocked_profiles()]
 
 
 # --- handling a report --------------------------------------------------------------
@@ -117,8 +130,8 @@ def remove_listing(db, admin_email: str, report_id: int) -> None:
     #    failed, the report would be closed while the listing is still there.
     # 2. Delete the photos last. If that step fails, only some unused files
     #    stay behind; nobody sees a listing with missing photos.
-    # 0. Call off the live deals on it first, so a buyer's held credits go back
-    #    to them (deleting the listing also deletes its deals).
+    # 0. Call off the live deals on it first, so their buyers see the purchase
+    #    was cancelled (deleting the listing also deletes its deals).
     for request in db.requests_for_listing(listing["id"], list(deals.LIVE)):
         deals._call_off(db, request, listing)
     db.admin_delete_listing(listing["id"])
@@ -152,6 +165,21 @@ def block_user(db, admin_email: str, report_id: int) -> None:
         if r["reported_profile_id"] == student_id or r["listing_id"] in their_listings
     ]
     db.close_reports(about_them, BLOCKED)
+
+
+def unblock_user(db, admin_email: str, profile_id: int) -> None:
+    """Let a blocked student use the app again, for when a block was a mistake.
+
+    Their listings show up again. The deals that were called off and the
+    reports that were closed when they were blocked stay as they are.
+    """
+    _check_admin(admin_email)
+    student = db.get_profile_by_id(profile_id)
+    if student is None:
+        raise NotFound("This student doesn't exist any more.")
+    if not student.get("blocked_at"):
+        raise NotFound("This student is not blocked.")
+    db.unblock_profile(profile_id)
 
 
 def dismiss_report(db, admin_email: str, report_id: int) -> None:

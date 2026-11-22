@@ -1,4 +1,4 @@
-"""Admin: handle the reports students sent, oldest first.
+"""Admin: handle the reports students sent, oldest first, and undo a block.
 
 This page is only listed in app.py for admins. Even so, every button calls
 a function in admin.py, which checks again that you are an admin before
@@ -59,11 +59,14 @@ def report_box(report: dict) -> None:
                 st.write("Delete this listing and its photos for good?")
                 if st.button("Yes, remove", key=f"remove-{rid}", type="primary"):
                     run(admin.remove_listing, rid, "Listing removed.")
-        with buttons[1].popover("Block user"):
-            st.write("Block this student? They can no longer use the app, "
-                     "and their listings are hidden.")
-            if st.button("Yes, block", key=f"block-{rid}", type="primary"):
-                run(admin.block_user, rid, "Student blocked. Their open reports are closed.")
+        # No Block button when the report is about the admin's own account
+        # or listing: nobody can block themselves.
+        if report["can_block"]:
+            with buttons[1].popover("Block user"):
+                st.write("Block this student? They can no longer use the app, "
+                         "and their listings are hidden.")
+                if st.button("Yes, block", key=f"block-{rid}", type="primary"):
+                    run(admin.block_user, rid, "Student blocked. Their open reports are closed.")
         if buttons[2].button("Dismiss", key=f"dismiss-{rid}"):
             run(admin.dismiss_report, rid, "Report dismissed.")
 
@@ -73,3 +76,18 @@ if not open_reports:
     st.info("No open reports.")
 for report in open_reports:
     report_box(report)
+
+# Blocked by mistake? An admin can let the student back in here.
+blocked = admin.blocked_students(database, email)
+if blocked:
+    st.subheader("Blocked students")
+for student in blocked:
+    with st.container(border=True):
+        name_column, button_column = st.columns([3, 1], vertical_alignment="center")
+        with name_column:
+            st.text(student["name"])
+            st.caption(f"Blocked on {str(student['blocked_at'])[:10]}")
+        with button_column.popover("Unblock"):
+            st.write("Let this student use the app again? Their listings are shown again.")
+            if st.button("Yes, unblock", key=f"unblock-{student['id']}", type="primary"):
+                run(admin.unblock_user, student["id"], "Student unblocked.")

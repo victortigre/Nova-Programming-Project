@@ -106,9 +106,13 @@ for start in range(0, len(listings), columns_per_row):
                 key=f"profile-{listing['id']}",
             )
         # The price button opens the listing on Browse, where it can be saved or reported.
+        # "id" is carried along on purpose. When Streamlit changes page it also
+        # rewrites the address of the page being left, and without "id" the
+        # browser's Back button would come back to your own profile instead
+        # of this student's.
         if clicked:
-            st.session_state["open_listing"] = listing["id"]
-            st.switch_page("views/browse.py")
+            st.switch_page("views/browse.py",
+                           query_params={"listing": listing["id"], "id": shown["id"]})
 
 # Nobody reports themselves, so the Report link only shows on other profiles.
 if not is_own_profile:

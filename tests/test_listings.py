@@ -11,6 +11,7 @@ import pytest
 from PIL import Image
 
 import deals
+from deal_helpers import give_bank_details, start_purchase
 import listings
 from fake_database import FakeDatabase
 from listings import ListingError, NotAllowed, NotFound
@@ -35,10 +36,8 @@ def db():
     """A pretend database in which Ana and Tom already have a profile."""
     db = FakeDatabase()
     for email in (ANA, TOM):
-        profile = db.add_profile(email)
-        # Nova credits, so they can ask to buy priced items (see wallet.py).
-        db.wallet_add_entry({"profile_id": profile["id"], "amount_cents": 100_000,
-                             "kind": "top_up", "request_id": None, "note": None})
+        db.add_profile(email)
+        give_bank_details(db, email)  # needed to sell for money
     return db
 
 
@@ -456,9 +455,10 @@ def test_plain_text_leaves_normal_text_alone():
 # --- listings with a buyer (deals.py) -----------------------------------------
 def _with_request(db, accepted: bool):
     lid = new_listing(db)
-    request = deals.request_to_buy(db, lid, TOM)
-    if accepted:
-        deals.accept_request(db, request["id"], ANA)
+    if accepted:  # Tom tapped Buy Now in the chat
+        request = start_purchase(db, lid, TOM)
+    else:  # an old "Request to buy" still waiting for an answer
+        request = db.insert_request({"listing_id": lid, "buyer_id": db.get_profile(TOM)["id"]})
     return lid, request["id"]
 
 
@@ -484,3 +484,39 @@ def test_deleting_with_only_waiting_requests_is_allowed(db):
     listings.delete_listing(db, lid, ANA)
     assert db.get_listing(lid) is None
     assert db.get_request(rid) is None  # deleted with the listing
+
+
+# --- selling for money needs bank details (buyers pay by bank transfer) -------------
+
+def test_no_bank_details_no_selling_for_money():
+    db = FakeDatabase()
+    db.add_profile(ANA)
+    with pytest.raises(listings.ListingError) as error:
+        new_listing(db, free=False, price_cents=2000)
+    assert listings.NO_BANK_DETAILS in error.value.errors
+    assert db.listings == {}
+
+
+def test_free_items_need_no_bank_details():
+    db = FakeDatabase()
+    db.add_profile(ANA)
+    lid = new_listing(db, free=True, price_cents=None)
+    assert db.get_listing(lid)["price_cents"] == 0
+
+
+def test_a_free_item_cannot_become_paid_or_be_relisted_paid_without_bank_details(db):
+    lid = new_listing(db, free=True, price_cents=None)
+    db.profiles[ANA].update({"iban": None, "bank_holder": None})
+    with pytest.raises(listings.ListingError, match="bank details"):
+        edit(db, lid, free=False, price_cents=2000)
+    paid = new_listing(db, free=True, price_cents=None)
+    db.listings[paid]["price_cents"] = 2000
+    db.listings[paid]["status"] = listings.SOLD
+    with pytest.raises(listings.ListingError, match="bank details"):
+        listings.relist(db, paid, ANA)
+
+
+@pytest.mark.parametrize("typed", ["12,999", "0,001", "15.505"])
+def test_a_price_with_three_decimals_is_refused_not_rounded(typed):
+    with pytest.raises(ValueError, match="at most two decimals"):
+        listings.parse_price(typed)
