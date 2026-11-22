@@ -169,7 +169,7 @@ def test_integer_cent_snapshots_preserved_in_offer_cards_not_name_only_header(ui
     assert not any(item.value == display for item in app.caption)
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
-    assert any(item.value == f"Original listing price: {display}" for item in app.caption)
+    assert any(f"~~{display}~~" in item.value for item in app.subheader)  # crossed-out listing price
     assert any("Listing no longer available" in item.value for item in app.info)
     header = next(c for c in app.get("flex_container") if c.key == "chat-participant-header")
     assert not header.caption

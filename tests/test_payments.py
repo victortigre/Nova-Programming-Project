@@ -25,21 +25,24 @@ def db():
 @pytest.mark.parametrize("iban", [
     TEST_IBAN,
     "pt50 0002 0123 1234 5678 9015 4",       # spaces and small letters are fine
+    "PT50 0000 0000 0000 0000 0000 0",       # made up: fine for the course demo
+    "PT50000201231234567890155",             # a wrong check digit is fine too (no real money)
     "GB82 WEST 1234 5698 7654 32",
     "DE89-3704-0044-0532-0130-00",
 ])
-def test_valid_ibans(iban):
+def test_ibans_with_the_right_shape_are_accepted(iban):
     assert payments.iban_is_valid(iban)
 
 
 @pytest.mark.parametrize("iban", [
-    "PT50000201231234567890155",   # one digit wrong
-    "PT05000201231234567890154",   # two digits swapped
-    "PT50",                        # too short
-    "1234567890123456",            # no country
+    "PT50 0002 0123 1234 5678 9015",         # Portuguese: too short
+    "PT50 0002 0123 1234 5678 9015 45",      # Portuguese: too long
+    "PT50 0002 0123 1234 5678 9015 A",       # Portuguese: only digits
+    "PT50",                                  # too short
+    "1234567890123456",                      # no country
     "",
 ])
-def test_invalid_ibans(iban):
+def test_ibans_with_the_wrong_shape_are_refused(iban):
     assert not payments.iban_is_valid(iban)
 
 
@@ -62,7 +65,7 @@ def test_at_least_one_method_is_needed():
 
 def test_a_wrong_iban_is_refused_even_if_cash_is_accepted_too():
     errors = payments.check_payment_methods(holder="Joana", iban="PT50 1234", cash=True)
-    assert len(errors) == 1 and "isn't valid" in errors[0]
+    assert len(errors) == 1 and "doesn't look like an IBAN" in errors[0]
 
 
 def test_bank_transfer_needs_both_the_name_and_the_iban():

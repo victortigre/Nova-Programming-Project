@@ -76,6 +76,7 @@ CHAT_CSS = """
 [class*="st-key-dm-"] button:disabled { opacity: 1 !important; cursor: not-allowed; }
 [class*="st-key-dm-"] button:focus-visible { outline: 3px solid #A898FF; outline-offset: 2px; }
 [class*="st-key-dm-original-price-"] { padding-top: 8px !important; }
+[class*="st-key-dm-offer-details-"] { padding-top: 8px !important; }
 [class*="st-key-dm-event-"] { gap: 4px !important; }
 /* Received bubbles stay light grey. Only their internal sender name is blue. */
 [class*="st-key-dm-event-other-"] {

@@ -65,11 +65,10 @@ def test_every_offer_and_counteroffer_has_one_bottom_timestamp(ui, actor, sender
     assert final.key == 'chat-time-offer-' + OID
     assert [c.value for c in final.caption] == ['00:30']
     assert sum(c.value == '00:30' for c in card.caption) == 1
-    if status == 'accepted':  # the accepted card: one tag, the listing price crossed out
-        assert any('~~€20.00~~' in h.value for h in card.subheader)
-    else:
+    # Every offer card: the offered price with the listing price crossed out.
+    assert any('~~€20.00~~' in h.value for h in card.subheader)
+    if status != 'accepted':  # the accepted card has one "Offer accepted" tag instead
         assert any(t.value == f'Status: {status.title()}' for t in card.text)
-        assert any(c.value == 'Original listing price: €20.00' for c in card.caption)
     if actor != sender:
         assert card.text[0].value == ROW['other_name']
     buy = [b for b in card.button if b.label == 'Buy Now']
@@ -183,8 +182,7 @@ def test_name_only_header_is_centered_and_preserves_inbox_and_offer_details(ui):
     assert [h.value for h in header.subheader] == [ROW['other_name']]
     assert not header.caption
     assert 'data:image/svg+xml,' in html(app)
-    assert any(c.value == 'Original listing price: €20.00' for c in app.caption)
-    assert any(h.value == '€15.00' for h in app.subheader)
+    assert any(h.value.startswith('€15.00') and '~~€20.00~~' in h.value for h in app.subheader)
     assert any(c.value == 'COUNTEROFFER' or c.value == 'PRICE OFFER' for c in app.caption)
     next(b for b in app.button if b.label == '← Back to Inbox').click().run()
     assert not app.exception

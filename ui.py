@@ -380,7 +380,8 @@ def _badge(item: dict) -> str:
 
 
 def listing_card(item: dict, photo_url: str | None, *, key: str,
-                 saved: bool | None = None, on_heart=None, on_open=None) -> bool:
+                 saved: bool | None = None, on_heart=None, on_open=None,
+                 on_buy=None) -> bool:
     """Show one listing as a card. Returns True when its price button is clicked.
 
     `key` must be different for every card on the page. Leave `saved` as
@@ -389,6 +390,8 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
     `on_open`, when given, is called when the price button is clicked, BEFORE
     the page runs again. That is faster than reacting to the returned True,
     which needs the page to run a second time.
+    With `on_buy`, the card gets a "Buy Now" button that calls it (in the page
+    run, not as a callback, so it may switch pages).
     """
     with card(key):
         if photo_url:
@@ -413,9 +416,14 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
                       on_click=on_heart,
                       help="Remove from saved" if saved else "Save for later")
         with st.container(horizontal_alignment="center"):
-            return st.button(listings.format_price(item["price_cents"]), key=f"price-{key}",
-                             icon=":material/shopping_basket:", help="Open this listing",
-                             on_click=on_open)
+            clicked = st.button(listings.format_price(item["price_cents"]), key=f"price-{key}",
+                                icon=":material/shopping_basket:", help="Open this listing",
+                                on_click=on_open)
+        if on_buy is not None and st.button("Buy Now", key=f"buy-{key}", type="primary",
+                                            width="stretch",
+                                            help="Buy at this price and see how to pay"):
+            on_buy()
+        return clicked
 
 
 def open_on_browse(listing_id: int, **address) -> None:
