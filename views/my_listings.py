@@ -34,6 +34,7 @@ if email is None:
     st.stop()
 
 st.header("My listings")
+st.html('<style>[class*="st-key-my-listing-main-card-"] { background-color: #FFFFFF; }</style>')
 
 if database.get_profile(email) is None:
     st.info("Fill in your profile first. After that you can sell items.")
@@ -139,7 +140,7 @@ def listing_card(listing: dict) -> None:
     has_buyer = any(r["status"] == deals.ACCEPTED for r in live_requests)
     waiting = sum(1 for r in live_requests if r["status"] == deals.REQUESTED)
     price = listing.get("price_cents") or 0
-    with st.container(border=True):
+    with st.container(border=True, key=f"my-listing-main-card-{listing['id']}"):
         photo_col, info_col = st.columns([1, 3])
         if listing["photo_paths"]:
             photo_col.image(database.listing_photo_url(listing["photo_paths"][0]))
