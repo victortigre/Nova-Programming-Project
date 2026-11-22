@@ -84,3 +84,16 @@ def test_confirming_the_payment_on_the_page_marks_it_sold(db):
     assert db.get_request(deal["id"])["status"] == deals.COMPLETED
     assert db.get_listing(bike)["status"] == "sold"
     assert page.success[0].value == "Payment confirmed. The item is marked sold."
+
+
+def test_a_listing_sold_through_the_app_has_no_delete_button(db):
+    sold, kept = listing(db, "Old chair"), listing(db, "Desk lamp")
+    deal = start_purchase(db, sold, "marta@novasbe.pt")
+    finish_purchase(db, deal["id"], "marta@novasbe.pt", SELLER)
+
+    page = AppTest.from_file(PAGE, default_timeout=30).run()
+
+    assert not page.exception
+    keys = [button.key for button in page.button]
+    assert f"delete-{kept}" in keys
+    assert f"delete-{sold}" not in keys

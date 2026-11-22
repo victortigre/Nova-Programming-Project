@@ -67,8 +67,10 @@ def needs_me(request: dict) -> bool:
         request["status"] == deals.ACCEPTED and request.get("paid_at"))
 
 
-def listing_buttons(listing: dict, has_buyer: bool, waiting: int) -> None:
-    """Reserve, Sold, Relist, Edit and Delete. With an accepted buyer: only Edit."""
+def listing_buttons(listing: dict, has_buyer: bool, waiting: int,
+                    sold_in_app: bool = False) -> None:
+    """Reserve, Sold, Relist, Edit and Delete. With an accepted buyer: only Edit.
+    Sold through the app: no Delete, the sale stays as a record for both sides."""
     lid = listing["id"]
     status = listing["status"]
     buttons = st.columns(5)
@@ -91,6 +93,9 @@ def listing_buttons(listing: dict, has_buyer: bool, waiting: int) -> None:
     if buttons[3].button("Edit", key=f"edit-{lid}"):
         st.session_state["edit_listing_id"] = lid
         st.switch_page("views/sell_item.py")
+    # listings.delete_listing refuses this too; here the button is simply not shown.
+    if sold_in_app:
+        return
     with buttons[4].popover("Delete"):
         st.write("Delete this listing for good?")
         if st.button("Yes, delete", key=f"delete-{lid}", type="primary"):
@@ -145,7 +150,8 @@ def listing_card(listing: dict) -> None:
         if listing["status"] == listings.RESERVED:
             info_col.markdown(":orange[**🔒 Reserved**]")
         with info_col:
-            listing_buttons(listing, has_buyer, waiting)
+            listing_buttons(listing, has_buyer, waiting,
+                            sold_in_app=listing["id"] in sale_by_listing)
         for request in live_requests:
             request_row(request, price)
         if listing["id"] in sale_by_listing:
