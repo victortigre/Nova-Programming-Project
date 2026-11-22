@@ -316,5 +316,6 @@ def test_failed_availability_check_keeps_chat_and_recovers(ui, monkeypatch, has_
     assert mocks["send_message"].call_args.args[1] == "Message during outage"
     lookup.side_effect = None
     lookup.return_value = {"status": "active"}
-    click(app, "Refresh chat")
+    app.run()  # There is no Refresh button any more: a normal rerun reloads the chat.
+    assert not app.exception
     assert any(button.label == ("Accept" if has_offer else "Send Offer") for button in app.button)

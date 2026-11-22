@@ -83,8 +83,8 @@ def try_send(pending: dict) -> None:
 @st.fragment
 def show_inbox() -> None:
     messaging_ui.apply_inbox_styles()
-    with st.container(key="inbox-toolbar", horizontal_alignment="right"):
-        st.button("Refresh inbox")
+    # No refresh button: app.py's live_updates reruns the page by itself when
+    # a new message or offer arrives.
     try:
         with st.spinner("Loading conversations…"), repository.checked_once():
             rows = repository.get_inbox(include_photos=True)
@@ -105,9 +105,15 @@ def show_inbox() -> None:
                     with right:
                         with st.container(key=f"inbox-actions-{row['id']}", horizontal_alignment="right"):
                             with st.container(key=f"inbox-time-{row['id']}"):
-                                st.caption(messaging_ui.inbox_timestamp(
-                                    (last.get("activity_at") or last["created_at"])
-                                    if last else row["created_at"]))
+                                # Unread: the time turns violet, with a counter under it.
+                                with st.container(key=(f"inbox-unreadtime-{row['id']}"
+                                                       if row.get("unread") else None)):
+                                    st.caption(messaging_ui.inbox_timestamp(
+                                        (last.get("activity_at") or last["created_at"])
+                                        if last else row["created_at"]))
+                                if row.get("unread"):
+                                    count = row.get("unread_count") or 1
+                                    st.html(f'<span class="inbox-count">{min(count, 99)}</span>')
                             with st.container(horizontal_alignment="right"):
                                 if st.button("Open chat", key=f"chat_{row['id']}", type="secondary"):
                                     st.session_state.messaging_selected = row["id"]
@@ -198,9 +204,7 @@ def show_chat(selected: str) -> None:
                     st.rerun()  # The whole page: it switches back to the inbox.
             with participant:
                 participant_header = st.empty()
-            with refresh:
-                with st.container(horizontal_alignment="right"):
-                    st.button("Refresh chat")
+            # Preserve the empty right column so the participant header stays aligned.
         with st.container(key="chat-header-divider"):
             st.divider()
         limit = st.session_state.get("messaging_history_limit", 50)

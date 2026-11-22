@@ -129,6 +129,13 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
         unread = set(database.messaging_unread_conversations(actor))
     except Exception:
         unread = set()
+    # How many are new, for the violet counter. Optional: if the counting
+    # function isn't in the database yet, an unread chat simply shows "1".
+    try:
+        counts = database.messaging_unread_counts(actor)
+        counts = counts if isinstance(counts, dict) else {}
+    except Exception:
+        counts = {}
     items = database.messaging_inbox(actor)
     # Membership first: nothing about another student is looked up before it.
     for item in items:
@@ -152,7 +159,9 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
     for item in items:
         row = item["conversation"]
         summary = {**row, "other_name": item.get("other_name") or "Profile unavailable",
-                   "own_profile_id": actor, "unread": row["id"] in unread}
+                   "own_profile_id": actor, "unread": row["id"] in unread,
+                   "unread_count": (max(1, int(counts.get(row["id"]) or 0))
+                                    if row["id"] in unread else 0)}
         if include_photos:
             summary["other_photo_url"] = photos.get(other_in(row))
         latest = item.get("last_message")

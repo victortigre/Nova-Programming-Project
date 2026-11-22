@@ -34,7 +34,7 @@ def test_compact_header_shares_toolbar_with_controls_and_white_surface(ui, photo
     toolbar = next(c for c in surface.get('flex_container') if c.key == 'chat-toolbar')
     columns = toolbar.get('column')
     assert columns[0].button[0].label == '← Back to Inbox'
-    assert columns[-1].button[0].label == 'Refresh chat'
+    assert not columns[-1].button
     header = next(c for c in toolbar.get('flex_container') if c.key == 'chat-participant-header')
     assert header.subheader[0].value == ROW['other_name']
     assert not header.caption
@@ -103,7 +103,10 @@ def test_inbox_before_and_after_chat_keeps_list_and_unread_state(ui):
     before = html(app)
     assert '.st-key-open-chat-surface' not in before
     assert app.title[0].value == 'Inbox'
-    assert '<strong>🔵 Test participant</strong>' in before
+    # An unread chat shows its name and a counter of new messages.
+    assert '<strong>Test participant</strong>' in before
+    assert 'inbox-summary inbox-unread' in before
+    assert '<span class="inbox-count">1</span>' in before
     mocks['mark_read'].assert_not_called()
     app.button(key='chat_' + CID).click().run()
     assert not app.exception
@@ -157,7 +160,7 @@ def test_header_text_resets_caption_compensation_for_compact_spacing(ui, name, t
     assert not details.caption
     toolbar = next(c for c in app.get('flex_container') if c.key == 'chat-toolbar')
     assert toolbar.get('column')[0].button[0].label == '← Back to Inbox'
-    assert toolbar.get('column')[-1].button[0].label == 'Refresh chat'
+    assert not toolbar.get('column')[-1].button
 
 
 def test_name_only_header_is_centered_and_preserves_inbox_and_offer_details(ui):
@@ -171,7 +174,7 @@ def test_name_only_header_is_centered_and_preserves_inbox_and_offer_details(ui):
     before = html(app)
     assert ROW['listing_title_snapshot'] in before
     assert 'Offer: €15.00 · Pending' in before
-    assert '🔵' in before
+    assert '<span class="inbox-count">1</span>' in before  # the unread counter
     # The existing Inbox omits asking prices; preserve that, along with offer prices.
     assert '€20.00' not in before
     app.button(key='chat_' + CID).click().run()

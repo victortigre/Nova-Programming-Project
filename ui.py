@@ -259,6 +259,30 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 [class*="st-key-notice-"] .stButton button * {{ color: #FFFFFF !important; }}
 [class*="st-key-notice-"] .stButton button:hover {{ background: #4B32D9; }}
+/* The ✕ that dismisses a notification: small and grey, no button shape. */
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button {{
+    background: transparent !important; border: none !important; box-shadow: none !important;
+    padding: 0 4px !important; min-height: 0 !important; width: auto;
+}}
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button * {{
+    color: #3F4352 !important; font-size: 1rem;
+}}
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover {{
+    background: transparent !important;
+}}
+[class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover * {{
+    color: #1B1B29 !important;
+}}
+/* Page background: a warm grey fade, light at the top, a little deeper below.
+   The landing page (before sign-in) sets its own photo background after this. */
+.stApp {{
+    background: linear-gradient(180deg, #F8F7F5 0%, #ECEAE6 100%);
+    background-attachment: fixed;
+}}
+/* The top bar (logo and menu) stays put while the page scrolls under it, so it
+   needs a solid colour: the top colour of the fade, with a thin line below. */
+[data-testid="stHeader"] {{ background: #F8F7F5; border-bottom: 1px solid #ECEAE6; }}
+@media (max-width: 640px) {{ .stApp {{ background-attachment: scroll; }} }}
 </style>
 """
 
@@ -349,15 +373,19 @@ def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
         if on_dismiss is None:
             words, button = st.columns([4, 1.3], vertical_alignment="center")
         else:
-            words, button, close = st.columns([4, 1.3, 0.5], vertical_alignment="center")
-            close.button("✕", key=f"notice-dismiss-{key}", on_click=on_dismiss, args=(key,),
+            # Narrow last column: the button and the ✕ sit at the right edge.
+            words, button, close = st.columns([6, 1.4, 0.22], vertical_alignment="center",
+                                              gap="small")
+            # Keys start "noticeclose-"/"noticeopen-", not "notice-": the card's
+            # own style (border, shadow) must not be copied onto these buttons.
+            close.button("✕", key=f"noticeclose-{key}", on_click=on_dismiss, args=(key,),
                          help="Dismiss this notification")
         words.html(f'<div class="nm-notice"><div class="nm-notice-icon">{emoji}</div>'
                    f'<div><div class="nm-notice-title">{title}</div>'
                    f'<div class="nm-notice-text">{text}</div></div></div>')
         if open_chat is None:
             button.page_link(page, label=label, icon=":material/arrow_forward:")
-        elif button.button(label, key=f"notice-open-{key}", icon=":material/arrow_forward:"):
+        elif button.button(label, key=f"noticeopen-{key}", icon=":material/arrow_forward:"):
             st.session_state.messaging_selected = open_chat
             st.session_state.messaging_history_limit = 50
             st.switch_page(page)

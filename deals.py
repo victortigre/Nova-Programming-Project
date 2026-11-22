@@ -471,3 +471,31 @@ def to_do(db, email: str) -> dict[str, int]:
     answer = sum(1 for r in live["selling"] if r["status"] == REQUESTED)
     return {"pay": pay, "check_payment": check, "answer": answer,
             "sales": check + answer, "purchases": pay}
+
+
+def waiting_on_me(db, email: str) -> dict[str, list[dict]]:
+    """The deals behind to_do's "pay" and "check_payment", with names, for the
+    notifications on Browse ("Maria says she paid you €20.00").
+
+        pay            [{"request_id", "seller_name", "title", "price_cents", "cash"}]
+        check_payment  [{"request_id", "buyer_name", "title", "price_cents", "cash", "paid"}]
+    """
+    me = _profile(db, email)
+    live = db.live_deals_of(me["id"])
+    selling = [r for r in live["selling"]
+               if r["status"] == ACCEPTED and (r.get("paid_at") or paying_cash(r))]
+    buying = [r for r in live["buying"] if r["status"] == ACCEPTED and not r.get("paid_at")]
+    listings_of = {r["id"]: (r.get("listings") or db.get_listing(r["listing_id"]) or {})
+                   for r in selling + buying}
+    names = db.names_of([r["buyer_id"] for r in selling]
+                        + [listings_of[r["id"]].get("seller_id") for r in buying])
+    check = [{"request_id": r["id"], "buyer_name": names.get(r["buyer_id"], "A student"),
+              "title": listings_of[r["id"]].get("title", "your item"),
+              "price_cents": price_of(r, listings_of[r["id"]]),
+              "cash": paying_cash(r), "paid": bool(r.get("paid_at"))} for r in selling]
+    pay = [{"request_id": r["id"],
+            "seller_name": names.get(listings_of[r["id"]].get("seller_id"), "the seller"),
+            "title": listings_of[r["id"]].get("title", "an item"),
+            "price_cents": price_of(r, listings_of[r["id"]]),
+            "cash": paying_cash(r)} for r in buying]
+    return {"pay": pay, "check_payment": check}
