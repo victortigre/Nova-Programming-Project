@@ -83,8 +83,8 @@ def try_send(pending: dict) -> None:
 @st.fragment
 def show_inbox() -> None:
     messaging_ui.apply_inbox_styles()
-    with st.container(key="inbox-toolbar", horizontal_alignment="right"):
-        st.button("Refresh inbox")
+    # No refresh button: app.py's live_updates reruns the page by itself when
+    # a new message or offer arrives.
     try:
         with st.spinner("Loading conversations…"), repository.checked_once():
             rows = repository.get_inbox(include_photos=True)
