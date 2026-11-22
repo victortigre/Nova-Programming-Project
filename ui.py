@@ -265,13 +265,13 @@ button[data-variant="pills"][data-selected="true"] p {{
     padding: 0 4px !important; min-height: 0 !important; width: auto;
 }}
 [class*="st-key-notice-"] [class*="st-key-noticeclose-"] button * {{
-    color: #A3A8B6 !important; font-size: 0.95rem;
+    color: #3F4352 !important; font-size: 1rem;
 }}
 [class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover {{
     background: transparent !important;
 }}
 [class*="st-key-notice-"] [class*="st-key-noticeclose-"] button:hover * {{
-    color: #5C5C70 !important;
+    color: #1B1B29 !important;
 }}
 </style>
 """
@@ -363,7 +363,9 @@ def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
         if on_dismiss is None:
             words, button = st.columns([4, 1.3], vertical_alignment="center")
         else:
-            words, button, close = st.columns([4, 1.3, 0.5], vertical_alignment="center")
+            # Narrow last column: the button and the ✕ sit at the right edge.
+            words, button, close = st.columns([6, 1.4, 0.22], vertical_alignment="center",
+                                              gap="small")
             # Keys start "noticeclose-"/"noticeopen-", not "notice-": the card's
             # own style (border, shadow) must not be copied onto these buttons.
             close.button("✕", key=f"noticeclose-{key}", on_click=on_dismiss, args=(key,),
