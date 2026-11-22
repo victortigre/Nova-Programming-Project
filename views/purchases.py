@@ -23,6 +23,7 @@ if email is None:
     st.stop()
 
 st.header("My purchases")
+st.html('<style>[class*="st-key-purchase-main-card-"] { background-color: #FFFFFF; }</style>')
 
 if database.get_profile(email) is None:
     st.info("Fill in your profile first. After that you can buy items.")
@@ -92,7 +93,7 @@ def show_deal(deal: dict) -> None:
     listing = deal["listing"] or {}
     request_id = deal["id"]
     status = deal["status"]
-    with st.container(border=True):
+    with st.container(border=True, key=f"purchase-main-card-{request_id}"):
         title = listings.plain_text(listing.get("title", "(this listing was removed)"))
         st.markdown(f"**{title}** · {listings.format_price(deals.price_of(deal, listing))}")
         # The name came along with the deals (deals.my_purchases), so showing
