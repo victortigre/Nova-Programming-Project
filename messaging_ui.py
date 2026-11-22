@@ -236,6 +236,8 @@ INBOX_CSS = """
 /* Unread chat: the last message dark and bold, the time violet, and a violet
    counter with how many are new (like WhatsApp). */
 .st-key-inbox-list .inbox-unread .inbox-preview { color: #1B1B29; font-weight: 600; }
+/* ...and a violet ring round the photo, with a thin white gap so it stands out. */
+.st-key-inbox-list .inbox-unread .inbox-avatar { box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #5F47F5; }
 .st-key-inbox-list [class*="st-key-inbox-unreadtime-"] p { color: #5F47F5 !important; font-weight: 600; }
 .st-key-inbox-list .inbox-count {
     display: inline-flex; align-items: center; justify-content: center;
