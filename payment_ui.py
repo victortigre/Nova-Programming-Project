@@ -57,8 +57,6 @@ def _how_to_pay(details: dict) -> None:
             for caption, value in method["details"]:
                 st.caption(caption)
                 st.code(value, language=None)
-        st.caption("Reference (write it in the payment, if the app lets you)")
-        st.code(details["reference"], language=None)
 
 
 def buyer_box(deal: dict, email: str, where: str) -> None:
@@ -131,11 +129,10 @@ def seller_box(deal: dict, email: str, where: str, buyer_name: str = "The buyer"
         return
     if status != deals.ACCEPTED:
         return
-    reference = f"Nova Marketplace #{rid}"
     if deal.get("paid_at"):
         method = _label(deal.get("payment_method"))
         st.warning(f"**{buyer_name} says they paid {_price(deal)} with {method}.** Check that "
-                   f"it arrived (reference “{reference}”) and confirm.",
+                   "it arrived and confirm.",
                    icon=":material/account_balance:")
         columns = st.columns(2)
         if columns[0].button("Payment received", key=f"{where}-received-{rid}",

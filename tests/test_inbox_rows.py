@@ -38,9 +38,9 @@ def test_compact_rows_keep_actions_refresh_and_no_asking_price(ui):
             assert not left.button
             assert right.button[0].label == 'Open chat'
             assert right.caption
-    refresh = next(c for c in containers if c.key == 'inbox-toolbar')
-    refresh.button[0].click().run()
-    assert mocks['get_inbox'].call_count == 2
+    # No "Refresh inbox" button: the page updates by itself (app.py, live_updates).
+    assert not any(c.key == 'inbox-toolbar' for c in containers)
+    assert not any(b.label == 'Refresh inbox' for b in app.button)
     app.button(key='chat_' + CID).click().run()
     assert app.chat_input and not app.exception
 
