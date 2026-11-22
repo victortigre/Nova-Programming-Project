@@ -117,8 +117,8 @@ def remove_listing(db, admin_email: str, report_id: int) -> None:
     #    failed, the report would be closed while the listing is still there.
     # 2. Delete the photos last. If that step fails, only some unused files
     #    stay behind; nobody sees a listing with missing photos.
-    # 0. Call off the live deals on it first, so a buyer's held credits go back
-    #    to them (deleting the listing also deletes its deals).
+    # 0. Call off the live deals on it first, so their buyers see the purchase
+    #    was cancelled (deleting the listing also deletes its deals).
     for request in db.requests_for_listing(listing["id"], list(deals.LIVE)):
         deals._call_off(db, request, listing)
     db.admin_delete_listing(listing["id"])

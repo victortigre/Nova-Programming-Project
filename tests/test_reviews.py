@@ -7,6 +7,7 @@ Run them with:  pytest
 import pytest
 
 import deals
+from deal_helpers import finish_purchase, start_purchase
 import reviews
 from fake_database import FakeDatabase
 from listings import ListingError, NotAllowed
@@ -27,11 +28,9 @@ def db():
 
 def a_deal(db, complete=True) -> int:
     listing = db.add_listing(db.get_profile(SELLER)["id"])
-    request = deals.request_to_buy(db, listing["id"], BUYER)
-    deals.accept_request(db, request["id"], SELLER)
+    request = start_purchase(db, listing["id"], BUYER)
     if complete:
-        deals.confirm_sold(db, request["id"], SELLER)
-        deals.confirm_received(db, request["id"], BUYER)
+        finish_purchase(db, request["id"], BUYER, SELLER)
     return request["id"]
 
 

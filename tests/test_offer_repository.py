@@ -183,8 +183,8 @@ def test_offer_history_transport_scopes_and_paginates(context):
 @pytest.mark.parametrize("action", ["accept_offer", "decline_offer"])
 def test_offer_response_never_charges_reserves_or_creates_purchase(context, monkeypatch, action):
     writes = []
-    for name in ("wallet_hold", "wallet_settle", "wallet_add_entry", "insert_request", "update_request", "update_listing"):
-        mock = MagicMock(side_effect=AssertionError("Offer response must not change purchases or credits"))
+    for name in ("insert_request", "update_request", "update_listing"):
+        mock = MagicMock(side_effect=AssertionError("Offer response must not change purchases"))
         monkeypatch.setattr(database, name, mock)
         writes.append(mock)
     getattr(repo, action)(CID, OID, OP)

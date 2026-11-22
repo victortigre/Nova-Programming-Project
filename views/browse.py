@@ -20,7 +20,6 @@ import messaging_repository
 import messaging_ui
 import offer_ui
 import ui
-import wallet
 from accounts import logged_in_user, verified_nova_email
 from profiles import DONE, onboarding_step
 
@@ -164,12 +163,10 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                if item["status"] == listings.ACTIVE and item["price_cents"]:
-                    try:
-                        st.caption(f"Your Nova credits: "
-                                   f"{wallet.euros(wallet.my_balance(database, email))}")
-                    except Exception:  # credits aren't set up in the database yet
-                        pass
+                if item["status"] == listings.ACTIVE:
+                    st.caption("How to buy: make an offer (or offer the listed price) and "
+                               "agree in the chat. Then tap **Buy Now** in the chat and pay "
+                               "the seller by bank transfer.")
                 can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
                                and seller and not seller.get("blocked_at")
                                and onboarding_step(seller) == DONE)
@@ -199,21 +196,7 @@ if viewing is not None:
                                 st.session_state["messaging_selected"] = conversation["id"]
                                 st.session_state["messaging_history_limit"] = 50
                                 st.switch_page("views/messaging.py")
-                    if item["status"] == listings.ACTIVE:
-                        if st.button("Request to Purchase", key=f"buy-{item['id']}",
-                                     type="primary", icon=":material/shopping_bag:", width="stretch"):
-                            try:
-                                deals.request_to_buy(database, item["id"], email)
-                                st.session_state["deal_message"] = (
-                                    "Request sent! Track it in My purchases.")
-                            except (deals.ListingError, deals.NotAllowed, deals.NotFound) as exc:
-                                st.session_state["deal_error"] = (
-                                    exc.errors[0] if isinstance(exc, deals.ListingError) else str(exc))
-                            except Exception:
-                                st.session_state["deal_error"] = (
-                                    "Buying isn't set up yet. Please try again later.")
-                            st.rerun()
-                    elif item["status"] == listings.RESERVED:
+                    if item["status"] == listings.RESERVED:
                         st.caption("This item is reserved for another buyer.")
                     if (can_contact and item["status"] == listings.ACTIVE
                             and st.session_state.get("messaging_offer_browse") == item["id"]):
@@ -265,7 +248,7 @@ def plural(count: int, one: str, many: str) -> str:
 try:
     to_do = deals.to_do(database, email)
 except Exception:  # buying isn't set up in the database yet
-    to_do = {"answer": 0, "confirm_received": 0}
+    to_do = {"answer": 0, "pay": 0, "check_payment": 0}
 SALES, PURCHASES = "views/my_listings.py", "views/purchases.py"
 
 # Offers and counteroffers waiting for an answer (Inbox). Empty if messaging
@@ -279,11 +262,18 @@ except Exception:
 # part of each key, so a card that was dismissed comes back when there is new
 # activity (another buyer, a new offer).
 notices = []
-if to_do["answer"]:
+if to_do.get("check_payment"):
+    notices.append(dict(
+        key=f"check-payment-{to_do['check_payment']}", emoji="💶",
+        title=f"{plural(to_do['check_payment'], 'buyer says', 'buyers say')} they paid you",
+        text="Check your bank account, then confirm the payment on My listings.",
+        page=SALES, label="Confirm"))
+if to_do.get("answer"):
     notices.append(dict(
         key=f"answer-{to_do['answer']}", emoji="🛍️",
-        title=f"{plural(to_do['answer'], 'buyer wants', 'buyers want')} to buy your items",
-        text="Accept or decline the request on My listings.", page=SALES, label="Answer"))
+        title=f"{plural(to_do['answer'], 'old request', 'old requests')} to buy your items",
+        text="Buying now works through the chat. Decline these on My listings.",
+        page=SALES, label="Open"))
 for item in offers_waiting:
     kind = "a counteroffer" if item["counter"] else "an offer"
     notices.append(dict(
@@ -293,12 +283,12 @@ for item in offers_waiting:
         text=f"For {html.escape(item['listing_title'])}. "
              "Accept, decline or counter in your Inbox.",
         page="views/messaging.py", label="See offer", open_chat=item["conversation_id"]))
-if to_do["confirm_received"]:
+if to_do.get("pay"):
     notices.append(dict(
-        key=f"confirm-received-{to_do['confirm_received']}", emoji="🤝",
-        title=f"{plural(to_do['confirm_received'], 'seller', 'sellers')} accepted your request",
-        text="Meet them, then confirm you got the item.", page=PURCHASES, label="Open",
-        tone="green"))
+        key=f"pay-{to_do['pay']}", emoji="🏦",
+        title=f"You have {plural(to_do['pay'], 'item', 'items')} to pay for",
+        text="Pay by bank transfer within 48 hours, then tap “I've paid”.",
+        page=PURCHASES, label="Pay", tone="green"))
 
 # Dismissals last for this session only; the task itself is unchanged.
 dismissed = st.session_state.setdefault("dismissed_notices", set())

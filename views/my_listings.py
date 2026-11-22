@@ -4,14 +4,14 @@ Your own listings are grouped as Active, Reserved and Sold. Each listing is one
 card, and everything about it happens inside that card:
 
 - the listing itself: edit, mark as reserved, mark as sold, relist or delete
-- buyers who asked through the app: accept or decline, and once you've met the
-  buyer, confirm the hand-over (or cancel the deal before that)
+- a buyer who tapped Buy Now in the chat: wait for their bank transfer, then
+  confirm the payment arrived (or say it didn't, or cancel the sale)
 - after the sale: who bought it, and rating that buyer
 
 Every button calls a function in listings.py, deals.py or reviews.py, which
 checks again that you are the seller before changing anything.
 
-Once a buyer was accepted through the app, that deal decides the status: the
+Once a buyer tapped Buy Now, that deal decides the status: the
 Reserve, Sold, Relist and Delete buttons are hidden until the deal is confirmed
 or cancelled (listings.py refuses them too).
 """
@@ -21,6 +21,7 @@ import streamlit as st
 import database
 import deals
 import listings
+import payment_ui
 import reviews
 import ui
 from accounts import logged_in_user, verified_nova_email
@@ -41,6 +42,7 @@ if database.get_profile(email) is None:
 # A message from the last button press survives the page reload.
 if "listing_message" in st.session_state:
     st.success(st.session_state.pop("listing_message"))
+payment_ui.show_message()
 
 
 def run(action, item_id: int, done_message: str, *extra) -> None:
@@ -60,7 +62,8 @@ def run(action, item_id: int, done_message: str, *extra) -> None:
 
 def needs_me(request: dict) -> bool:
     """Is this request waiting for the seller? The same rule as the number in the menu."""
-    return request["status"] == deals.REQUESTED
+    return request["status"] == deals.REQUESTED or bool(
+        request["status"] == deals.ACCEPTED and request.get("paid_at"))
 
 
 def listing_buttons(listing: dict, has_buyer: bool, waiting: int) -> None:
@@ -94,41 +97,19 @@ def listing_buttons(listing: dict, has_buyer: bool, waiting: int) -> None:
 
 
 def request_row(request: dict, price: int) -> None:
-    """One buyer who asked for this listing, with the buttons for that deal."""
+    """One buyer of this listing, with the payment box for that deal."""
     rid = request["id"]
     st.divider()
-    st.write(f"**{listings.plain_text(request['buyer_name'])}** wants to buy this.")
     if request["status"] == deals.REQUESTED:
-        columns = st.columns(2)
-        if columns[0].button("Accept", key=f"accept-{rid}", type="primary"):
-            run(deals.accept_request, rid, "Accepted. The item is now reserved for this buyer.")
-        if columns[1].button("Decline", key=f"decline-{rid}"):
+        # An old "Request to buy" from before Buy Now: it can only be declined.
+        st.write(f"**{listings.plain_text(request['buyer_name'])}** asked to buy this "
+                 "(old request). Buying now works through the chat.")
+        if st.button("Decline", key=f"decline-{rid}"):
             run(deals.decline_request, rid, "Request declined.")
         return
-    # Accepted: the item is reserved for this buyer. The buyer's confirmation
-    # finishes the deal; the seller doesn't have to do anything.
-    if price:
-        st.caption(f"{listings.format_price(price)} is held from the buyer's credits. "
-                   "You get it as soon as they confirm they received the item.")
-    if request["seller_confirmed_at"]:
-        st.markdown(":orange[Handed over. Waiting for the buyer to confirm…]")
-        if price and (due := deals.due_text(request)):
-            st.caption(f"If the buyer doesn't answer, you get "
-                       f"{listings.format_price(price)} automatically on {due}.")
-    else:
-        st.markdown(":green[Reserved for this buyer. Meet them and hand it over. "
-                    "Once they confirm, it's sold.]")
-        if st.button("I handed it over", key=f"handed-{rid}",
-                     help="Optional. If the buyer forgets to confirm, you are paid "
-                          "automatically 48 hours after this."):
-            run(deals.confirm_sold, rid,
-                "Noted. If the buyer doesn't confirm within 48 hours, you're paid "
-                "automatically.")
-    # Cancelling is only possible before the hand-over.
-    if (not request["seller_confirmed_at"]
-            and st.button("Cancel deal", key=f"cancel-{rid}")):
-        run(deals.cancel_deal, rid, "Deal cancelled. The item is active again"
-            + (" and the buyer got their credits back." if price else "."))
+    st.write(f"**{listings.plain_text(request['buyer_name'])}** is buying this.")
+    payment_ui.seller_box(request, email, where="mylistings",
+                          buyer_name=request["buyer_name"])
 
 
 def sale_row(sale: dict) -> None:

@@ -14,6 +14,9 @@ from uuid import uuid4
 import streamlit as st
 from streamlit.errors import StreamlitAPIException
 
+import database
+import deals
+import payment_ui
 from accounts import logged_in_user, verified_nova_email
 from messaging import MAX_MESSAGE_LENGTH
 from listings import format_price
@@ -160,6 +163,13 @@ def show_chat(selected: str) -> None:
         elif len(history) == 100:
             st.caption("Showing the latest 100 chat events.")
         current = latest_offers[0] if latest_offers else None
+        # A purchase started from this chat with Buy Now (deals.py), if any.
+        try:
+            deal = deals.deal_in_chat(database, email, selected)
+        except Exception:  # buying isn't set up in the database yet
+            deal = None
+        live_deal = deal is not None and deal["status"] in (deals.ACCEPTED, deals.COMPLETED)
+        payment_ui.show_message()
         for message, separator, show_avatar in messaging_ui.chat_event_groups(history):
             if separator:
                 messaging_ui.date_separator(separator)
@@ -177,11 +187,31 @@ def show_chat(selected: str) -> None:
                         st.text(message["note"])
                     if accepted:
                         st.text(messaging_ui.accepted_offer_description(message, row))
+                        is_current = current is not None and current["id"] == message["id"]
                         if row["own_profile_id"] == row["buyer_id"]:
-                            # Presentation only. No checkout callback or purchase write.
-                            st.button("Buy Now", key=f"buy_now_{message['id']}",
-                                      type="primary", disabled=True, width="stretch")
-                        st.caption("Accepting this offer does not reserve or pay for the item.")
+                            # Buy Now starts the purchase at this price (deals.buy_now
+                            # checks everything again) and shows where to pay below.
+                            can_buy = is_current and negotiation_available and not live_deal
+                            if st.button("Buy Now", key=f"buy_now_{message['id']}",
+                                         type="primary", disabled=not can_buy, width="stretch"):
+                                try:
+                                    deals.buy_now(database, email, selected)
+                                except deals.ListingError as exc:
+                                    st.error(" ".join(exc.errors))
+                                except (deals.NotAllowed, deals.NotFound) as exc:
+                                    st.error(str(exc))
+                                except Exception:
+                                    st.error("Buying isn't available right now. "
+                                             "Please try again later.")
+                                else:
+                                    st.session_state["payment_message"] = (
+                                        "Reserved for you! Pay by bank transfer within 48 hours.")
+                                    st.rerun()
+                        if live_deal and is_current:
+                            st.caption("The purchase has started: see the payment below.")
+                        else:
+                            st.caption("Tap Buy Now to reserve it and see where to pay "
+                                       "(bank transfer, within 48 hours).")
                     if (current and current["id"] == message["id"] and message["status"] == "pending"
                             and not own and negotiation_available):
                         offer_ui.response_buttons(selected, message)
@@ -189,6 +219,15 @@ def show_chat(selected: str) -> None:
                 else:
                     st.text(message["body"])
                     messaging_ui.chat_timestamp(message)
+        # The payment of this chat's purchase: where to pay, and each side's buttons.
+        if live_deal:
+            with st.container(border=True, key=f"chat-payment-{deal['id']}"):
+                st.markdown("**Payment**")
+                if row["own_profile_id"] == row["buyer_id"]:
+                    payment_ui.buyer_box(deal, email, where="chat")
+                else:
+                    payment_ui.seller_box(deal, email, where="chat",
+                                          buyer_name=row["other_name"])
         if (row["own_profile_id"] == row["buyer_id"] and negotiation_available
                 and (not current or current["status"] == "declined")):
             with st.expander("Make an Offer"):

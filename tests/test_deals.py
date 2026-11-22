@@ -1,11 +1,17 @@
-"""Tests for the buying flow (deals.py): request -> accept -> both confirm -> sold,
-plus decline, cancel, and the permission checks. Uses the in-memory fake database,
-so the real Supabase is never touched.  Run them with:  pytest
+"""Tests for buying by bank transfer (deals.py): Buy Now in a chat -> the buyer
+pays and says so -> the seller confirms -> sold. Plus the 48 hours to pay,
+"not received yet", cancelling and the permission checks.
+
+Uses the in-memory fake database, so the real Supabase is never touched.
+Run them with:  pytest
 """
+
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 import deals
+from deal_helpers import TEST_IBAN, finish_purchase, give_bank_details, start_purchase
 from deals import ACCEPTED, CANCELLED, COMPLETED, DECLINED, REQUESTED
 from fake_database import FakeDatabase
 from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound
@@ -24,250 +30,290 @@ def db():
     return db
 
 
+def pid(db, email):
+    return db.get_profile(email)["id"]
+
+
 def a_listing(db):
-    seller_id = db.get_profile(SELLER)["id"]
-    return db.add_listing(seller_id, "Desk lamp")
+    return db.add_listing(pid(db, SELLER), "Desk lamp")["id"]
 
 
-# --- request ------------------------------------------------------------------
-def test_request_to_buy_creates_a_request(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
-    assert req["status"] == REQUESTED
-    assert req["seller_confirmed_at"] is None and req["buyer_confirmed_at"] is None
+def a_chat(db, listing_id, buyer=BUYER, offer_status="accepted", amount=1500, chat_id="c1"):
+    db.add_chat(chat_id, listing_id, pid(db, buyer), pid(db, SELLER))
+    db.add_offer(chat_id, pid(db, buyer), amount, status=offer_status)
+    return chat_id
 
 
-def test_cannot_buy_your_own_listing(db):
-    lid = a_listing(db)["id"]
-    with pytest.raises(NotAllowed):
-        deals.request_to_buy(db, lid, SELLER)
+# --- 1. Buy Now --------------------------------------------------------------------
+
+def test_buy_now_reserves_at_the_agreed_price_with_48_hours_to_pay(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    deal = deals.buy_now(db, BUYER, a_chat(db, lid, amount=1500))
+    assert deal["status"] == ACCEPTED and deal["agreed_price_cents"] == 1500
+    assert db.get_listing(lid)["status"] == RESERVED
+    due = deals.pay_due(deal)
+    expected = datetime.now(timezone.utc) + timedelta(hours=48)
+    assert abs((due - expected).total_seconds()) < 60
 
 
-def test_cannot_request_twice(db):
-    lid = a_listing(db)["id"]
-    deals.request_to_buy(db, lid, BUYER)
+def test_buy_now_needs_an_accepted_offer(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    for status in ("pending", "declined"):
+        chat = a_chat(db, lid, offer_status=status, chat_id=f"c-{status}")
+        with pytest.raises(ListingError, match="Agree a price"):
+            deals.buy_now(db, BUYER, chat)
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+def test_buy_now_needs_the_sellers_bank_details(db):
+    lid = a_listing(db)
+    with pytest.raises(ListingError, match="bank details"):
+        deals.buy_now(db, BUYER, a_chat(db, lid))
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+def test_only_the_buyer_of_the_chat_can_buy_now(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    chat = a_chat(db, lid)
+    for who in (SELLER, OTHER):
+        with pytest.raises(NotAllowed):
+            deals.buy_now(db, who, chat)
+
+
+def test_a_reserved_or_sold_item_cannot_be_bought(db):
+    lid = a_listing(db)
+    start_purchase(db, lid, BUYER)
+    with pytest.raises(ListingError, match="reserved"):
+        deals.buy_now(db, OTHER, a_chat(db, lid, buyer=OTHER, chat_id="c2"))
+    db.listings[lid]["status"] = SOLD
+    with pytest.raises(ListingError, match="sold"):
+        deals.buy_now(db, OTHER, a_chat(db, lid, buyer=OTHER, chat_id="c3"))
+
+
+def test_buy_now_twice_starts_one_deal(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    chat = a_chat(db, lid)
+    deals.buy_now(db, BUYER, chat)
     with pytest.raises(ListingError):
-        deals.request_to_buy(db, lid, BUYER)
+        deals.buy_now(db, BUYER, chat)
+    assert len(db.requests) == 1
 
 
-def test_request_on_missing_listing_is_not_found(db):
+# --- where to pay ----------------------------------------------------------------------
+
+def test_the_buyer_sees_the_sellers_bank_details(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER, price_cents=4500)
+    details = deals.payment_details(db, deal["id"], BUYER)
+    assert details["holder"] == "Test Seller"
+    assert details["iban"].replace(" ", "") == TEST_IBAN
+    assert details["amount_cents"] == 4500
+    assert details["reference"] == f"Nova Marketplace #{deal['id']}"
+
+
+def test_nobody_else_sees_the_bank_details(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    with pytest.raises(NotAllowed):
+        deals.payment_details(db, deal["id"], OTHER)
+
+
+def test_the_deal_is_found_from_its_chat_by_both_sides_only(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    chat = a_chat(db, lid)
+    assert deals.deal_in_chat(db, BUYER, chat) is None
+    deal = deals.buy_now(db, BUYER, chat)
+    assert deals.deal_in_chat(db, BUYER, chat)["id"] == deal["id"]
+    assert deals.deal_in_chat(db, SELLER, chat)["id"] == deal["id"]
+    assert deals.deal_in_chat(db, OTHER, chat) is None
+
+
+# --- 2 + 3. pay, then the seller confirms ------------------------------------------------
+
+def test_paid_and_confirmed_marks_it_sold(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    assert db.get_request(deal["id"])["status"] == ACCEPTED  # not yet: the seller checks
+    deals.confirm_payment(db, deal["id"], SELLER)
+    assert db.get_request(deal["id"])["status"] == COMPLETED
+    assert db.get_listing(lid)["status"] == SOLD
+
+
+def test_the_seller_cannot_confirm_before_the_buyer_paid(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    with pytest.raises(ListingError, match="hasn't said they paid"):
+        deals.confirm_payment(db, deal["id"], SELLER)
+
+
+def test_only_the_buyer_says_paid_and_only_the_seller_confirms(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    for who in (SELLER, OTHER):
+        with pytest.raises(NotAllowed):
+            deals.mark_paid(db, deal["id"], who)
+    deals.mark_paid(db, deal["id"], BUYER)
+    for who in (BUYER, OTHER):
+        with pytest.raises(NotAllowed):
+            deals.confirm_payment(db, deal["id"], who)
+        with pytest.raises(NotAllowed):
+            deals.payment_not_received(db, deal["id"], who)
+
+
+def test_not_received_sends_it_back_to_the_buyer(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    deals.payment_not_received(db, deal["id"], SELLER)
+    fresh = db.get_request(deal["id"])
+    assert fresh["paid_at"] is None and fresh["payment_missing_at"]
+    assert fresh["status"] == ACCEPTED and db.get_listing(lid)["status"] == RESERVED
+    deals.mark_paid(db, deal["id"], BUYER)  # the buyer checks and says it again
+    deals.confirm_payment(db, deal["id"], SELLER)
+    assert db.get_listing(lid)["status"] == SOLD
+
+
+def test_saying_paid_twice_is_refused(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    with pytest.raises(ListingError, match="already said"):
+        deals.mark_paid(db, deal["id"], BUYER)
+
+
+# --- the 48 hours to pay ----------------------------------------------------------------
+
+def overdue(db, request_id, hours=49):
+    db.requests[request_id]["pay_by"] = (
+        datetime.now(timezone.utc) - timedelta(hours=hours - 48)).isoformat()
+
+
+def test_unpaid_after_48_hours_is_cancelled_and_back_on_sale(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER)
+    overdue(db, deal["id"])
+    deals.to_do(db, SELLER)  # opening any page runs the check
+    assert db.get_request(deal["id"])["status"] == CANCELLED
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+def test_not_cancelled_before_the_48_hours(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    later = datetime.now(timezone.utc) + timedelta(hours=47)
+    assert deals.cancel_overdue(db, BUYER, now=later) == 0
+    assert db.get_request(deal["id"])["status"] == ACCEPTED
+
+
+def test_once_the_buyer_said_paid_there_is_no_automatic_cancel(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    much_later = datetime.now(timezone.utc) + timedelta(days=30)
+    assert deals.cancel_overdue(db, BUYER, now=much_later) == 0
+    assert db.get_request(deal["id"])["status"] == ACCEPTED
+
+
+def test_after_not_received_there_is_no_automatic_cancel(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    deals.payment_not_received(db, deal["id"], SELLER)
+    overdue(db, deal["id"])
+    assert deals.cancel_overdue(db, SELLER) == 0
+
+
+def test_paying_after_the_48_hours_is_refused(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    overdue(db, deal["id"])
+    with pytest.raises(ListingError, match="48 hours"):
+        deals.mark_paid(db, deal["id"], BUYER)
+
+
+# --- cancelling -------------------------------------------------------------------------
+
+@pytest.mark.parametrize("who", [BUYER, SELLER])
+def test_either_side_can_cancel_before_paying(db, who):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER)
+    deals.cancel_deal(db, deal["id"], who)
+    assert db.get_request(deal["id"])["status"] == CANCELLED
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+@pytest.mark.parametrize("who", [BUYER, SELLER])
+def test_nobody_can_cancel_while_the_seller_checks_the_payment(db, who):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    with pytest.raises(ListingError, match="says they paid"):
+        deals.cancel_deal(db, deal["id"], who)
+
+
+def test_after_not_received_only_the_seller_can_cancel(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER)
+    deals.mark_paid(db, deal["id"], BUYER)
+    deals.payment_not_received(db, deal["id"], SELLER)
+    with pytest.raises(ListingError, match="didn't arrive"):
+        deals.cancel_deal(db, deal["id"], BUYER)
+    deals.cancel_deal(db, deal["id"], SELLER)
+    assert db.get_listing(lid)["status"] == ACTIVE
+
+
+def test_strangers_cannot_cancel_and_finished_deals_stay_finished(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    with pytest.raises(NotAllowed):
+        deals.cancel_deal(db, deal["id"], OTHER)
+    finish_purchase(db, deal["id"], BUYER, SELLER)
+    for who in (BUYER, SELLER):
+        with pytest.raises(ListingError):
+            deals.cancel_deal(db, deal["id"], who)
+
+
+def test_missing_deal_is_not_found(db):
     with pytest.raises(NotFound):
-        deals.request_to_buy(db, 999, BUYER)
+        deals.mark_paid(db, 999, BUYER)
+    with pytest.raises(NotFound):
+        deals.cancel_deal(db, 999, BUYER)
 
 
-# --- accept -------------------------------------------------------------------
-def test_accept_reserves_the_listing_and_declines_others(db):
-    listing = a_listing(db)
-    lid = listing["id"]
-    mine = deals.request_to_buy(db, lid, BUYER)
-    other = deals.request_to_buy(db, lid, OTHER)
-    deals.accept_request(db, mine["id"], SELLER)
+# --- old "Request to buy" requests -------------------------------------------------------
 
-    assert db.get_listing(lid)["status"] == RESERVED
-    assert db.get_request(mine["id"])["status"] == ACCEPTED
-    assert db.get_request(other["id"])["status"] == DECLINED
-
-
-def test_only_the_seller_can_accept(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
+def test_an_old_waiting_request_can_be_declined(db):
+    lid = a_listing(db)
+    old = db.insert_request({"listing_id": lid, "buyer_id": pid(db, BUYER)})
+    assert old["status"] == REQUESTED
     with pytest.raises(NotAllowed):
-        deals.accept_request(db, req["id"], OTHER)
+        deals.decline_request(db, old["id"], OTHER)
+    deals.decline_request(db, old["id"], SELLER)
+    assert db.get_request(old["id"])["status"] == DECLINED
 
 
-# --- the two confirmations ----------------------------------------------------
-def _accepted_deal(db):
-    listing = a_listing(db)
-    req = deals.request_to_buy(db, listing["id"], BUYER)
-    deals.accept_request(db, req["id"], SELLER)
-    return listing["id"], req["id"]
+# --- lists and counts ---------------------------------------------------------------------
 
-
-def test_one_confirmation_alone_does_not_sell(db):
-    lid, rid = _accepted_deal(db)
-    deals.confirm_sold(db, rid, SELLER)           # seller only
-    assert db.get_listing(lid)["status"] == RESERVED
-    assert db.get_request(rid)["status"] == ACCEPTED
-
-
-def test_both_confirmations_mark_it_sold_seller_first(db):
-    lid, rid = _accepted_deal(db)
-    deals.confirm_sold(db, rid, SELLER)
-    deals.confirm_received(db, rid, BUYER)
-    assert db.get_listing(lid)["status"] == SOLD
-    assert db.get_request(rid)["status"] == COMPLETED
-
-
-def test_the_buyer_confirming_alone_marks_it_sold(db):
-    lid, rid = _accepted_deal(db)
-    deals.confirm_received(db, rid, BUYER)        # the seller doesn't need to confirm
-    assert db.get_listing(lid)["status"] == SOLD
-    assert db.get_request(rid)["status"] == COMPLETED
-    with pytest.raises(ListingError):             # nothing left for the seller to do
-        deals.confirm_sold(db, rid, SELLER)
-
-
-def test_the_seller_saying_handed_over_does_not_finish_the_deal(db):
-    lid, rid = _accepted_deal(db)
-    deals.confirm_sold(db, rid, SELLER)
-    assert db.get_request(rid)["status"] == ACCEPTED
-    assert db.get_listing(lid)["status"] == RESERVED
-
-
-def test_only_the_buyer_can_confirm_received(db):
-    lid, rid = _accepted_deal(db)
-    with pytest.raises(NotAllowed):
-        deals.confirm_received(db, rid, OTHER)
-
-
-def test_cannot_confirm_before_acceptance(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
-    with pytest.raises(ListingError):
-        deals.confirm_received(db, req["id"], BUYER)
-    with pytest.raises(ListingError):
-        deals.confirm_sold(db, req["id"], SELLER)
-
-
-# --- decline / cancel ---------------------------------------------------------
-def test_decline_a_pending_request(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
-    deals.decline_request(db, req["id"], SELLER)
-    assert db.get_request(req["id"])["status"] == DECLINED
-    assert db.get_listing(lid)["status"] == ACTIVE
-
-
-def test_cancel_an_accepted_deal_frees_the_listing(db):
-    lid, rid = _accepted_deal(db)
-    deals.cancel_deal(db, rid, BUYER)             # buyer backs out
-    assert db.get_request(rid)["status"] == CANCELLED
-    assert db.get_listing(lid)["status"] == ACTIVE
-
-
-def test_seller_can_also_cancel(db):
-    lid, rid = _accepted_deal(db)
-    deals.cancel_deal(db, rid, SELLER)
-    assert db.get_listing(lid)["status"] == ACTIVE
-
-
-def test_a_stranger_cannot_cancel(db):
-    lid, rid = _accepted_deal(db)
-    with pytest.raises(NotAllowed):
-        deals.cancel_deal(db, rid, OTHER)
-
-
-def test_cannot_cancel_a_completed_deal(db):
-    lid, rid = _accepted_deal(db)
-    deals.confirm_sold(db, rid, SELLER)
-    deals.confirm_received(db, rid, BUYER)
-    with pytest.raises(ListingError):
-        deals.cancel_deal(db, rid, BUYER)
-
-
-def test_after_cancel_the_buyer_can_request_again(db):
-    lid, rid = _accepted_deal(db)
-    deals.cancel_deal(db, rid, BUYER)
-    again = deals.request_to_buy(db, lid, BUYER)   # no longer a "live" request blocking it
-    assert again["status"] == REQUESTED
-
-
-# --- views' helpers -----------------------------------------------------------
-def test_requests_on_listing_shows_the_buyer_name(db):
-    lid = a_listing(db)["id"]
-    deals.request_to_buy(db, lid, BUYER)
-    rows = deals.requests_on_listing(db, lid, SELLER)
-    assert rows[0]["buyer_name"] == "Buyer"
-
-
-def test_my_purchases_attaches_the_listing(db):
-    lid = a_listing(db)["id"]
-    deals.request_to_buy(db, lid, BUYER)
-    mine = deals.my_purchases(db, BUYER)
-    assert len(mine) == 1
-    assert mine[0]["listing"]["id"] == lid
-
-
-# --- two clicks at the same moment -------------------------------------------
-def test_accept_fails_if_the_buyer_cancelled_meanwhile(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
-    seen_by_seller = db.get_request(req["id"])           # the seller's page loaded...
-    db.requests[req["id"]]["status"] = CANCELLED         # ...then the buyer cancelled
-    real_get = db.get_request
-    db.get_request = lambda rid: seen_by_seller if rid == req["id"] else real_get(rid)
-    with pytest.raises(ListingError):
-        deals.accept_request(db, req["id"], SELLER)
-    assert db.get_listing(lid)["status"] == ACTIVE        # the listing was given back
-    assert db.requests[req["id"]]["status"] == CANCELLED
-
-
-def test_two_buyers_can_never_both_be_accepted(db):
-    lid = a_listing(db)["id"]
-    first = deals.request_to_buy(db, lid, BUYER)
-    second = deals.request_to_buy(db, lid, OTHER)
-    deals.accept_request(db, first["id"], SELLER)
-    with pytest.raises(ListingError):
-        deals.accept_request(db, second["id"], SELLER)
-    accepted = [r for r in db.requests.values() if r["status"] == ACCEPTED]
-    assert [r["id"] for r in accepted] == [first["id"]]
-
-
-def test_a_reserved_item_cannot_be_requested(db):
-    lid, rid = _accepted_deal(db)
-    with pytest.raises(ListingError):
-        deals.request_to_buy(db, lid, OTHER)
-
-
-def test_a_blocked_student_cannot_request(db):
-    lid = a_listing(db)["id"]
-    db.get_profile(BUYER)["blocked_at"] = "now"
-    with pytest.raises(NotAllowed):
-        deals.request_to_buy(db, lid, BUYER)
-
-
-# --- the counts in the menu ---------------------------------------------------
 def test_to_do_counts_what_each_side_must_do(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
-    assert deals.to_do(db, SELLER)["sales"] == 1          # answer the buyer
-    assert deals.to_do(db, BUYER)["purchases"] == 0       # nothing to do yet
-
-    deals.accept_request(db, req["id"], SELLER)
-    assert deals.to_do(db, SELLER)["sales"] == 0
-    assert deals.to_do(db, BUYER)["purchases"] == 1       # meet + confirm
-
-    deals.confirm_received(db, req["id"], BUYER)
+    deal = start_purchase(db, a_listing(db), BUYER)
+    assert deals.to_do(db, BUYER)["purchases"] == 1     # pay
+    assert deals.to_do(db, SELLER)["sales"] == 0        # nothing yet
+    deals.mark_paid(db, deal["id"], BUYER)
     assert deals.to_do(db, BUYER)["purchases"] == 0
-    assert deals.to_do(db, SELLER)["sales"] == 0          # done: nothing for the seller
+    assert deals.to_do(db, SELLER)["check_payment"] == 1
+    deals.confirm_payment(db, deal["id"], SELLER)
+    assert deals.to_do(db, SELLER)["sales"] == 0
 
 
-# --- history ------------------------------------------------------------------
-def test_declined_requests_stay_visible_to_the_buyer(db):
-    lid = a_listing(db)["id"]
-    req = deals.request_to_buy(db, lid, BUYER)
-    deals.decline_request(db, req["id"], SELLER)
-    assert [d["status"] for d in deals.my_purchases(db, BUYER)] == [DECLINED]
+def test_my_sales_and_purchases_use_the_agreed_price(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER, price_cents=3300)
+    finish_purchase(db, deal["id"], BUYER, SELLER)
+    sale = deals.my_sales(db, SELLER)[0]
+    assert sale["price_cents"] == 3300 and sale["buyer_name"] == "Buyer"
+    purchase = deals.my_purchases(db, BUYER)[0]
+    assert deals.price_of(purchase) == 3300 and purchase["listing"]["id"] == lid
 
 
-def test_my_sales_lists_completed_sales_with_the_buyer(db):
-    lid, rid = _accepted_deal(db)
-    deals.confirm_sold(db, rid, SELLER)
-    deals.confirm_received(db, rid, BUYER)
-    sales = deals.my_sales(db, SELLER)
-    assert [(s["id"], s["title"], s["buyer_name"]) for s in sales] == [(rid, "Desk lamp", "Buyer")]
-
-
-# --- blocking -----------------------------------------------------------------
-def test_blocking_a_buyer_frees_the_item_reserved_for_them(db):
-    lid, rid = _accepted_deal(db)
-    deals.cancel_deals_of(db, db.get_profile(BUYER)["id"])
-    assert db.get_request(rid)["status"] == CANCELLED
-    assert db.get_listing(lid)["status"] == ACTIVE
-
-
-def test_blocking_a_seller_cancels_requests_for_their_items(db):
-    lid = a_listing(db)["id"]
-    waiting = deals.request_to_buy(db, lid, OTHER)
-    deals.cancel_deals_of(db, db.get_profile(SELLER)["id"])
-    assert db.get_request(waiting["id"])["status"] == CANCELLED
+def test_blocked_students_cannot_buy(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    db.profiles[BUYER]["blocked_at"] = "now"
+    with pytest.raises(NotAllowed, match="blocked"):
+        deals.buy_now(db, BUYER, a_chat(db, lid))

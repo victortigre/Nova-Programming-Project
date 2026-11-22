@@ -401,8 +401,8 @@ def get_chat_events(conversation_id: str, *, limit: int = 50) -> list[dict]:
 def get_buy_now_agreement(conversation_id: str) -> dict | None:
     """Buyer-only agreement display; never authorizes checkout or a reservation.
 
-    No wallet or payment data is read. A future wallet-backed checkout must
-    independently validate the agreement, existing purchases and availability.
+    No payment data is read. The purchase itself is deals.buy_now, which
+    validates the agreement, existing purchases and availability again.
     """
     actor = _actor()
     conversation = _authorized(conversation_id, actor)
