@@ -129,7 +129,7 @@ def test_retry_recovers_committed_offer_after_listing_deletion(offer_flow):
     click(app, "Retry offer action")
     assert len(records) == 1
     assert app.chat_input
-    assert any(item.value == "Listing no longer available" for item in app.caption)
+    assert any("Listing no longer available" in item.value for item in app.info)
 
 
 def open_chat(ui, offer=OFFER):
@@ -267,7 +267,7 @@ def test_unavailable_listing_hides_negotiation_but_keeps_chat(ui, status, has_of
         click(app, "Open chat")
     assert not app.exception
     assert not any(button.label in ("Accept", "Decline", "Counteroffer", "Send Offer") for button in app.button)
-    assert any("Negotiation is unavailable" in item.value for item in app.info)
+    assert any("Negotiation is unavailable" in item.value for item in list(app.info) + list(app.caption))
     assert app.chat_input and not app.chat_input[0].disabled
     if has_offer:
         assert any(item.value == "Status: Pending" for item in app.text)

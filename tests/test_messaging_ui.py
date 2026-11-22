@@ -139,7 +139,7 @@ def test_restricted_account_cannot_render_inbox(ui, reason):
     assert not app.chat_input
 
 
-def test_deleted_listing_keeps_snapshot_and_chat_input(ui):
+def test_deleted_listing_keeps_inbox_snapshot_and_chat_input(ui):
     app, mocks, _ = ui
     deleted = {**ROW, "listing_id": None}
     mocks["get_inbox"].return_value = [deleted]
@@ -148,26 +148,31 @@ def test_deleted_listing_keeps_snapshot_and_chat_input(ui):
     assert any("Listing no longer available" in item.proto.body for item in app.get("html"))
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
-    assert any(item.value == "Listing no longer available" for item in app.caption)
-    assert any(item.value == ROW["listing_title_snapshot"] for item in app.text)
+    assert any("Listing no longer available" in item.value for item in app.info)
+    header = next(c for c in app.get("flex_container") if c.key == "chat-participant-header")
+    assert not header.caption
     app.chat_input[0].set_value("Can we still meet?").run()
     assert not app.exception
     assert mocks["send_message"].call_args.args[:2] == (CID, "Can we still meet?")
 
 
 @pytest.mark.parametrize("cents,display", [(0, "Free"), (1, "€0.01"), (1234, "€12.34"), (500000, "€5,000.00")])
-def test_integer_cent_snapshots_hidden_in_inbox_but_preserved_in_deleted_chat(ui, cents, display):
+def test_integer_cent_snapshots_preserved_in_offer_cards_not_name_only_header(ui, cents, display):
     app, mocks, _ = ui
     snapshot = {**ROW, "price_cents": cents, "listing_id": None}
     mocks["get_inbox"].return_value = [snapshot]
     mocks["get_conversation_details"].return_value = snapshot
+    from test_offer_ui import OFFER
+    mocks["get_chat_events"].return_value = [OFFER]
     app.run()
     assert not app.exception
     assert not any(item.value == display for item in app.caption)
     app.button(key=f"chat_{CID}").click().run()
     assert not app.exception
-    assert any(item.value == display for item in app.caption)
-    assert any(item.value == "Listing no longer available" for item in app.caption)
+    assert any(item.value == f"Original listing price: {display}" for item in app.caption)
+    assert any("Listing no longer available" in item.value for item in app.info)
+    header = next(c for c in app.get("flex_container") if c.key == "chat-participant-header")
+    assert not header.caption
 
 
 @pytest.mark.parametrize("status", ["pending", "accepted", "declined", "superseded"])

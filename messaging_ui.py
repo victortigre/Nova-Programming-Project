@@ -4,7 +4,9 @@ Identity, authorization, history and offer transitions stay in the repository.
 There is no checkout or database client in this module.
 """
 
-from contextlib import contextmanager
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+from contextlib import contextmanager, nullcontext
 import html
 import re
 from urllib.parse import quote, urlsplit
@@ -140,7 +142,7 @@ LISTING_ACTION_CSS = """
 """
 
 def apply_chat_styles() -> None:
-    st.html("<style>" + CHAT_CSS + "</style>")
+    st.html("<style>" + CHAT_CSS + COMPACT_CHAT_CSS + "</style>")
 
 
 def apply_listing_action_styles() -> None:
@@ -174,7 +176,7 @@ def avatar_background(name: str, photo_url: str | None) -> str:
 
 
 @contextmanager
-def message_bubble(event: dict, conversation: dict):
+def message_bubble(event: dict, conversation: dict, *, compact: bool = False, show_avatar: bool = True):
     """Render a message/card from the current authenticated participant's view."""
     own = event["sender_id"] == conversation["own_profile_id"]
     side = "own" if own else "other"
@@ -182,15 +184,21 @@ def message_bubble(event: dict, conversation: dict):
     row_key = f"dm-event-{side}-{suffix}"
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", row_key):
         raise ValueError("Invalid chat event reference.")
-    with st.container(key=row_key):
-        if not own:
-            image = avatar_background(conversation["other_name"], conversation.get("other_photo_url"))
-            st.html(f"<style>.st-key-{row_key}::before {{ background-image: {image}; }}</style>")
-        with st.container(key=f"dm-{side}-{suffix}"):
+    # Layout wrappers do not alter any message or action widget keys.
+    with st.container(key=f"chat-compact-{suffix}") if compact else nullcontext():
+        with st.container(key=row_key):
             if not own:
-                with st.container(key=f"dm-sender-name-{suffix}"):
-                    st.text(conversation["other_name"])
-            yield own
+                if show_avatar:
+                    image = avatar_background(conversation["other_name"], conversation.get("other_photo_url"))
+                    st.html(f"<style>.st-key-{row_key}::before {{ background-image: {image}; }}</style>")
+                else:
+                    # Keep the avatar gutter so grouped bubbles stay aligned.
+                    st.html(f"<style>.st-key-{row_key}::before {{ content: none; }}</style>")
+            with st.container(key=f"dm-{side}-{suffix}"):
+                if not own:
+                    with st.container(key=f"dm-sender-name-{suffix}"):
+                        st.text(conversation["other_name"])
+                yield own
 
 
 def accepted_offer_description(offer: dict, conversation: dict) -> str:
@@ -213,7 +221,8 @@ INBOX_CSS = """
 .st-key-inbox-list [class*="st-key-inbox-row-"] { padding: 12px 0; }
 .st-key-inbox-list hr { margin: 0; border-color: #ECEEF2; }
 .st-key-inbox-list .inbox-heading,
-.st-key-inbox-list .inbox-preview {
+.st-key-inbox-list .inbox-preview,
+.st-key-inbox-list .inbox-listing {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -227,10 +236,24 @@ INBOX_CSS = """
 }
 .st-key-inbox-list .inbox-information { flex: 1; min-width: 0; }
 .st-key-inbox-list .inbox-heading { color: #202433; }
-.st-key-inbox-list .inbox-listing { color: #737985; font-size: 0.85rem; }
+.st-key-inbox-list .inbox-listing { color: #737985; font-size: 0.85rem; display: block; }
 .st-key-inbox-list .inbox-preview { color: #626975; font-size: 0.85rem; margin-top: 4px; }
 .st-key-inbox-list [data-testid="stColumn"] { min-width: 0; }
-.st-key-inbox-list [class*="st-key-inbox-time-"] { text-align: right; }
+.st-key-inbox-list [class*="st-key-inbox-row-"] > [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap; gap: 12px;
+}
+.st-key-inbox-list [class*="st-key-inbox-row-"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:first-child {
+    flex: 1 1 0 !important; min-width: 0;
+}
+.st-key-inbox-list [class*="st-key-inbox-row-"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:last-child {
+    flex: 0 0 112px !important; min-width: 0;
+}
+.st-key-inbox-list [class*="st-key-inbox-actions-"] {
+    width: 100%; align-items: flex-end; gap: 4px !important;
+}
+.st-key-inbox-list [class*="st-key-inbox-time-"] { width: 100%; text-align: right; }
+.st-key-inbox-list [class*="st-key-inbox-time-"] [data-testid="stCaptionContainer"],
+.st-key-inbox-list [class*="st-key-inbox-time-"] p { width: 100%; text-align: right; white-space: nowrap; }
 .st-key-inbox-list [data-testid="stCaptionContainer"] { color: #737985; font-size: 0.72rem; }
 .st-key-inbox-list button[kind="secondary"] {
     background: #F0F1F4; color: #464C57; border: 1px solid #E5E7EB;
@@ -278,7 +301,205 @@ def inbox_summary(row: dict, activity: dict | None) -> None:
     st.html(
         f'<div class="inbox-summary"><span class="inbox-avatar" role="img" '
         f'aria-label="{name} profile picture" style="background-image: {background}"></span>'
-        f'<div class="inbox-information"><div class="inbox-heading"><strong>{dot}{name}</strong>'
-        f'<span class="inbox-listing"> · {title}{unavailable}</span></div>'
+        f'<div class="inbox-information"><div class="inbox-heading"><strong>{dot}{name}</strong></div>'
+        f'<div class="inbox-listing">{title}{unavailable}</div>'
         f'<p class="inbox-preview" title="{preview}">{preview}</p></div></div>'
     )
+
+
+LISBON = ZoneInfo("Europe/Lisbon")
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def inbox_timestamp(value: str, *, now: datetime | None = None) -> str:
+    """Calendar labels in Lisbon, independent of server timezone and locale.
+
+    Database timestamps must include an offset. Never guess the zone of a
+    naive timestamp, which would be ambiguous at daylight-saving boundaries.
+    """
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    current = now if now is not None else datetime.now(LISBON)
+    if instant.utcoffset() is None or current.utcoffset() is None:
+        raise ValueError("Timezone-aware timestamps are required.")
+    local = instant.astimezone(LISBON)
+    today = current.astimezone(LISBON).date()
+    if local.date() == today:
+        return local.strftime("%H:%M")
+    if local.date() == today - timedelta(days=1):
+        return "Yesterday"
+    return f"{local.day:02d} {_MONTHS[local.month - 1]}"
+
+
+def chat_header(row: dict, *, divider: bool = True) -> None:
+    """Name and photo only inside an open chat; no new data reads."""
+    with st.container(key="chat-participant-header"):
+        st.html("<style>.st-key-chat-participant-header [data-testid='stHorizontalBlock'] "
+                "{flex-wrap:nowrap;gap:12px;} "
+                ".st-key-chat-participant-header [data-testid='stColumn']:first-child "
+                "{flex:0 0 46px!important;min-width:46px;} "
+                ".st-key-chat-participant-header [data-testid='stColumn']:last-child "
+                "{flex:1 1 0!important;min-width:0;} "
+                # Streamlit captions compensate paragraph spacing with a negative
+                # bottom margin. Reset both margins before using our compact gap.
+                ".st-key-chat-participant-header [data-testid='stCaptionContainer'] "
+                "{color:#737985;margin:0;} "
+                ".st-key-chat-participant-header [data-testid='stCaptionContainer'] p "
+                "{margin:0;line-height:1.4;} "
+                ".st-key-chat-participant-header [data-testid='stVerticalBlock'] "
+                "{gap:0.25rem;}</style>")
+        photo, details = st.columns([1, 10], gap="small", vertical_alignment="center")
+        with photo:
+            background = html.escape(avatar_background(row["other_name"], row.get("other_photo_url")), quote=True)
+            name = html.escape(row["other_name"], quote=True)
+            st.html(f'<div role="img" aria-label="{name} profile picture" '
+                    f'style="width:46px;height:46px;border-radius:50%;background-size:cover;'
+                    f'background-position:center;background-image:{background}"></div>')
+        with details:
+            st.subheader(row["other_name"])
+    if divider:
+        st.divider()
+
+
+# Compact rules only match explicit layout wrappers. Button styling remains
+# in the existing base stylesheet; no callbacks or state are managed here.
+COMPACT_CHAT_CSS = """
+[class*="st-key-chat-compact-"] { gap: 0 !important; }
+[class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
+[class*="st-key-chat-compact-"] [class*="st-key-dm-other-"] {
+    padding: 9px 13px !important; margin-top: 0; margin-bottom: 4px;
+    max-width: min(72%, 580px) !important; gap: 0.3rem !important;
+}
+[class*="st-key-chat-compact-offer-"] [class*="st-key-dm-own-offer-"],
+[class*="st-key-chat-compact-offer-"] [class*="st-key-dm-other-offer-"] {
+    width: 68% !important; max-width: 640px !important;
+}
+[class*="st-key-chat-compact-"] [data-testid="stVerticalBlock"] { gap: 0.3rem; }
+[class*="st-key-chat-compact-"] h3 { margin-bottom: 0.25rem !important; }
+[class*="st-key-chat-compact-"] [class*="st-key-dm-original-price-"] { padding-top: 3px !important; }
+[class*="st-key-chat-compact-"] [class*="st-key-dm-event-other-"]::before { bottom: 4px; }
+[class*="st-key-chat-time-"] { width: 100%; text-align: right; }
+[class*="st-key-chat-time-"] p { text-align: right; white-space: nowrap; }
+.chat-date-separator {
+    display: flex; align-items: center; gap: 12px;
+    color: #737985; font-size: 0.75rem; margin: 10px 0 6px;
+}
+.chat-date-separator::before, .chat-date-separator::after {
+    content: ""; flex: 1; height: 1px; background: #E3E5EB;
+}
+@media (max-width: 700px) {
+    [class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
+    [class*="st-key-chat-compact-"] [class*="st-key-dm-other-"] { max-width: 92% !important; }
+    [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-own-offer-"],
+    [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-other-offer-"] {
+        width: 96% !important; max-width: 100% !important;
+    }
+    [class*="st-key-chat-compact-offer-"] [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+    [class*="st-key-chat-compact-offer-"] [data-testid="stColumn"] { min-width: 80px; }
+}
+"""
+
+_FULL_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August",
+                "September", "October", "November", "December")
+
+
+def lisbon_datetime(value: str) -> datetime:
+    instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if instant.utcoffset() is None:
+        raise ValueError("Timezone-aware timestamps are required.")
+    return instant.astimezone(LISBON)
+
+
+def chat_date_label(value: str, *, now: datetime | None = None) -> str:
+    day = lisbon_datetime(value).date()
+    current = now if now is not None else datetime.now(LISBON)
+    if current.utcoffset() is None:
+        raise ValueError("Timezone-aware timestamps are required.")
+    today = current.astimezone(LISBON).date()
+    if day == today:
+        return "Today"
+    if day == today - timedelta(days=1):
+        return "Yesterday"
+    return f"{day.day} {_FULL_MONTHS[day.month - 1]} {day.year}"
+
+
+def chat_event_groups(events: list[dict], *, now: datetime | None = None):
+    """Decorate the supplied ordered window; never reorder, fetch or store it."""
+    current = now if now is not None else datetime.now(LISBON)
+    previous_day = previous_sender = None
+    for event in events:
+        day = lisbon_datetime(event["created_at"]).date()
+        new_day = day != previous_day
+        yield event, chat_date_label(event["created_at"], now=current) if new_day else None, (
+            new_day or event["sender_id"] != previous_sender)
+        previous_day, previous_sender = day, event["sender_id"]
+
+
+def date_separator(label: str) -> None:
+    st.html(f'<div class="chat-date-separator" role="separator" aria-label="{html.escape(label, quote=True)}">'
+            f'<span>{html.escape(label)}</span></div>')
+
+
+def chat_timestamp(event: dict) -> None:
+    with st.container(key=f"chat-time-{event['type']}-{event['id']}"):
+        st.caption(lisbon_datetime(event["created_at"]).strftime("%H:%M"))
+
+
+# Applied only by the open-chat fragment; no Inbox, navigation or button rules.
+OPEN_CHAT_CSS = """
+.st-key-open-chat-surface {
+    background: #FFFFFF; border-radius: 16px; padding: 14px 18px;
+    gap: 0.65rem !important; min-width: 0;
+}
+.st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] {
+    flex-wrap: nowrap; align-items: center; gap: 12px;
+}
+.st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    min-width: 0;
+}
+.st-key-open-chat-surface .st-key-chat-participant-header h3 {
+    font-size: 1rem !important; line-height: 1.3; padding: 0; margin: 0;
+}
+.st-key-open-chat-surface .st-key-chat-participant-header [data-testid="stCaptionContainer"] {
+    font-size: 0.78rem; line-height: 1.3; overflow-wrap: anywhere;
+}
+.st-key-open-chat-surface .st-key-chat-header-divider hr {
+    border-color: #E5E7EB; margin: 0 0 4px;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-other-"] {
+    padding: 8px 12px !important; max-width: min(66%, 460px) !important;
+    border-radius: 18px !important;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-own-offer-"],
+.st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-other-offer-"] {
+    width: 62% !important; max-width: 500px !important;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] [data-testid="stText"] {
+    font-size: 0.88rem; line-height: 1.4;
+}
+.st-key-open-chat-surface [class*="st-key-chat-compact-"] h3 {
+    font-size: 1.15rem !important; line-height: 1.3;
+}
+.st-key-open-chat-surface [class*="st-key-chat-time-"] { text-align: right; }
+@media (max-width: 700px) {
+    .st-key-open-chat-surface { padding: 10px; }
+    .st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] {
+        flex-wrap: wrap; gap: 8px;
+    }
+    .st-key-open-chat-surface .st-key-chat-toolbar > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"]:nth-child(2) {
+        flex: 1 1 45% !important;
+    }
+    .st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-own-"],
+    .st-key-open-chat-surface [class*="st-key-chat-compact-"] [class*="st-key-dm-other-"] {
+        max-width: 100% !important;
+    }
+    .st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-own-offer-"],
+    .st-key-open-chat-surface [class*="st-key-chat-compact-offer-"] [class*="st-key-dm-other-offer-"] {
+        width: 100% !important; max-width: 100% !important;
+    }
+}
+"""
+
+
+def apply_open_chat_styles() -> None:
+    st.html("<style>" + OPEN_CHAT_CSS + "</style>")
