@@ -48,7 +48,7 @@ def test_buyers_and_sales_show_inside_the_listing_cards(db):
     db.insert_request({"listing_id": lamp,                            # an old request
                        "buyer_id": db.get_profile("ana@novasbe.pt")["id"]})
     paying = start_purchase(db, bike, "rui@novasbe.pt")               # Rui says he paid
-    deals.mark_paid(db, paying["id"], "rui@novasbe.pt", "bank")
+    deals.mark_paid(db, paying["id"], "rui@novasbe.pt")
     sold = start_purchase(db, chair, "marta@novasbe.pt")              # sold to Marta
     finish_purchase(db, sold["id"], "marta@novasbe.pt", SELLER)
 
@@ -71,7 +71,7 @@ def test_buyers_and_sales_show_inside_the_listing_cards(db):
 def test_confirming_the_payment_on_the_page_marks_it_sold(db):
     bike = listing(db, "Bike")
     deal = start_purchase(db, bike, "rui@novasbe.pt")
-    deals.mark_paid(db, deal["id"], "rui@novasbe.pt", "bank")
+    deals.mark_paid(db, deal["id"], "rui@novasbe.pt")
 
     page = AppTest.from_file(PAGE, default_timeout=30).run()
     page.button(key=f"mylistings-received-{deal['id']}").click().run()

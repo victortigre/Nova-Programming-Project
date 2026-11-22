@@ -4,7 +4,7 @@ Your own listings are grouped as Active, Reserved and Sold. Each listing is one
 card, and everything about it happens inside that card:
 
 - the listing itself: edit, mark as reserved, mark as sold, relist or delete
-- a buyer who tapped Buy Now: wait for their payment (or cash when you meet), then
+- a buyer who tapped Buy Now in the chat: wait for their bank transfer, then
   confirm the payment arrived (or say it didn't, or cancel the sale)
 - after the sale: who bought it, and rating that buyer
 
@@ -153,12 +153,12 @@ def listing_card(listing: dict) -> None:
 
 
 groups = listings.my_listings(database, email)
-# Selling for money needs a way to get paid (payments.py, deals.py).
-if (not payments.can_be_paid(database.get_profile(email))
+# Selling for money needs bank details: buyers pay by bank transfer (deals.py).
+if (not payments.has_bank_details(database.get_profile(email))
         and any(item.get("price_cents") for item in groups[listings.ACTIVE])):
-    st.warning("Buyers can't buy your items until you add a way to get paid on My profile.",
+    st.warning("Buyers can't buy your items until you add your bank details on My profile.",
                icon=":material/account_balance:")
-    st.page_link("views/profile.py", label="Add how I get paid",
+    st.page_link("views/profile.py", label="Add my bank details",
                  icon=":material/account_balance:")
 if not any(groups.values()):
     st.info("You haven't listed anything yet.")

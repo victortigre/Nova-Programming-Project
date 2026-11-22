@@ -179,14 +179,14 @@ if viewing is not None:
             if error := st.session_state.pop("deal_error", None):
                 st.error(error)
             if my_id != item["seller_id"]:
-                seller_paid_ok = payments.can_be_paid(seller)
+                seller_paid_ok = payments.has_bank_details(seller)
                 if item["status"] == listings.ACTIVE and item["price_cents"] and not seller_paid_ok:
-                    st.caption("This seller hasn't added a way to get paid yet, so it can't be "
+                    st.caption("This seller hasn't added their bank details yet, so it can't be "
                                "bought right now. You can still contact them.")
                 elif item["status"] == listings.ACTIVE and item["price_cents"]:
                     st.caption("**Buy Now** at this price, or make an offer to agree a "
-                               "different one in the chat. You pay the seller directly: "
-                               f"{payments.accepted_labels(seller)}.")
+                               "different one in the chat. You pay the seller by bank "
+                               "transfer within 48 hours.")
                 elif item["status"] == listings.ACTIVE:
                     st.caption("This item is free: contact the seller to arrange the pickup.")
                 can_contact = (not me.get("blocked_at") and onboarding_step(me) == DONE
@@ -217,7 +217,7 @@ if viewing is not None:
                                 st.session_state["messaging_selected"] = conversation["id"]
                                 st.session_state["messaging_history_limit"] = 50
                                 st.session_state["payment_message"] = (
-                                    "Reserved for you! See below how to pay the seller.")
+                                    "Reserved for you! Pay by bank transfer within 48 hours.")
                                 st.switch_page("views/messaging.py")
                     if can_contact:
                         offer_column, contact_column = st.columns(2)
@@ -336,7 +336,7 @@ if to_do.get("pay"):
     notices.append(dict(
         key=f"pay-{to_do['pay']}", emoji="🏦",
         title=f"You have {plural(to_do['pay'], 'item', 'items')} to pay for",
-        text="Pay the seller within 48 hours (or in cash when you meet), then confirm.",
+        text="Pay by bank transfer within 48 hours, then tap “I've paid”.",
         page=PURCHASES, label="Pay", tone="green"))
 
 # Dismissals last for this session only; the task itself is unchanged.
