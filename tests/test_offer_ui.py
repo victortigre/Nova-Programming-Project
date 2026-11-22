@@ -62,8 +62,8 @@ def test_browse_offer_opens_chat_as_card_without_text_message(offer_flow, note):
     assert app.session_state["messaging_selected"] == CID
     assert len(records) == 1 and records[0]["amount_cents"] == 1050
     assert records[0]["note"] == note
-    assert any(item.value == "€10.50" for item in app.subheader)
-    assert any(item.value == "Original listing price: €12.34" for item in app.caption)
+    # The offered price, with the listing price crossed out next to it.
+    assert any(item.value == "€10.50  ~~€12.34~~" for item in app.subheader)
     assert any(item.value == "Status: Pending" for item in app.text)
     if note:
         assert sum(item.value == note for item in app.text) == 1

@@ -117,15 +117,26 @@ def show_inbox() -> None:
                     st.divider()
 
 
+def offer_price(amount: int, original: int | None, own: bool) -> str:
+    """'€80.00  ~~€82.50~~': the offered price, with the listing price crossed out.
+
+    On your own (violet) bubbles the crossed-out price stays white, so it can
+    be read; on the other person's (grey) bubbles it is grey.
+    """
+    if original is None or original == amount:
+        return format_price(amount)
+    crossed = f"~~{format_price(original)}~~"
+    return f"{format_price(amount)}  " + (crossed if own else f":grey[{crossed}]")
+
+
 def accepted_offer_card(message: dict, row: dict, current: dict | None, live_deal: bool,
                         negotiation_available: bool, selected: str) -> None:
     """An accepted offer: one "Offer accepted" tag, the price (the listing price
     crossed out), who accepted, and what happens next for this side."""
     amount, original = message["amount_cents"], row.get("price_cents")
     st.badge("Offer accepted", icon=":material/check:", color="green")
-    crossed = (f"  :grey[~~{format_price(original)}~~]"
-               if original and original != amount else "")
-    st.subheader(format_price(amount) + crossed)
+    own = message["sender_id"] == row["own_profile_id"]
+    st.subheader(offer_price(amount, original, own))
     first = (row.get("other_name") or "They").split(" ")[0]
     i_proposed = message["sender_id"] == row["own_profile_id"]
     # In its own keyed box with some space on top: the chat styles pull the
@@ -245,12 +256,13 @@ def show_chat(selected: str) -> None:
                                         selected)
                 elif message["type"] == "offer":
                     st.caption("PRICE OFFER" if not message.get("parent_offer_id") else "COUNTEROFFER")
-                    st.subheader(format_price(message["amount_cents"]))
-                    with st.container(key=f"dm-original-price-{message['id']}"):
-                        st.caption(f"Original listing price: {format_price(row['price_cents'])}")
-                    st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
-                    if message.get("note"):
-                        st.text(message["note"])
+                    st.subheader(offer_price(message["amount_cents"], row.get("price_cents"), own))
+                    # Own keyed box with space on top: the chat styles pull the line
+                    # under a subheader up into it otherwise.
+                    with st.container(key=f"dm-offer-details-{message['id']}"):
+                        st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
+                        if message.get("note"):
+                            st.text(message["note"])
                     if (current and current["id"] == message["id"] and message["status"] == "pending"
                             and not own and negotiation_available):
                         offer_ui.response_buttons(selected, message)
