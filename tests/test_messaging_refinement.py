@@ -46,7 +46,8 @@ def test_inbox_name_listing_and_preview_are_stacked(ui):
     app.run()
     assert not app.exception
     html = markup(app)
-    assert '<strong>🔵 Test participant</strong></div><div class="inbox-listing">Test listing snapshot</div>' in html
+    assert '<strong>Test participant</strong></div><div class="inbox-listing">Test listing snapshot</div>' in html
+    assert 'inbox-summary inbox-unread' in html and '<span class="inbox-count">1</span>' in html
     assert html.index('Test listing snapshot') < html.index('Latest activity')
     assert 'width: 46px; height: 46px' in html
     assert 'data:image/svg+xml,' in html

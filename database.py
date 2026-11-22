@@ -701,6 +701,13 @@ def messaging_mark_read(conversation_id: str, actor_id: int) -> None:
                   {"p_conversation": conversation_id, "p_actor": actor_id}).execute()
 
 
+def messaging_unread_counts(actor_id: int) -> dict[str, int]:
+    """{chat id: how many new messages and offers} for the chats with any."""
+    rows = _client().rpc("messaging_unread_counts",
+                         {"p_actor": actor_id}).execute().data or []
+    return {row["conversation_id"]: int(row["unread"]) for row in rows if row["unread"]}
+
+
 def messaging_unread_conversations(actor_id: int) -> list[str]:
     """The ids of chats with a message this student hasn't opened yet."""
     rows = _client().rpc("messaging_unread_conversations",

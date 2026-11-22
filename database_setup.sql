@@ -496,6 +496,26 @@ $$;
 revoke all on function public.messaging_unread_conversations(bigint) from public, anon, authenticated;
 grant execute on function public.messaging_unread_conversations(bigint) to service_role;
 
+-- How many new messages and offers each chat has for this student (for the
+-- violet counter on the Inbox, like WhatsApp). Same rule as above.
+create or replace function public.messaging_unread_counts(p_actor bigint)
+returns table(conversation_id uuid, unread bigint) language sql security definer set search_path = ''
+as $$
+    select c.id,
+           (select count(*) from public.messages m
+             where m.conversation_id = c.id and m.sender_id <> p_actor
+               and m.created_at > coalesce(r.last_read_at, '-infinity'::timestamptz))
+         + (select count(*) from public.offers o
+             where o.conversation_id = c.id and o.sender_id <> p_actor
+               and o.created_at > coalesce(r.last_read_at, '-infinity'::timestamptz))
+    from public.conversations c
+    left join public.conversation_reads r
+           on r.conversation_id = c.id and r.profile_id = p_actor
+    where p_actor in (c.buyer_id, c.seller_id);
+$$;
+revoke all on function public.messaging_unread_counts(bigint) from public, anon, authenticated;
+grant execute on function public.messaging_unread_counts(bigint) to service_role;
+
 -- Use INSERT, not update-based UPSERT. A buyer/listing unique conflict is read
 -- back and validated by the repository; the immutable original ID remains unique
 -- even after the live FK becomes NULL. There is no FK on original_listing_id.
