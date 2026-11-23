@@ -484,7 +484,7 @@ with browse_tab:
             return min(options, key=lambda option: abs(option - euros))
 
         with ui.card("price-range"):
-            heading, reset = st.columns([3, 2], vertical_alignment="center")
+            heading, reset = st.columns(2, vertical_alignment="center")
             heading.markdown("**Price**")
             if (bottom, top) != (0, max_euros):
                 reset.button("Any price", key="price-reset", type="tertiary",

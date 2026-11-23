@@ -259,6 +259,11 @@ button[data-variant="pills"][data-selected="true"] p {{
     border: 1px solid #DADDE5; border-radius: 10px; background: #FFFFFF;
 }}
 .st-key-card-price-range [data-testid="stSliderTickBar"] {{ display: none; }}
+.st-key-card-price-range .st-key-price-reset {{ display: flex; justify-content: flex-end; }}
+.st-key-card-price-range .st-key-price-reset button {{
+    border: none; background: none; padding: 0; min-height: 0; white-space: nowrap;
+}}
+.st-key-card-price-range .st-key-price-reset button p {{ color: {VIOLET}; font-size: 0.8rem; }}
 .st-key-card-price-range [data-testid="stSliderThumbValue"] {{ font-size: 0.75rem; font-weight: 600; }}
 .st-key-card-price-range [data-baseweb="slider"] [role="slider"] {{
     background: #FFFFFF; border: 2px solid {VIOLET}; box-shadow: none;
