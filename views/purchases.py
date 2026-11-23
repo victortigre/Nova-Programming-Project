@@ -1,7 +1,7 @@
 """My purchases: the items you're buying, and paying the seller for them.
 
 After "Buy Now", the buyer sees how to pay (the seller's IBAN, or cash in
-person) and has 48 hours to pay and tap "I've paid" (cash: when
+person) and has 15 minutes to pay and tap "I've paid" (cash: when
 they meet, no deadline). When the seller confirms the money
 arrived, the item is sold and the buyer can rate the seller. Purchases that
 ended without a sale (cancelled) stay visible under "Closed".

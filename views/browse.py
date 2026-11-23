@@ -386,7 +386,7 @@ for deal in waiting["pay"]:
         title=(f"Meet {name} and pay {price} in cash" if deal["cash"]
                else f"Pay {name} {price}"),
         text=(f"For {title}. Agree the time and place in the chat." if deal["cash"]
-              else f"For {title}. Pay within 48 hours (bank transfer), or choose cash "
+              else f"For {title}. Pay within 15 minutes (bank transfer), or choose cash "
                    "in person, then confirm."),
         page=PURCHASES, label="Pay", tone="green"))
 
