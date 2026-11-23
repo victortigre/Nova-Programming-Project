@@ -259,6 +259,7 @@ button[data-variant="pills"][data-selected="true"] p {{
     border: 1px solid #DADDE5; border-radius: 10px; background: #FFFFFF;
 }}
 .st-key-card-price-range [data-testid="stSliderTickBar"] {{ display: none; }}
+.st-key-card-price-range [data-testid="InputInstructions"] {{ display: none; }}
 .st-key-card-price-range .st-key-price-reset {{ display: flex; justify-content: flex-end; }}
 .st-key-card-price-range .st-key-price-reset button {{
     border: none; background: none; padding: 0; min-height: 0; white-space: nowrap;
