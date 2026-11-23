@@ -26,8 +26,10 @@ def test_compact_rows_keep_actions_refresh_and_no_asking_price(ui):
     listing = next(c for c in containers if c.key == 'inbox-list')
     assert len([c for c in listing.get('flex_container') if c.key and c.key.startswith('inbox-row-')]) == 2
     assert len(listing.get('divider')) == 1
-    # Unread: no blue dot any more, but bold text and a violet counter (like WhatsApp).
-    assert '<strong>Jonathan</strong>' in markup(app) and '🔵' not in markup(app)
+    # The name is the clickable button above the summary (no dot); unread shows as
+    # the row highlight and the violet counter, like WhatsApp.
+    assert any(b.label == 'Jonathan' and b.key == 'openname_' + CID for b in app.button)
+    assert '🔵' not in markup(app)
     assert markup(app).count('inbox-summary inbox-unread') == 1
     assert markup(app).count('class="inbox-count"') == 1
     assert 'Surfboard' in markup(app) and 'Listing no longer available' in markup(app)
@@ -38,7 +40,8 @@ def test_compact_rows_keep_actions_refresh_and_no_asking_price(ui):
     for row in listing.get('flex_container'):
         if row.key and row.key.startswith('inbox-row-'):
             left, right = row.get('column')
-            assert not left.button
+            # The left column holds only the name button (which also opens the chat).
+            assert left.button and all(b.key.startswith('openname_') for b in left.button)
             assert right.button[0].label == 'Open chat'
             assert right.caption
     # No "Refresh inbox" button: the page updates by itself (app.py, live_updates).
@@ -116,7 +119,9 @@ def test_inbox_avatars_keep_summary_chronology_and_navigation(ui, url):
     assert 'data:image/svg+xml,' in html
     if url:
         assert url in html  # Real photo and layered initials fallback both present.
-    assert '<strong>Mia Silva</strong>' in html and 'Most recent message' in html
+    # The name is the clickable button above the summary; the preview stays inline.
+    assert any(b.label == 'Mia Silva' and b.key == 'openname_' + CID for b in app.button)
+    assert 'Most recent message' in html
     assert 'text-overflow: ellipsis' in html
     app.button(key='chat_' + CID).click().run()
     assert app.chat_input and not app.exception

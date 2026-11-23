@@ -46,7 +46,11 @@ def test_inbox_name_listing_and_preview_are_stacked(ui):
     app.run()
     assert not app.exception
     html = markup(app)
-    assert '<strong>Test participant</strong></div><div class="inbox-listing">Test listing snapshot</div>' in html
+    # The name is the clickable button stacked above the summary (no dot); the summary
+    # stacks the listing then the preview. Unread shows as highlight + violet counter.
+    assert any(b.label == 'Test participant' and b.key == 'openname_' + CID
+               for b in app.button)
+    assert '<div class="inbox-listing">Test listing snapshot</div>' in html
     assert 'inbox-summary inbox-unread' in html and '<span class="inbox-count">1</span>' in html
     assert html.index('Test listing snapshot') < html.index('Latest activity')
     assert 'width: 46px; height: 46px' in html
@@ -66,7 +70,9 @@ def test_chat_header_without_manual_refresh_and_back_preserves_state(ui, photo):
     assert not right.button
     assert not any(b.label == 'Refresh chat' for b in app.button)
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
-    assert header.subheader[0].value == ROW['other_name']
+    header_html = '\n'.join(e.proto.body for e in header.get('html'))
+    assert 'font-size:1.5rem' in header_html and header_html.rstrip().endswith(ROW['other_name'] + '</a>')
+    assert not header.subheader  # the name is a profile link now, not a subheader
     assert not header.caption
     assert 'data:image/svg+xml,' in markup(app)
     if photo:

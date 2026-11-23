@@ -59,7 +59,12 @@ def markup(app):
 def test_listing_thumbnail_and_existing_status_actions(shop, status, actions):
     lid = item(shop)
     shop.db.listings[lid]['status'] = status
-    app = run_page('my_listings.py')
+    # My listings shows one section at a time (a segmented control); open the one
+    # matching this listing's status before checking its actions.
+    app = AppTest.from_file(str(ROOT / 'views' / 'my_listings.py'), default_timeout=30)
+    app.session_state['my_listings_section'] = status
+    app.run()
+    assert not app.exception
     shop.photo.assert_called_once_with('actual-stored-path.jpg')
     assert app.image[0].value[0] == PHOTO
     assert {b.key.split('-')[0] for b in app.button if b.key and b.key.endswith('-' + str(lid))} == actions
@@ -79,10 +84,14 @@ def test_listing_actions_keep_confirmation_and_state_changes(shop):
     assert 'Listing photo unavailable' in markup(app)
     app.button(key=f'reserve-{lid}').click().run()
     assert not app.exception and shop.db.get_listing(lid)['status'] == 'reserved'
+    # One section shows at a time now: follow the listing into its new section.
+    app.session_state['my_listings_section'] = 'reserved'; app.run()
     app.button(key=f'relist-{lid}').click().run()
     assert not app.exception and shop.db.get_listing(lid)['status'] == 'active'
+    app.session_state['my_listings_section'] = 'active'; app.run()
     app.button(key=f'sold-{lid}').click().run()
     assert not app.exception and shop.db.get_listing(lid)['status'] == 'sold'
+    app.session_state['my_listings_section'] = 'sold'; app.run()
     assert any(p.proto.popover.label == 'Delete' for p in app.get('popover'))
     assert app.button(key=f'delete-{lid}').label == 'Yes, delete'
     assert shop.db.get_listing(lid) is not None  # Trigger still needs confirmation.

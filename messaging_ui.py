@@ -243,6 +243,16 @@ INBOX_CSS = """
     background: #5F47F5; color: #FFFFFF; font-size: 0.72rem; font-weight: 600;
 }
 .st-key-inbox-list [data-testid="stColumn"] { min-width: 0; }
+/* The clickable person name: a borderless button styled like the name heading. */
+.st-key-inbox-list [class*="st-key-openname_"] button {
+    border: none; background: none; min-height: 0; padding: 0; margin: 0 0 2px 58px;
+    justify-content: flex-start; text-align: left; width: auto;
+}
+.st-key-inbox-list [class*="st-key-openname_"] button p {
+    font-weight: 700; color: #202433; font-size: 1rem; margin: 0; max-width: 100%;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.st-key-inbox-list [class*="st-key-openname_"] button:hover p { color: #5F47F5; }
 .st-key-inbox-list [class*="st-key-inbox-row-"] > [data-testid="stHorizontalBlock"] {
     flex-wrap: nowrap; gap: 12px;
 }
@@ -294,18 +304,23 @@ def inbox_activity_preview(activity: dict | None, actor: int) -> str:
     return f"{prefix}{kind}: {format_price(activity['amount_cents'])} · {OFFER_STATUS_LABELS[status]}"
 
 
-def inbox_summary(row: dict, activity: dict | None) -> None:
-    """Compact escaped summary with an optional real photo above initials fallback."""
+def inbox_summary(row: dict, activity: dict | None, *, with_name: bool = True) -> None:
+    """Compact escaped summary with an optional real photo above initials fallback.
+
+    with_name=False drops the name heading, for when the caller shows the name as a
+    clickable button instead (so clicking the name also opens the chat).
+    """
     name = html.escape(row["other_name"])
     title = html.escape(row["listing_title_snapshot"])
     preview = html.escape(inbox_activity_preview(activity, row["own_profile_id"]))
     unavailable = " · Listing no longer available" if row["listing_id"] is None else ""
     background = html.escape(avatar_background(row["other_name"], row.get("other_photo_url")), quote=True)
+    heading = f'<div class="inbox-heading"><strong>{name}</strong></div>' if with_name else ""
     st.html(
         f'<div class="inbox-summary{" inbox-unread" if row.get("unread") else ""}">'
         f'<span class="inbox-avatar" role="img" '
         f'aria-label="{name} profile picture" style="background-image: {background}"></span>'
-        f'<div class="inbox-information"><div class="inbox-heading"><strong>{name}</strong></div>'
+        f'<div class="inbox-information">{heading}'
         f'<div class="inbox-listing">{title}{unavailable}</div>'
         f'<p class="inbox-preview" title="{preview}">{preview}</p></div></div>'
     )
@@ -351,15 +366,22 @@ def chat_header(row: dict, *, divider: bool = True) -> None:
                 "{margin:0;line-height:1.4;} "
                 ".st-key-chat-participant-header [data-testid='stVerticalBlock'] "
                 "{gap:0.25rem;}</style>")
+        # The other person's profile id, so the photo and name can link to it.
+        other_id = row["seller_id"] if row["own_profile_id"] == row["buyer_id"] else row["buyer_id"]
         photo, details = st.columns([1, 10], gap="small", vertical_alignment="center")
         with photo:
             background = html.escape(avatar_background(row["other_name"], row.get("other_photo_url")), quote=True)
             name = html.escape(row["other_name"], quote=True)
-            st.html(f'<div role="img" aria-label="{name} profile picture" '
-                    f'style="width:46px;height:46px;border-radius:50%;background-size:cover;'
-                    f'background-position:center;background-image:{background}"></div>')
+            # Clicking the photo opens the person's profile (same as the name link).
+            st.html(f'<a href="/student?id={int(other_id)}" target="_self" '
+                    f'aria-label="{name} profile" '
+                    f'style="display:block;width:46px;height:46px;border-radius:50%;'
+                    f'background-size:cover;background-position:center;background-image:{background}"></a>')
         with details:
-            st.subheader(row["other_name"])
+            # Clicking the name opens the person's profile too (same link as the photo).
+            st.html(f'<a href="/student?id={int(other_id)}" target="_self" '
+                    f'style="text-decoration:none;color:#202433;font-size:1.5rem;'
+                    f'font-weight:600;line-height:1.2;">{name}</a>')
     if divider:
         st.divider()
 

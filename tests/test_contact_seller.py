@@ -86,7 +86,10 @@ def test_contact_opens_chat_on_first_visit_and_repeated_contact_reuses_it(flow):
     assert app.session_state["messaging_selected"] == CID
     assert app.session_state["messaging_account"] == "buyer@novasbe.pt"
     assert app.chat_input
-    assert any(item.value == "Test seller" for item in app.subheader)
+    # The chat shows the participant name as a profile link in the chat header.
+    header = next(c for c in app.get("flex_container") if c.key == "chat-participant-header")
+    header_html = "\n".join(e.proto.body for e in header.get("html"))
+    assert "font-size:1.5rem" in header_html and header_html.rstrip().endswith("Test seller</a>")
     flow.creation.assert_called_once_with({"listing_id": 10, "buyer_id": 7})
     flow.purchase.assert_not_called()
     # Return to Browse with the listing selected, then contact again.

@@ -101,7 +101,16 @@ def show_inbox() -> None:
                     left, right = st.columns([4, 1], gap="small", vertical_alignment="center")
                     last = row.get("last_activity") or row.get("last_message")
                     with left:
-                        messaging_ui.inbox_summary(row, last)
+                        # The name is a clickable button (another way to open the
+                        # chat, besides "Open chat"); the summary below drops its own
+                        # name heading so the name isn't shown twice. Unread is shown
+                        # by the count badge and highlight (no dot), like elsewhere.
+                        if st.button(row['other_name'], type="tertiary",
+                                     key=f"openname_{row['id']}"):
+                            st.session_state.messaging_selected = row["id"]
+                            st.session_state.messaging_history_limit = 50
+                            st.rerun()
+                        messaging_ui.inbox_summary(row, last, with_name=False)
                     with right:
                         with st.container(key=f"inbox-actions-{row['id']}", horizontal_alignment="right"):
                             with st.container(key=f"inbox-time-{row['id']}"):

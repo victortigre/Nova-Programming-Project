@@ -15,6 +15,17 @@ def html(app):
     return '\n'.join(e.proto.body for e in app.get('html'))
 
 
+def header_name(header):
+    """The participant name is now an HTML anchor to their profile (not an
+    st.subheader). Return the text inside that name link."""
+    for e in header.get('html'):
+        body = e.proto.body
+        # The name link carries the 1.5rem heading style; the avatar link does not.
+        if 'font-size:1.5rem' in body and '</a>' in body:
+            return body[body.index('>') + 1:body.rindex('</a>')]
+    raise AssertionError('participant name link not found in chat header')
+
+
 def open_chat(ui, history=(), actor=7, photo=None):
     app, mocks, _ = ui
     mocks['get_conversation_details'].return_value = {**ROW, 'own_profile_id': actor, 'other_photo_url': photo}
@@ -36,7 +47,8 @@ def test_compact_header_shares_toolbar_with_controls_and_white_surface(ui, photo
     assert columns[0].button[0].label == '← Back to Inbox'
     assert not columns[-1].button
     header = next(c for c in toolbar.get('flex_container') if c.key == 'chat-participant-header')
-    assert header.subheader[0].value == ROW['other_name']
+    assert header_name(header) == ROW['other_name']
+    assert not header.subheader  # the name is a profile link now, not a subheader
     assert not header.caption
     assert 'data:image/svg+xml,' in html(app)
     if photo:
@@ -103,8 +115,10 @@ def test_inbox_before_and_after_chat_keeps_list_and_unread_state(ui):
     before = html(app)
     assert '.st-key-open-chat-surface' not in before
     assert app.title[0].value == 'Inbox'
-    # An unread chat shows its name and a counter of new messages.
-    assert '<strong>Test participant</strong>' in before
+    # The name is the clickable button (no dot); an unread chat shows the row
+    # highlight and a counter of new messages.
+    assert any(b.label == 'Test participant' and b.key == 'openname_' + CID
+               for b in app.button)
     assert 'inbox-summary inbox-unread' in before
     assert '<span class="inbox-count">1</span>' in before
     mocks['mark_read'].assert_not_called()
@@ -149,14 +163,17 @@ def test_header_text_resets_caption_compensation_for_compact_spacing(ui, name, t
     app.button(key='chat_' + CID).click().run()
     assert not app.exception
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
-    assert header.subheader[0].value == name
+    assert header_name(header) == name
+    assert not header.subheader
     assert not header.caption
     styles = html(app)
     assert ".st-key-chat-participant-header [data-testid='stCaptionContainer'] {color:#737985;margin:0;}" in styles
     assert ".st-key-chat-participant-header [data-testid='stCaptionContainer'] p {margin:0;line-height:1.4;}" in styles
     # The single name element stays centered alongside the photo.
     photo, details = header.get('column')
-    assert not photo.subheader and details.subheader[0].value == name
+    assert not photo.subheader and not details.subheader
+    details_html = '\n'.join(e.proto.body for e in details.get('html'))
+    assert 'font-size:1.5rem' in details_html and details_html.endswith(name + '</a>')
     assert not details.caption
     toolbar = next(c for c in app.get('flex_container') if c.key == 'chat-toolbar')
     assert toolbar.get('column')[0].button[0].label == '← Back to Inbox'
@@ -174,6 +191,9 @@ def test_name_only_header_is_centered_and_preserves_inbox_and_offer_details(ui):
     before = html(app)
     assert ROW['listing_title_snapshot'] in before
     assert 'Offer: €15.00 · Pending' in before
+    # The name is on the clickable button (no dot); the unread counter still shows.
+    assert any(b.label == ROW['other_name'] and b.key == 'openname_' + CID
+               for b in app.button)
     assert '<span class="inbox-count">1</span>' in before  # the unread counter
     # The existing Inbox omits asking prices; preserve that, along with offer prices.
     assert '€20.00' not in before
@@ -182,7 +202,8 @@ def test_name_only_header_is_centered_and_preserves_inbox_and_offer_details(ui):
     header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
     photo, details = header.get('column')
     assert photo.proto.vertical_alignment == details.proto.vertical_alignment == Block.Column.CENTER
-    assert [h.value for h in header.subheader] == [ROW['other_name']]
+    assert header_name(header) == ROW['other_name']
+    assert not header.subheader
     assert not header.caption
     assert 'data:image/svg+xml,' in html(app)
     assert any(h.value.startswith('€15.00') and '~~€20.00~~' in h.value for h in app.subheader)
