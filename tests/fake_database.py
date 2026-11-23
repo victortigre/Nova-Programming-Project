@@ -18,6 +18,7 @@ class FakeDatabase:
         self.requests = {}  # id -> purchase request
         self.conversations = {}  # chat id -> conversation (only what deals.py reads)
         self.offers = {}  # chat id -> offers, newest first
+        self.messages = []  # chat messages, in the order they were sent
         self.reviews = []  # every review, in the order they were left
         self._numbers = itertools.count(1)
 
@@ -284,3 +285,8 @@ class FakeDatabase:
 
     def messaging_offers(self, conversation_id, limit, offset):
         return [dict(o) for o in self.offers.get(conversation_id, [])[offset:offset + limit]]
+
+    def messaging_insert_message(self, payload):
+        row = {**payload, "id": next(self._numbers)}
+        self.messages.append(row)
+        return dict(row)

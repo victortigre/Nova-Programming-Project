@@ -39,11 +39,12 @@ still accepted") and the database checks that in the same step.
 """
 
 from datetime import date, datetime, timedelta, timezone
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import payments
 from accounts import nova_email
-from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound, expired
+from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound, expired, format_price
 
 REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
     "requested", "accepted", "declined", "cancelled", "completed")
@@ -234,6 +235,24 @@ def _sellers_methods(db, request: dict) -> list[str]:
 
 # --- 2. buyer: I've paid ---------------------------------------------------------
 
+def _announce_paid(db, request: dict) -> None:
+    """Drop a line in the chat when the buyer says they paid, so the seller's
+    Inbox shows it as unread too (the Browse notice already fires). Best-effort:
+    a messaging hiccup must never undo the recorded payment."""
+    if not request.get("conversation_id"):
+        return
+    amount = format_price(request.get("agreed_price_cents") or 0)
+    try:
+        db.messaging_insert_message({
+            "conversation_id": request["conversation_id"],
+            "sender_id": request["buyer_id"],
+            "client_message_id": str(uuid4()),
+            "body": f"✅ I've paid {amount}. Please confirm you received it.",
+        })
+    except Exception:
+        pass
+
+
 def mark_paid(db, request_id: int, buyer_email: str, method: str | None = None) -> None:
     """The buyer says they paid, and how (one of the seller's methods).
     The seller is asked to check."""
@@ -252,6 +271,7 @@ def mark_paid(db, request_id: int, buyer_email: str, method: str | None = None) 
                                           "payment_method": method},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal just changed. Please look again."])
+    _announce_paid(db, request)  # so the seller's Inbox lights up, not only Browse
 
 
 def choose_cash(db, request_id: int, buyer_email: str) -> None:

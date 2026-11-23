@@ -194,6 +194,18 @@ def test_paid_and_confirmed_marks_it_sold(db):
     assert db.get_listing(lid)["status"] == SOLD
 
 
+def test_saying_you_paid_posts_a_chat_message_so_the_sellers_inbox_lights_up(db):
+    lid = a_listing(db)
+    deal = start_purchase(db, lid, BUYER)
+    assert db.messages == []  # the chat is empty until the buyer acts
+    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    assert len(db.messages) == 1  # a line now sits in the chat → the Inbox can show it unread
+    note = db.messages[0]
+    assert note["conversation_id"] == deal["conversation_id"]
+    assert note["sender_id"] == deal["buyer_id"]  # from the buyer, so it's unread for the seller
+    assert "paid" in note["body"].lower() and "confirm" in note["body"].lower()
+
+
 def test_the_seller_cannot_confirm_before_the_buyer_paid(db):
     deal = start_purchase(db, a_listing(db), BUYER)
     with pytest.raises(ListingError, match="hasn't said they paid"):
