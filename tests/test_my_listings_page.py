@@ -59,17 +59,33 @@ def test_buyers_and_sales_show_inside_the_listing_cards(db):
     page = AppTest.from_file(PAGE, default_timeout=30).run()
 
     assert not page.exception
-    assert [tab.label.split(" 🔔")[0] for tab in page.tabs] == [
+    # The three sections are now a single segmented control (not tabs); its option
+    # labels carry the same counts (and a bell when a buyer is waiting).
+    section = page.segmented_control[0]
+    assert [label.split(" 🔔")[0] for label in section.options] == [
         "Active (1)", "Reserved (1)", "Sold (1)"]
-    text = page_text(page)
-    assert "**Ana** asked to buy this (old request)" in text
-    assert "**Rui** is buying this." in text
-    assert "Sold to Marta" in text
+
+    def section_text(status: str) -> str:
+        page.session_state["my_listings_section"] = status
+        page.run()
+        return page_text(page)
+
+    # Only the selected section's cards render, so check each one in turn.
+    assert "**Ana** asked to buy this (old request)" in section_text("active")
+    reserved = section_text("reserved")
+    assert "**Rui** is buying this." in reserved
+    assert "Sold to Marta" in section_text("sold")
+
+    page.session_state["my_listings_section"] = "reserved"
+    page.run()
     labels = [button.label for button in page.button]
-    assert "Decline" in labels
     assert "Payment received" in labels and "Not received yet" in labels
     # With a buyer, the deal decides: no Reserve/Sold/Relist on the bike.
     assert f"sold-{bike}" not in [button.key for button in page.button]
+
+    page.session_state["my_listings_section"] = "active"
+    page.run()
+    assert "Decline" in [button.label for button in page.button]
 
 
 def test_confirming_the_payment_on_the_page_marks_it_sold(db):
@@ -78,6 +94,10 @@ def test_confirming_the_payment_on_the_page_marks_it_sold(db):
     deals.mark_paid(db, deal["id"], "rui@novasbe.pt", "bank")
 
     page = AppTest.from_file(PAGE, default_timeout=30).run()
+    # The paid-but-unconfirmed bike sits in the Reserved section; select it so its
+    # card (and the "Payment received" button) renders.
+    page.session_state["my_listings_section"] = "reserved"
+    page.run()
     page.button(key=f"mylistings-received-{deal['id']}").click().run()
 
     assert not page.exception

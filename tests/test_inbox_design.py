@@ -66,13 +66,16 @@ def test_unified_inbox_uses_one_real_actor_for_buying_and_selling(ui, monkeypatc
     app.run()
     assert not app.exception
     assert len([b for b in app.button if b.label == 'Open chat']) == 2
-    assert '<strong>Buyer</strong>' in html_content(app)
-    assert '<strong>Seller</strong>' in html_content(app)
+    # Each person's name is now a clickable button above its summary.
+    assert any(b.label == 'Buyer' and b.key.startswith('openname_') for b in app.button)
+    assert any(b.label == 'Seller' and b.key.startswith('openname_') for b in app.button)
     query.assert_called_with(7)
     for cid, other, can_start_offer in [(CID, 'Seller', True), (SECOND, 'Buyer', False)]:
         app.button(key='chat_' + cid).click().run()
         assert not app.exception
-        assert app.subheader[0].value == other
+        header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
+        header_html = '\n'.join(e.proto.body for e in header.get('html'))
+        assert 'font-size:1.5rem' in header_html and header_html.rstrip().endswith(other + '</a>')
         assert app.chat_input
         assert any(b.label == 'Send Offer' for b in app.button) == can_start_offer
         assert not app.selectbox
@@ -187,8 +190,10 @@ def test_profile_photo_failure_does_not_block_real_chat_details_or_sending(ui, m
     mocks['get_chat_events'].return_value = [OFFER]
     mocks['get_offers'].return_value = [OFFER]
     app, _ = open_chat(ui)
-    assert app.subheader[0].value == 'Actual participant'
-    assert any(t.value == 'Actual participant' for t in app.text)
+    header = next(c for c in app.get('flex_container') if c.key == 'chat-participant-header')
+    header_html = '\n'.join(e.proto.body for e in header.get('html'))
+    assert 'font-size:1.5rem' in header_html and header_html.rstrip().endswith('Actual participant</a>')
+    assert any(t.value == 'Actual participant' for t in app.text)  # bubble sender name
     assert 'data:image/svg+xml,' in html_content(app)
     assert 'private signing response' not in html_content(app)
     app.chat_input[0].set_value('Photo failure does not block chat').run()

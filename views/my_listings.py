@@ -193,9 +193,13 @@ def tab_title(status: str) -> str:
     return f"{title} 🔔" if waits else title
 
 
-for tab, status in zip(st.tabs([tab_title(s) for s in listings.STATUSES]), listings.STATUSES):
-    with tab:
-        if not groups[status]:
-            st.caption("Nothing here.")
-        for listing in groups[status]:
-            listing_card(listing)
+# A segmented control (not tabs), so a Browse notification can open this page
+# straight on the right section (e.g. "reserved"). The key must match the one
+# ui.notice sets ("my_listings_section").
+status = st.segmented_control(
+    "Show", listings.STATUSES, format_func=tab_title, default=listings.STATUSES[0],
+    key="my_listings_section", label_visibility="collapsed") or listings.STATUSES[0]
+if not groups[status]:
+    st.caption("Nothing here.")
+for listing in groups[status]:
+    listing_card(listing)

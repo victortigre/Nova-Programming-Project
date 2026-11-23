@@ -192,7 +192,11 @@ if viewing is not None:
                 st.markdown(f"📅 **{available_note}**")
             seller = database.get_profile_by_id(item["seller_id"])
             if seller and my_id != item["seller_id"]:
-                st.markdown(f"Sold by **{plain(seller['name'])}**")
+                # Clicking "Sold by <name>" opens that seller's profile.
+                st.page_link("views/public_profile.py",
+                             label=f"Sold by **{plain(seller['name'])}**",
+                             icon=":material/storefront:",
+                             query_params={"id": item["seller_id"]})
             listed_note = listings.listed_text(item)
             if listed_note:
                 st.caption(f"🗓️ {listed_note}")
@@ -329,14 +333,14 @@ for deal in waiting["check_payment"]:
             key=f"check-payment-{deal['request_id']}-paid", emoji="💶",
             title=f"{name} says they paid you {price}",
             text=f"For {title}. Check that it arrived, then confirm on My listings.",
-            page=SALES, label="Confirm"))
+            page=SALES, label="Confirm", section="reserved"))
     else:
         notices.append(dict(
             key=f"check-payment-{deal['request_id']}-cash", emoji="💶",
             title=f"{name} will pay you {price} in cash",
             text=f"For {title}. Agree where to meet in the chat, and confirm on My listings "
                  "once you have the money.",
-            page=SALES, label="Open"))
+            page=SALES, label="Open", section="reserved"))
 if to_do.get("answer"):
     notices.append(dict(
         key=f"answer-{to_do['answer']}", emoji="🛍️",
@@ -376,7 +380,8 @@ def dismiss_notice(key: str) -> None:
 def show_notice(card: dict) -> None:
     ui.notice(card["key"], card["emoji"], card["title"], card["text"], card["page"],
               card["label"], tone=card.get("tone", "violet"),
-              open_chat=card.get("open_chat"), on_dismiss=dismiss_notice)
+              open_chat=card.get("open_chat"), on_dismiss=dismiss_notice,
+              section=card.get("section"))
 
 
 # Show the first two; keep the rest behind an "expand" toggle, so a long list

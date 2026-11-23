@@ -163,6 +163,16 @@ button[data-variant="pills"][data-selected="true"] p {{
     margin-top: 20px; text-align: center; font-weight: 600; font-size: 1.02rem;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }}
+/* The clickable product title: a borderless button that looks like .nm-title. */
+[class*="st-key-cardtitle-"] button {{
+    margin-top: 16px; width: 100%; border: none; background: none;
+    min-height: 0; padding: 0; justify-content: center; text-align: center;
+}}
+[class*="st-key-cardtitle-"] button p {{
+    font-weight: 600; font-size: 1.02rem; color: #202433; width: 100%; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}}
+[class*="st-key-cardtitle-"] button:hover p {{ color: {VIOLET}; }}
 .nm-meta {{
     text-align: center; color: {GREY_TEXT}; font-size: 0.8rem;
     /* Wrap onto a second line instead of cutting words off with "..." */
@@ -350,13 +360,16 @@ def apply_style() -> None:
 
 
 def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
-           tone: str = "violet", open_chat: str | None = None, on_dismiss=None) -> None:
+           tone: str = "violet", open_chat: str | None = None, on_dismiss=None,
+           section: str | None = None) -> None:
     """A card at the top of Browse: something waits for this student, with a button.
 
     tone: "violet" (selling), "green" (buying) or "warm" (refunds).
     title and text are our own words (never typed by students), so html is safe here;
     anything from a student (a name, a title) must be escaped with html.escape first.
     With open_chat (a conversation id), the button opens that chat in the Inbox.
+    With section (e.g. "reserved"), the button opens `page` with that My listings
+    section already selected, so the student lands exactly where they must act.
     on_dismiss: when given, a ✕ button is shown that calls on_dismiss(key).
     """
     with st.container(key=f"notice-{tone}-{key}"):
@@ -373,12 +386,18 @@ def notice(key: str, emoji: str, title: str, text: str, page: str, label: str,
         words.html(f'<div class="nm-notice"><div class="nm-notice-icon">{emoji}</div>'
                    f'<div><div class="nm-notice-title">{title}</div>'
                    f'<div class="nm-notice-text">{text}</div></div></div>')
-        if open_chat is None:
+        if open_chat is not None:
+            if button.button(label, key=f"noticeopen-{key}", icon=":material/arrow_forward:"):
+                st.session_state.messaging_selected = open_chat
+                st.session_state.messaging_history_limit = 50
+                st.switch_page(page)
+        elif section is not None:
+            if button.button(label, key=f"noticeopen-{key}", icon=":material/arrow_forward:"):
+                # Pre-select the My listings section, then go there.
+                st.session_state["my_listings_section"] = section
+                st.switch_page(page)
+        else:
             button.page_link(page, label=label, icon=":material/arrow_forward:")
-        elif button.button(label, key=f"noticeopen-{key}", icon=":material/arrow_forward:"):
-            st.session_state.messaging_selected = open_chat
-            st.session_state.messaging_history_limit = 50
-            st.switch_page(page)
 
 
 def card(key: str):
@@ -419,12 +438,12 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
                              [listings.category_label(item), condition, place] if part)
         note = listings.availability_text(item, date.today())
         later = f'<div class="nm-meta">📅 {html.escape(note)}</div>' if note else ""
-        st.html(
-            f'<div class="nm-photo">{picture}{_badge(item)}</div>'
-            f'<div class="nm-title" title="{html.escape(item["title"])}">{html.escape(item["title"])}</div>'
-            f'<div class="nm-meta">{html.escape(details)}</div>'
-            f'{later}'
-        )
+        st.html(f'<div class="nm-photo">{picture}{_badge(item)}</div>')
+        # The title is a borderless button, so clicking the product name opens it
+        # too (the price button below still works). Styled like .nm-title in CSS.
+        st.button(item["title"], key=f"cardtitle-{key}", type="tertiary",
+                  on_click=on_open, help="Open this listing")
+        st.html(f'<div class="nm-meta">{html.escape(details)}</div>{later}')
         if saved is not None:
             # The heart itself is drawn by the CSS above; the label is for screen readers.
             st.button("Saved" if saved else "Save", key=f"heart-{'on' if saved else 'off'}-{key}",
