@@ -180,6 +180,9 @@ button[data-variant="pills"][data-selected="true"] p {{
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden;
 }}
+/* Category, condition and pickup area: always keep room for two lines, so a
+   card with a short line is as tall as its neighbours with a long one. */
+.nm-details {{ line-height: 1.4; min-height: 2.8em; }}
 
 /* The round heart button in the top right corner of a listing photo. */
 [class*="st-key-heart-"] {{
@@ -453,7 +456,7 @@ def listing_card(item: dict, photo_url: str | None, *, key: str,
         # too (the price button below still works). Styled like .nm-title in CSS.
         st.button(item["title"], key=f"cardtitle-{key}", type="tertiary",
                   on_click=on_open, help="Open this listing")
-        st.html(f'<div class="nm-meta">{html.escape(details)}</div>{later}')
+        st.html(f'<div class="nm-meta nm-details">{html.escape(details)}</div>{later}')
         if saved is not None:
             # The heart itself is drawn by the CSS above; the label is for screen readers.
             st.button("Saved" if saved else "Save", key=f"heart-{'on' if saved else 'off'}-{key}",
