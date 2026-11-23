@@ -165,7 +165,7 @@ def test_recipient_counter_creates_new_card_and_preserves_history(ui, monkeypatc
     app.text_area(key=f"messaging_offer_note_counter-{OID}").set_value("My counter")
     click(app, "Send Counteroffer")
     assert action.call_args.args[:3] == (CID, OID, 1425)
-    assert any(item.value == "Status: Superseded" for item in app.text)
+    assert any(item.value == "Status: Replaced by a counteroffer" for item in app.text)
     assert any(item.value == "Status: Pending" for item in app.text)
     assert sum(item.value == "My counter" for item in app.text) == 1
     assert not any(button.label == "Accept" for button in app.button)

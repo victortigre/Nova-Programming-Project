@@ -140,7 +140,7 @@ def test_accepted_card_is_role_aware_and_only_the_buyer_gets_buy_now(ui, monkeyp
     app, _ = open_chat(ui)
     # One "Offer accepted" tag; the price with the listing price crossed out.
     assert any(h.value.startswith('€15.00') and '~~€20.00~~' in h.value for h in app.subheader)
-    assert any(t.value == 'Status: Superseded' for t in app.text)
+    assert any(t.value == 'Status: Replaced by a counteroffer' for t in app.text)
     assert not any(t.value == 'Status: Accepted' for t in app.text)
     first = ROW['other_name'].split(' ')[0]
     expected = (f'{first} accepted your offer.' if actor == sender

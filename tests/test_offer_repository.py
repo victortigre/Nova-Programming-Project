@@ -142,7 +142,7 @@ def test_mixed_timeline_retains_each_offer_and_its_optional_note(context, monkey
     monkeypatch.setattr(database, "names_of", lambda ids: {7: "Buyer", 8: "Seller"})
     events = repo.get_chat_events(CID)
     assert [event["type"] for event in events] == ["offer", "message", "offer"]
-    assert events[0]["status_label"] == "Superseded"
+    assert events[0]["status_label"] == "Replaced by a counteroffer"
     assert events[0]["note"] == "My first offer"
     assert events[-1]["status_label"] == "Accepted"
     assert events[-1]["sender_name"] == "Seller"

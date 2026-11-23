@@ -5,7 +5,7 @@ from messaging import MAX_MESSAGE_LENGTH, require_conversation_participant
 
 OFFER_STATUS_LABELS = {
     "pending": "Pending", "accepted": "Accepted",
-    "declined": "Declined", "superseded": "Superseded",
+    "declined": "Declined", "superseded": "Replaced by a counteroffer",
 }
 
 
