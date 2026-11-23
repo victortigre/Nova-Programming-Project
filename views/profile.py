@@ -103,7 +103,7 @@ if profile is not None:
 # --- Saved items ---------------------------------------------------------------
 # The listings this student liked. Tapping ♥ removes one; tapping the price
 # opens it on Browse, the same way a student's public profile does.
-SAVED_COLUMNS = 3
+SAVED_COLUMNS = 4  # more per row = smaller cards (matches the public profile)
 
 
 def unsave(listing_id: int) -> None:
