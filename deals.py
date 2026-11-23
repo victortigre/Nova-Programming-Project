@@ -180,12 +180,17 @@ def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
                              only_if_status=ACTIVE):
         raise ListingError(["This item isn't available any more."])
     pay_by = datetime.now(timezone.utc) + timedelta(minutes=PAY_WITHIN_MINUTES)
+    row = {
+        "listing_id": listing["id"], "buyer_id": buyer["id"], "status": ACCEPTED,
+        "agreed_price_cents": price_cents, "conversation_id": chat["id"],
+        "pay_by": pay_by.isoformat(),
+    }
+    # A seller who only takes cash: the buyer pays when they meet, so there is
+    # nothing to choose and no 15-minute deadline (it would cancel the deal).
+    if [m["key"] for m in payments.methods_of(seller)] == [payments.CASH]:
+        row["payment_method"] = payments.CASH
     try:
-        return db.insert_request({
-            "listing_id": listing["id"], "buyer_id": buyer["id"], "status": ACCEPTED,
-            "agreed_price_cents": price_cents, "conversation_id": chat["id"],
-            "pay_by": pay_by.isoformat(),
-        })
+        return db.insert_request(row)
     except Exception:
         # The purchase could not be saved (for example the connection dropped).
         # Without this the item would stay reserved for nobody.

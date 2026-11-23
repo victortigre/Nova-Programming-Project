@@ -3,4 +3,4 @@ requests==2.34.2
 supabase==2.34.1
 pillow==13.0.0
 pytest==9.2.0
-# Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-23 inbox photo aligned
+# Restart the app on Streamlit Cloud (any change here makes it reinstall and restart): 2026-11-23 cash-only seller
