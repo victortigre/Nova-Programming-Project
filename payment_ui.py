@@ -51,7 +51,7 @@ def _bank_details(method: dict) -> None:
 
 
 def _choice_label(key: str) -> str:
-    return {payments.BANK: "Bank transfer (within 48 hours)",
+    return {payments.BANK: "Bank transfer (within 15 minutes)",
             payments.CASH: "Cash in person (when you meet)"}.get(key, _label(key))
 
 
@@ -86,7 +86,7 @@ def buyer_box(deal: dict, email: str, where: str) -> None:
     methods = {m["key"]: m for m in details["methods"]}
     missing = bool(deal.get("payment_missing_at"))
     # First choose how to pay (when the seller accepts both): a bank transfer has
-    # 48 hours, cash is paid in person when you meet, with no deadline.
+    # 15 minutes, cash is paid in person when you meet, with no deadline.
     if missing or payments.CASH not in methods:
         choice = payments.BANK
     elif payments.BANK not in methods:
@@ -115,7 +115,7 @@ def buyer_box(deal: dict, email: str, where: str) -> None:
     else:
         st.info(f"Pay **{_price(deal)} in cash** when you meet to pick it up. There's no "
                 "deadline: agree the time and place in the chat. Tap the button below to "
-                "choose cash, so the 48 hours for bank transfers don't apply.",
+                "choose cash, so the 15 minutes for bank transfers don't apply.",
                 icon=":material/payments:")
         columns = st.columns(2)
         if columns[0].button("Pay in cash when we meet", key=f"{where}-cash-{rid}",

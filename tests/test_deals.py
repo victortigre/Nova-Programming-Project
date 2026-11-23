@@ -1,5 +1,5 @@
 """Tests for buying by bank transfer (deals.py): Buy Now in a chat -> the buyer
-pays and says so -> the seller confirms -> sold. Plus the 48 hours to pay,
+pays and says so -> the seller confirms -> sold. Plus the 15 minutes to pay,
 "not received yet", cancelling and the permission checks.
 
 Uses the in-memory fake database, so the real Supabase is never touched.
@@ -46,14 +46,14 @@ def a_chat(db, listing_id, buyer=BUYER, offer_status="accepted", amount=1500, ch
 
 # --- 1. Buy Now --------------------------------------------------------------------
 
-def test_buy_now_reserves_at_the_agreed_price_with_48_hours_to_pay(db):
+def test_buy_now_reserves_at_the_agreed_price_with_15_minutes_to_pay(db):
     lid = a_listing(db)
     give_bank_details(db, SELLER)
     deal = deals.buy_now(db, BUYER, a_chat(db, lid, amount=1500))
     assert deal["status"] == ACCEPTED and deal["agreed_price_cents"] == 1500
     assert db.get_listing(lid)["status"] == RESERVED
     due = deals.pay_due(deal)
-    expected = datetime.now(timezone.utc) + timedelta(hours=48)
+    expected = datetime.now(timezone.utc) + timedelta(minutes=15)
     assert abs((due - expected).total_seconds()) < 60
 
 
@@ -233,14 +233,14 @@ def test_saying_paid_twice_is_refused(db):
         deals.mark_paid(db, deal["id"], BUYER, "bank")
 
 
-# --- the 48 hours to pay ----------------------------------------------------------------
+# --- the 15 minutes to pay ----------------------------------------------------------------
 
-def overdue(db, request_id, hours=49):
+def overdue(db, request_id, minutes_late=1):
     db.requests[request_id]["pay_by"] = (
-        datetime.now(timezone.utc) - timedelta(hours=hours - 48)).isoformat()
+        datetime.now(timezone.utc) - timedelta(minutes=minutes_late)).isoformat()
 
 
-def test_unpaid_after_48_hours_is_cancelled_and_back_on_sale(db):
+def test_unpaid_after_15_minutes_is_cancelled_and_back_on_sale(db):
     lid = a_listing(db)
     deal = start_purchase(db, lid, BUYER)
     overdue(db, deal["id"])
@@ -249,9 +249,9 @@ def test_unpaid_after_48_hours_is_cancelled_and_back_on_sale(db):
     assert db.get_listing(lid)["status"] == ACTIVE
 
 
-def test_not_cancelled_before_the_48_hours(db):
+def test_not_cancelled_before_the_15_minutes(db):
     deal = start_purchase(db, a_listing(db), BUYER)
-    later = datetime.now(timezone.utc) + timedelta(hours=47)
+    later = datetime.now(timezone.utc) + timedelta(minutes=14)
     assert deals.cancel_overdue(db, BUYER, now=later) == 0
     assert db.get_request(deal["id"])["status"] == ACCEPTED
 
@@ -272,10 +272,10 @@ def test_after_not_received_there_is_no_automatic_cancel(db):
     assert deals.cancel_overdue(db, SELLER) == 0
 
 
-def test_paying_after_the_48_hours_is_refused(db):
+def test_paying_after_the_15_minutes_is_refused(db):
     deal = start_purchase(db, a_listing(db), BUYER)
     overdue(db, deal["id"])
-    with pytest.raises(ListingError, match="48 hours"):
+    with pytest.raises(ListingError, match="15 minutes"):
         deals.mark_paid(db, deal["id"], BUYER, "bank")
 
 
@@ -399,14 +399,14 @@ def test_cash_has_no_deadline_and_the_seller_confirms_when_they_meet(db):
     deals.choose_cash(db, deal["id"], BUYER)
     fresh = db.get_request(deal["id"])
     assert deals.paying_cash(fresh) and deals.pay_due(fresh) is None
-    overdue(db, deal["id"], hours=200)
+    overdue(db, deal["id"], minutes_late=12000)
     assert deals.cancel_overdue(db, BUYER) == 0  # no automatic cancel for cash
     assert deals.to_do(db, SELLER)["check_payment"] == 1
     deals.confirm_payment(db, deal["id"], SELLER)  # cash received
     assert db.get_listing(lid)["status"] == SOLD
 
 
-def test_bank_transfer_keeps_the_48_hours(db):
+def test_bank_transfer_keeps_the_15_minutes(db):
     seller_accepts(db, bank_holder="Test Seller", iban="PT50000201231234567890154",
                    accepts_cash=True)
     deal = start_purchase(db, a_listing(db), BUYER)
@@ -511,10 +511,10 @@ def test_an_unpaid_deal_ends_even_if_neither_side_opens_the_app(db):
     lid = a_listing(db)
     give_bank_details(db, SELLER)
     deal = deals.buy_now(db, BUYER, a_chat(db, lid))
-    soon = datetime.now(timezone.utc) + timedelta(hours=47)
+    soon = datetime.now(timezone.utc) + timedelta(minutes=14)
     assert deals.cancel_all_overdue(db, soon) == 0
     assert db.get_listing(lid)["status"] == RESERVED
-    late = datetime.now(timezone.utc) + timedelta(hours=49)
+    late = datetime.now(timezone.utc) + timedelta(minutes=16)
     assert deals.cancel_all_overdue(db, late) == 1
     assert db.get_listing(lid)["status"] == "active"
     assert db.get_request(deal["id"])["status"] == "cancelled"
@@ -525,6 +525,6 @@ def test_a_paid_deal_is_never_ended_by_the_clock(db):
     give_bank_details(db, SELLER)
     deal = deals.buy_now(db, BUYER, a_chat(db, lid))
     deals.mark_paid(db, deal["id"], BUYER, "bank")
-    late = datetime.now(timezone.utc) + timedelta(hours=49)
+    late = datetime.now(timezone.utc) + timedelta(minutes=16)
     assert deals.cancel_all_overdue(db, late) == 0
     assert db.get_listing(lid)["status"] == RESERVED

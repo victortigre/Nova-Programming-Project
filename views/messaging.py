@@ -185,10 +185,10 @@ def accepted_offer_card(message: dict, row: dict, current: dict | None, live_dea
                     "Reserved for you! See below how to pay the seller.")
                 st.rerun()
         if can_buy:
-            st.caption("Reserves the item and shows where to pay. You have 48 hours.")
+            st.caption("Reserves the item and shows where to pay. You have 15 minutes.")
     elif is_current and negotiation_available:
         next_step(message, f"Next: {first} pays you",
-                  "They tap Buy Now, see how to pay you and have 48 hours (or pay cash "
+                  "They tap Buy Now, see how to pay you and have 15 minutes (or pay cash "
                   "when you meet).")
 
 

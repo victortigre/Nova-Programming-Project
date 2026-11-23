@@ -7,7 +7,7 @@ seller accepts (payments.py): bank transfer (IBAN) or cash in person:
      (buy_at_listed_price), or first agrees a lower price in the chat (an
      accepted offer) and taps "Buy Now" there (buy_now). The deal starts, the
      listing becomes Reserved, and the chat shows how to pay the seller.
-  2. The buyer has 48 hours to pay and tap "I've paid with …" (mark_paid,
+  2. The buyer has 15 minutes to pay and tap "I've paid with …" (mark_paid,
      saying which method). If they don't, the deal is cancelled automatically
      and the item is back on sale (cancel_overdue, run whenever a student
      opens a page: no clock needed). Cash is different: the buyer chooses
@@ -29,7 +29,7 @@ seller only their own listing.
 A deal (purchase request) moves through these states:
     accepted   Buy Now was tapped; waiting for the payment; listing Reserved
     completed  the seller confirmed the payment; the listing is Sold
-    cancelled  called off (by a student, or 48 hours without payment); Active
+    cancelled  called off (by a student, or 15 minutes without payment); Active
     requested, declined   only in deals from the earlier "Request to buy"
 
 Changing a status safely: two clicks can arrive at the same moment (a double
@@ -39,6 +39,7 @@ still accepted") and the database checks that in the same step.
 """
 
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import payments
 from accounts import nova_email
@@ -47,7 +48,7 @@ from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound,
 REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
     "requested", "accepted", "declined", "cancelled", "completed")
 LIVE = (REQUESTED, ACCEPTED)  # a deal still in progress
-PAY_WITHIN_HOURS = 48  # after Buy Now, how long the buyer has to pay
+PAY_WITHIN_MINUTES = 15  # after Buy Now, how long the buyer has to pay
 
 
 def _now() -> str:
@@ -151,7 +152,7 @@ def _buyers_chat(db, buyer_email: str, conversation_id: str) -> tuple[dict, dict
 
 
 def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
-    """Reserve the listing and create the deal: 48 hours to pay `price_cents`."""
+    """Reserve the listing and create the deal: 15 minutes to pay `price_cents`."""
     listing = _listing(db, chat["listing_id"])
     if listing["seller_id"] != chat["seller_id"]:
         raise ListingError(["This listing changed hands. Please look again."])
@@ -177,7 +178,7 @@ def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
     if not db.update_listing(listing["id"], listing["seller_id"], {"status": RESERVED},
                              only_if_status=ACTIVE):
         raise ListingError(["This item isn't available any more."])
-    pay_by = datetime.now(timezone.utc) + timedelta(hours=PAY_WITHIN_HOURS)
+    pay_by = datetime.now(timezone.utc) + timedelta(minutes=PAY_WITHIN_MINUTES)
     try:
         return db.insert_request({
             "listing_id": listing["id"], "buyer_id": buyer["id"], "status": ACCEPTED,
@@ -243,7 +244,7 @@ def mark_paid(db, request_id: int, buyer_email: str, method: str | None = None) 
         raise ListingError(["You already said you paid. The seller is checking."])
     due = pay_due(request)
     if due is not None and datetime.now(timezone.utc) >= due:
-        raise ListingError(["The 48 hours to pay have passed, so the deal was cancelled."])
+        raise ListingError(["The 15 minutes to pay have passed, so the deal was cancelled."])
     method = method or request.get("payment_method")
     if method not in _sellers_methods(db, request):
         raise ListingError(["Choose how you paid: one of the ways the seller accepts."])
@@ -254,7 +255,7 @@ def mark_paid(db, request_id: int, buyer_email: str, method: str | None = None) 
 
 
 def choose_cash(db, request_id: int, buyer_email: str) -> None:
-    """The buyer will pay in cash when they meet. No 48-hour deadline for cash."""
+    """The buyer will pay in cash when they meet. No 15-minute deadline for cash."""
     request, _ = _my_purchase(db, request_id, buyer_email)
     if request["status"] != ACCEPTED or request.get("paid_at"):
         raise ListingError(["This deal isn't waiting for a payment."])
@@ -262,7 +263,7 @@ def choose_cash(db, request_id: int, buyer_email: str) -> None:
         raise ListingError(["This seller doesn't accept cash."])
     due = pay_due(request)
     if due is not None and datetime.now(timezone.utc) >= due:
-        raise ListingError(["The 48 hours to pay have passed, so the deal was cancelled."])
+        raise ListingError(["The 15 minutes to pay have passed, so the deal was cancelled."])
     if not db.update_request(request_id, {"payment_method": payments.CASH},
                              only_if_status=ACCEPTED):
         raise ListingError(["This deal just changed. Please look again."])
@@ -298,7 +299,7 @@ def payment_not_received(db, request_id: int, seller_email: str) -> None:
         raise ListingError(["This deal just changed. Please look again."])
 
 
-# --- the 48 hours to pay ----------------------------------------------------------
+# --- the 15 minutes to pay ----------------------------------------------------------
 
 def _as_time(value) -> datetime | None:
     if not value:
@@ -325,11 +326,12 @@ def pay_due(request: dict) -> datetime | None:
 def pay_by_text(request: dict) -> str:
     """'Sat 22 Nov, 18:05': the last moment to pay, or ''."""
     due = pay_due(request)
-    return f"{due:%a %d %b, %H:%M}" if due else ""
+    # Shown in Lisbon time, so "16:20" is the time on the student's clock.
+    return f"{due.astimezone(ZoneInfo('Europe/Lisbon')):%a %d %b, %H:%M}" if due else ""
 
 
 def cancel_overdue(db, email: str, now: datetime | None = None) -> int:
-    """Cancel this student's deals whose 48 hours to pay have passed.
+    """Cancel this student's deals whose 15 minutes to pay have passed.
 
     Runs whenever the student opens a page (see to_do), so no clock has to run
     in the background. Returns how many deals it cancelled.
@@ -351,7 +353,7 @@ def cancel_overdue(db, email: str, now: datetime | None = None) -> int:
 # --- cancelling ---------------------------------------------------------------------
 
 def cancel_all_overdue(db, now: datetime | None = None) -> int:
-    """Cancel every deal whose 48 hours to pay have passed, whoever it belongs to.
+    """Cancel every deal whose 15 minutes to pay have passed, whoever it belongs to.
 
     cancel_overdue above only runs when the buyer or the seller opens the app.
     Browse calls this one, so an unpaid item comes back on sale for everybody.
@@ -497,7 +499,7 @@ def to_do(db, email: str) -> dict[str, int]:
         sales, purchases  the totals for the "My listings" and "My purchases" pages
     """
     me = _profile(db, email)
-    cancel_overdue(db, email)  # 48 hours without payment? Cancel those first.
+    cancel_overdue(db, email)  # 15 minutes without payment? Cancel those first.
     live = db.live_deals_of(me["id"])
     pay = sum(1 for r in live["buying"] if r["status"] == ACCEPTED and not r.get("paid_at"))
     check = sum(1 for r in live["selling"]

@@ -143,7 +143,7 @@ Acceptance records a price agreement. The buyer then taps Buy Now in the chat
 (or taps Buy Now on the item page to pay the listed price without an offer):
 the item is reserved and the chat shows how to pay the seller: the ways they
 accept on My profile (bank transfer with IBAN, and/or cash in person),
-shown only to that buyer. The buyer has 48 hours to pay and tap "I've paid"
+shown only to that buyer. The buyer has 15 minutes to pay and tap "I've paid"
 (cash: when they meet, no deadline), otherwise the purchase is cancelled and the
 item is back on sale. The seller checks and taps "Payment received" (the item is
 sold) or "Not received yet". The app never moves money itself. Unconfirmed offer
