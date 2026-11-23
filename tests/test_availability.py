@@ -2,7 +2,7 @@
 seller's chosen date is stored. Uses the in-memory fake database for the create
 tests, so the real Supabase is never touched."""
 
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
 
 from PIL import Image
@@ -81,3 +81,53 @@ def test_create_listing_without_a_date_stores_none():
     db = _db()
     lid = listings.create_listing(db, "ana@novasbe.pt", **GOOD, photos=[photo()])
     assert db.get_listing(lid)["available_from"] is None
+
+
+# --- "available until" -------------------------------------------------------
+
+def test_until_text():
+    out = listings.availability_text({"available_until": "2026-12-20"}, TODAY)
+    assert out == "Available until 20 Dec 2026"
+
+
+def test_from_and_until_text():
+    out = listings.availability_text({"available_from": "2026-12-10",
+                                      "available_until": "2026-12-20"}, TODAY)
+    assert out == "Available from 10 Dec 2026 until 20 Dec 2026"
+
+
+def test_until_passed_text_and_expired():
+    item = {"available_until": "2026-11-30"}
+    assert listings.availability_text(item, TODAY) == "Was available until 30 Nov 2026"
+    assert listings.expired(item, TODAY)
+    assert not listings.expired({"available_until": "2026-12-01"}, TODAY)  # the last day itself
+    assert not listings.expired({}, TODAY)
+
+
+def test_create_listing_keeps_the_until_date():
+    db = _db()
+    until = date.today() + timedelta(days=10)
+    lid = listings.create_listing(db, "ana@novasbe.pt", **GOOD, photos=[photo()],
+                                  available_until=until)
+    assert db.get_listing(lid)["available_until"] == until.isoformat()
+
+
+def test_until_in_the_past_is_refused():
+    errors = listings.check_listing(**GOOD, available_until=date.today() - timedelta(days=1))
+    assert any("already passed" in e for e in errors)
+
+
+def test_until_before_from_is_refused():
+    start = date.today() + timedelta(days=10)
+    errors = listings.check_listing(**GOOD, available_from=start,
+                                    available_until=start - timedelta(days=1))
+    assert any("before Available from" in e for e in errors)
+
+
+def test_expired_items_are_hidden_on_browse():
+    import browsing
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    items = [{"id": 1, "title": "a", "price_cents": 0, "available_until": yesterday},
+             {"id": 2, "title": "b", "price_cents": 0, "available_until": date.today().isoformat()},
+             {"id": 3, "title": "c", "price_cents": 0}]
+    assert {item["id"] for item in browsing.search_and_sort(items)} == {2, 3}

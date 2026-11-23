@@ -51,6 +51,9 @@ alter table listings add column if not exists pickup_area_other text;
 
 -- When the seller can only hand the item over from a later date (empty = now).
 alter table listings add column if not exists available_from date;
+-- ...and the last day it can be collected (empty = no end). After that day it
+-- no longer shows on Browse and can't be bought.
+alter table listings add column if not exists available_until date;
 
 -- Condition names were renamed ("New" -> "Brand New", "Like new" -> "Like New").
 update listings set condition = 'Brand New' where condition = 'New';

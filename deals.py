@@ -38,11 +38,11 @@ says what the status must still be ("change it to completed ONLY IF it is
 still accepted") and the database checks that in the same step.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import payments
 from accounts import nova_email
-from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound
+from listings import ACTIVE, RESERVED, SOLD, ListingError, NotAllowed, NotFound, expired
 
 REQUESTED, ACCEPTED, DECLINED, CANCELLED, COMPLETED = (
     "requested", "accepted", "declined", "cancelled", "completed")
@@ -162,6 +162,9 @@ def _start_purchase(db, buyer: dict, chat: dict, price_cents: int) -> dict:
         raise ListingError(["This item is already sold."])
     if listing["status"] != ACTIVE:
         raise ListingError(["This item is reserved for someone else."])
+    if expired(listing, date.today()):
+        raise ListingError(["The seller's \"available until\" date has passed, "
+                            "so this item can't be bought any more."])
     seller = db.get_profile_by_id(listing["seller_id"])
     # A blocked seller could not confirm the payment, so the deal would be stuck.
     if seller is None or seller.get("blocked_at"):
