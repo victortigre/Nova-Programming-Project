@@ -98,6 +98,111 @@ pytest
 The tests need no secrets and no internet: they use a pretend database that
 lives in memory.
 
+## How it is built
+
+### The parts
+
+| Part | Files | What it does |
+|------|-------|--------------|
+| Pages | `app.py`, `views/` | What the student sees. `app.py` checks the login and builds the menu; each page in `views/` is one screen. |
+| Rules | `listings.py`, `deals.py`, `payments.py`, `offers.py`, `reviews.py`, `reports.py`, `admin.py`, `browsing.py`, `photos.py`, `accounts.py` | Plain Python that decides what is allowed: who may edit a listing, when a deal is cancelled, what a valid IBAN looks like. No Streamlit inside, so they are easy to test. |
+| Data | `database.py`, `messaging_repository.py`, `database_setup.sql` | The only code that talks to Supabase. All tables are created by the one SQL file. |
+| Look | `ui.py`, `messaging_ui.py`, `payment_ui.py`, `.streamlit/config.toml` | Shared design pieces: cards, colours, the chat bubbles, the payment box. |
+
+**Why this split.** The pages only show things and pass on clicks. Every rule
+lives in one plain Python file, which is called with the email from the login.
+That keeps the rules in one place and lets the tests check them without a browser
+or a real database.
+
+### Where the data is stored
+
+Everything is in **Supabase** (a hosted Postgres database plus file storage):
+
+- **Tables:** `profiles`, `listings`, `favorites`, `reports`, `reviews`,
+  `purchase_requests` (Buy Now deals), `conversations`, `messages`,
+  `conversation_reads`, `offers` and `offer_operations`.
+- **Photos:** two private storage buckets, `profile-photos` and
+  `listing-photos`. The app hands out links that stop working after one hour.
+- **Login:** **Auth0** holds the accounts and passwords. The app never sees a
+  password; it only receives the confirmed email address.
+
+Prices are stored as whole cents (1234 means €12.34), so there are no rounding
+errors.
+
+### What the tests cover, and what they miss
+
+`pytest` runs more than 450 tests. They use a pretend database in memory
+(`tests/fake_database.py`), so they need no internet and no keys.
+
+**Covered:**
+
+- The rules, both the actions that are allowed and the ones that are refused.
+  For example: a non-Nova or unconfirmed email is refused, a blocked student
+  can't sell, you can't report yourself, a price must be above zero (or the
+  item free), an IBAN of the wrong shape is refused, an item can't be bought
+  twice, and an unpaid deal is cancelled after 15 minutes.
+- Photos: renamed files that aren't real images, other formats, files that are
+  too big, and the GPS position being removed.
+- The pages, with Streamlit's own test tool (`AppTest`): the right buttons and
+  messages appear for the buyer and for the seller.
+
+**Not covered:**
+
+- The real Supabase database: its SQL functions, triggers and permissions are
+  not run by the tests.
+- The real Auth0 login and sending the confirmation email.
+- How the pages look in a browser (colours and layout), and phones.
+- Real money: the app never moves money. "I've paid" is the buyer's word, and
+  the seller confirms after checking their bank.
+
+### Security
+
+- **Only Nova students.** Every page starts with `verified_nova_email()`: the
+  email must end in `@novasbe.pt` and be confirmed in Auth0. Pages use that
+  email, never one typed into a form.
+- **Checked where the action happens.** The rules files check permissions again
+  on every action (for example, only the seller can edit a listing and only the
+  buyer can say they paid), not only by hiding buttons.
+- **Admins** are listed in the secrets file, not in the code. Admins can remove
+  listings and block accounts.
+- **Secrets.** Keys live only in `.streamlit/secrets.toml` and in the host's
+  settings, which are never committed. A check runs before every commit and on
+  GitHub (`.githooks/`, `.github/workflows/`). The rules are in
+  [AGENTS.md](AGENTS.md).
+- **Database.** Row level security is on and there are no public policies, so
+  the public Supabase key can't read anything. Only the app's server key can.
+- **Input.** Titles, descriptions and prices have length and range checks.
+  Everything a student typed is escaped before it is shown as HTML. Photos are
+  re-saved without their hidden data, such as the GPS position.
+- **IBAN.** It is shown only to a buyer after they tap Buy Now, never on a
+  public profile.
+- **Dependencies.** Only five packages, each pinned to an exact version in
+  `requirements.txt`.
+
+### If an outside service is down
+
+- **Supabase down:** the menu counters fall back to zero, but pages that read
+  listings or chats show an error until Supabase is back. Nothing is lost,
+  because nothing is saved halfway: a purchase that fails puts the item back on
+  sale.
+- **Auth0 down:** nobody can sign in; students already signed in keep their
+  session.
+
+### Limits, and what could change next
+
+- **Not instant.** Streamlit reloads the page; new messages and counters are
+  checked every 5 seconds rather than pushed.
+- **Deadlines need a visitor.** An unpaid deal is cancelled when someone opens
+  the app, not at the exact minute.
+- **No email notifications.** The next step would be an email when you receive
+  an offer or a payment.
+- **No real payments.** A payment provider such as Stripe or MB WAY could
+  confirm payments automatically.
+- **One database** is used for both testing and the live app. A separate test
+  project in Supabase would make changes safer.
+- **No account deletion yet.** It needs a rule for what happens to chats and
+  reviews first.
+
 ## Notes for the team
 
 ### Once per computer
