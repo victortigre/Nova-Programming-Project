@@ -379,6 +379,15 @@ def live_deals_of(profile_id: int) -> dict[str, list[dict]]:
             "buying": requests_by_buyer(profile_id, live)}
 
 
+def unpaid_deals_due_before(moment: str) -> list[dict]:
+    """Deals still waiting for the buyer's payment whose time to pay ended before `moment`."""
+    return (
+        _client().table("purchase_requests").select("*")
+        .eq("status", "accepted").is_("paid_at", "null").lt("pay_by", moment)
+        .execute().data
+    )
+
+
 def update_request(request_id: int, changes: dict,
                    only_if_status: str | None = None) -> bool:
     """Change a purchase request (status or a confirmation time).
@@ -442,6 +451,16 @@ def reviews_by(reviewer_id: int) -> list[dict]:
 def _now() -> str:
     """The current time, in the form Supabase stores it."""
     return datetime.now(timezone.utc).isoformat()
+
+
+def listing_has_open_report(listing_id: int) -> bool:
+    """Is there a report about this listing that no admin has handled yet?"""
+    rows = (
+        _client().table("reports").select("id")
+        .eq("listing_id", listing_id).eq("status", "open")
+        .limit(1).execute().data
+    )
+    return bool(rows)
 
 
 def get_report(report_id: int) -> dict | None:
@@ -699,6 +718,13 @@ def messaging_mark_read(conversation_id: str, actor_id: int) -> None:
     """Remember that this student just opened this chat (for the unread badge)."""
     _client().rpc("messaging_mark_read",
                   {"p_conversation": conversation_id, "p_actor": actor_id}).execute()
+
+
+def messaging_unread_counts(actor_id: int) -> dict[str, int]:
+    """{chat id: how many new messages and offers} for the chats with any."""
+    rows = _client().rpc("messaging_unread_counts",
+                         {"p_actor": actor_id}).execute().data or []
+    return {row["conversation_id"]: int(row["unread"]) for row in rows if row["unread"]}
 
 
 def messaging_unread_conversations(actor_id: int) -> list[str]:

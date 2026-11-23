@@ -133,6 +133,10 @@ class FakeDatabase:
 
     # --- admin ----------------------------------------------------------------
 
+    def listing_has_open_report(self, listing_id):
+        return any(r["listing_id"] == listing_id and r["status"] == "open"
+                   for r in self.reports.values())
+
     def get_report(self, report_id):
         report = self.reports.get(report_id)
         return dict(report) if report else None
@@ -204,6 +208,11 @@ class FakeDatabase:
         rows = [r for r in self.requests.values()
                 if r["buyer_id"] == buyer_id and r["status"] in statuses]
         return [dict(r) for r in sorted(rows, key=lambda r: r["created_at"], reverse=True)]
+
+    def unpaid_deals_due_before(self, moment):
+        return [dict(r) for r in self.requests.values()
+                if r["status"] == "accepted" and not r.get("paid_at")
+                and r.get("pay_by") and str(r["pay_by"]) < moment]
 
     def update_request(self, request_id, changes, only_if_status=None):
         request = self.requests.get(request_id)

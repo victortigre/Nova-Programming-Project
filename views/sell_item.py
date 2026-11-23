@@ -152,8 +152,11 @@ if editing and editing.get("available_from"):
 available_from = None
 if st.checkbox("I can only hand it over from a later date",
                value=saved_available is not None, key=key("available-later")):
+    # A date saved earlier may have passed by now. It must stay allowed, or the
+    # date box refuses it and the listing could never be edited again.
+    earliest = min(date.today(), saved_available or date.today())
     available_from = st.date_input("Available from", value=saved_available or date.today(),
-                                   min_value=date.today(), format="DD/MM/YYYY",
+                                   min_value=earliest, format="DD/MM/YYYY",
                                    key=key("available-from"))
 
 # --- current photos (only when editing) --------------------------------------

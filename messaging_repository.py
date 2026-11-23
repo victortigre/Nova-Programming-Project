@@ -129,6 +129,13 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
         unread = set(database.messaging_unread_conversations(actor))
     except Exception:
         unread = set()
+    # How many are new, for the violet counter. Optional: if the counting
+    # function isn't in the database yet, an unread chat simply shows "1".
+    try:
+        counts = database.messaging_unread_counts(actor)
+        counts = counts if isinstance(counts, dict) else {}
+    except Exception:
+        counts = {}
     items = database.messaging_inbox(actor)
     # Membership first: nothing about another student is looked up before it.
     for item in items:
@@ -152,7 +159,9 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
     for item in items:
         row = item["conversation"]
         summary = {**row, "other_name": item.get("other_name") or "Profile unavailable",
-                   "own_profile_id": actor, "unread": row["id"] in unread}
+                   "own_profile_id": actor, "unread": row["id"] in unread,
+                   "unread_count": (max(1, int(counts.get(row["id"]) or 0))
+                                    if row["id"] in unread else 0)}
         if include_photos:
             summary["other_photo_url"] = photos.get(other_in(row))
         latest = item.get("last_message")
@@ -322,10 +331,26 @@ def offers_to_answer() -> list[dict]:
     items = _inbox_rows(actor)
     newest = {item["conversation"]["id"]: item.get("newest_offer") for item in items}
     other_names = {item["conversation"]["id"]: item.get("other_name") for item in items}
+    listing_ids = {item["conversation"]["id"]: item["conversation"].get("listing_id")
+                   for item in items}
     waiting = offers_waiting_for(actor, [item["conversation"] for item in items], newest.get)
+    # An offer can only be answered while the item is on sale. Once it is
+    # reserved, sold or deleted there is nothing to do, so no notification.
+    waiting = [item for item in waiting if _on_sale(listing_ids.get(item["conversation_id"]))]
     # The sender is the other person in that chat, whose name came along.
     return [{**item, "sender_name": other_names.get(item["conversation_id"]) or "A student"}
             for item in waiting]
+
+
+def _on_sale(listing_id) -> bool:
+    """Is this listing still there and active? Asked only for offers that wait."""
+    if listing_id is None:
+        return False
+    try:
+        listing = database.get_listing(listing_id)
+    except Exception:
+        return True  # could not check: better one notification too many
+    return listing is not None and listing.get("status") == "active"
 
 
 def offer_statuses() -> tuple:

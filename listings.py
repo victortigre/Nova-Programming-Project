@@ -88,7 +88,9 @@ def parse_price(text) -> int | None:
     cleaned = str(text or "").replace("€", "").replace(" ", "").replace(",", ".")
     if not cleaned:
         return None
-    if cleaned.count(".") > 1 or not cleaned.replace(".", "").isdigit():
+    digits = cleaned.replace(".", "")
+    # isascii: characters like "²" count as digits for Python but are not a price.
+    if cleaned.count(".") > 1 or not (digits.isascii() and digits.isdigit()):
         raise ValueError("Price must be a number, like 15 or 15,50.")
     # 12,999 is not a price in euros and cents. Say so instead of rounding it.
     if "." in cleaned and len(cleaned.split(".")[1]) > 2:
@@ -341,6 +343,10 @@ def update_listing(db, listing_id: int, seller_email: str, *, title: str, descri
     new_photos:       extra photos to add after the kept ones.
     """
     listing, seller = _own_listing(db, listing_id, seller_email)
+    _refuse_if_reported(db, listing_id)
+    # The buyer's purchase shows this title and description: it is their record.
+    if sold_through_app(db, listing_id):
+        raise ListingError([SOLD_THROUGH_APP])
     current = list(listing["photo_paths"])
     if keep_photo_paths is None:
         keep_photo_paths = current
@@ -382,7 +388,8 @@ _WAITING, _ACCEPTED = "requested", "accepted"
 DEAL_IN_PROGRESS = ("This item is reserved for a buyer who asked through the app. "
                     "Confirm or cancel that deal first.")
 _COMPLETED = "completed"
-SOLD_THROUGH_APP = ("This item was sold through the app, so it stays in your Sold tab. "
+SOLD_THROUGH_APP = ("This item was sold through the app, so it stays in your Sold tab "
+                    "as it is. "
                     "The buyer keeps their purchase and you can still rate each other. "
                     "It is no longer shown on Browse.")
 
@@ -390,6 +397,21 @@ SOLD_THROUGH_APP = ("This item was sold through the app, so it stays in your Sol
 def sold_through_app(db, listing_id: int) -> bool:
     """True if a buyer bought this listing through the app (a completed deal)."""
     return bool(db.requests_for_listing(listing_id, [_COMPLETED]))
+
+
+UNDER_REVIEW = ("An admin is looking at this listing, so it can't be edited or deleted "
+                "right now. Please try again later.")
+
+
+def _refuse_if_reported(db, listing_id: int) -> None:
+    """Stop while a report about this listing is still open.
+
+    The database deletes a listing's reports together with the listing, and an
+    edit changes what the admin sees. Either way the seller could make a report
+    disappear before an admin has looked at it.
+    """
+    if db.listing_has_open_report(listing_id):
+        raise ListingError([UNDER_REVIEW])
 
 
 def _refuse_if_deal_in_progress(db, listing_id: int) -> list[dict]:
@@ -409,6 +431,7 @@ def delete_listing(db, listing_id: int, seller_email: str) -> None:
     purchase from "My purchases" and could no longer rate the seller.
     """
     listing, seller = _own_listing(db, listing_id, seller_email)
+    _refuse_if_reported(db, listing_id)
     _refuse_if_deal_in_progress(db, listing_id)
     if sold_through_app(db, listing_id):
         raise ListingError([SOLD_THROUGH_APP])
@@ -453,6 +476,9 @@ def mark_sold(db, listing_id: int, seller_email: str) -> None:
 
 def relist(db, listing_id: int, seller_email: str) -> None:
     listing, seller = _own_listing(db, listing_id, seller_email)
+    # Sold to a buyer through the app: that buyer owns it now.
+    if sold_through_app(db, listing_id):
+        raise ListingError([SOLD_THROUGH_APP])
     errors = _bank_details_errors(seller, not listing.get("price_cents"))
     if errors:
         raise ListingError(errors)

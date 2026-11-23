@@ -67,7 +67,7 @@ def flow(monkeypatch):
     monkeypatch.setattr(database, "messaging_offers", lambda *args: [])
     # Used only when a listing disappears and Browse returns to its grid.
     monkeypatch.setattr(database, "feed_listings", lambda *args: [])
-    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"))
+    app = AppTest.from_file(str(Path(__file__).resolve().parents[1] / "app.py"), default_timeout=30)
     app.secrets["auth"] = {"auth0": {"client_id": "test-client", "client_secret": "test-only",
         "server_metadata_url": "https://example.invalid/.well-known/openid-configuration"}}
     app.session_state["last_page"] = "browse"

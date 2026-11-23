@@ -466,36 +466,6 @@ $$;
 revoke all on function public.messaging_mark_read(uuid, bigint) from public, anon, authenticated;
 grant execute on function public.messaging_mark_read(uuid, bigint) to service_role;
 
--- The student's chats with a NEW message OR a NEW offer from the OTHER person
--- (newer than they last opened the chat; never opened = everything counts). One
--- source of truth for both the Inbox badge (how many) and the per-chat unread dot.
-create or replace function public.messaging_unread_conversations(p_actor bigint)
-returns table(conversation_id uuid) language sql security definer set search_path = ''
-as $$
-    select c.id from public.conversations c
-    where p_actor in (c.buyer_id, c.seller_id)
-      and (
-          exists (
-              select 1 from public.messages m
-              where m.conversation_id = c.id and m.sender_id <> p_actor
-                and m.created_at > coalesce(
-                    (select r.last_read_at from public.conversation_reads r
-                     where r.conversation_id = c.id and r.profile_id = p_actor),
-                    '-infinity'::timestamptz)
-          )
-          or exists (
-              select 1 from public.offers o
-              where o.conversation_id = c.id and o.sender_id <> p_actor
-                and o.created_at > coalesce(
-                    (select r.last_read_at from public.conversation_reads r
-                     where r.conversation_id = c.id and r.profile_id = p_actor),
-                    '-infinity'::timestamptz)
-          )
-      );
-$$;
-revoke all on function public.messaging_unread_conversations(bigint) from public, anon, authenticated;
-grant execute on function public.messaging_unread_conversations(bigint) to service_role;
-
 -- Use INSERT, not update-based UPSERT. A buyer/listing unique conflict is read
 -- back and validated by the repository; the immutable original ID remains unique
 -- even after the live FK becomes NULL. There is no FK on original_listing_id.
@@ -538,6 +508,72 @@ create unique index if not exists offers_one_actionable
 create index if not exists offers_history_idx on public.offers(conversation_id, created_at desc, id desc);
 create index if not exists offers_sender_idx on public.offers(sender_id);
 create index if not exists offers_parent_idx on public.offers(parent_offer_id, conversation_id);
+
+-- The student's chats with a NEW message OR a NEW offer from the OTHER person
+-- (newer than they last opened the chat; never opened = everything counts), or
+-- with the other person's ANSWER (accepted / declined) to an offer they made.
+-- One source of truth for both the Inbox badge (how many) and the per-chat unread dot.
+-- These two functions read the offers table, so they must come after it.
+create or replace function public.messaging_unread_conversations(p_actor bigint)
+returns table(conversation_id uuid) language sql security definer set search_path = ''
+as $$
+    select c.id from public.conversations c
+    where p_actor in (c.buyer_id, c.seller_id)
+      and (
+          exists (
+              select 1 from public.messages m
+              where m.conversation_id = c.id and m.sender_id <> p_actor
+                and m.created_at > coalesce(
+                    (select r.last_read_at from public.conversation_reads r
+                     where r.conversation_id = c.id and r.profile_id = p_actor),
+                    '-infinity'::timestamptz)
+          )
+          or exists (
+              select 1 from public.offers o
+              where o.conversation_id = c.id and o.sender_id <> p_actor
+                and o.created_at > coalesce(
+                    (select r.last_read_at from public.conversation_reads r
+                     where r.conversation_id = c.id and r.profile_id = p_actor),
+                    '-infinity'::timestamptz)
+          )
+          -- The other person accepted or declined an offer this student made.
+          or exists (
+              select 1 from public.offers o
+              where o.conversation_id = c.id and o.sender_id = p_actor
+                and o.status in ('accepted', 'declined')
+                and o.responded_at > coalesce(
+                    (select r.last_read_at from public.conversation_reads r
+                     where r.conversation_id = c.id and r.profile_id = p_actor),
+                    '-infinity'::timestamptz)
+          )
+      );
+$$;
+revoke all on function public.messaging_unread_conversations(bigint) from public, anon, authenticated;
+grant execute on function public.messaging_unread_conversations(bigint) to service_role;
+
+-- How many new messages and offers each chat has for this student (for the
+-- violet counter on the Inbox, like WhatsApp). Same rule as above.
+create or replace function public.messaging_unread_counts(p_actor bigint)
+returns table(conversation_id uuid, unread bigint) language sql security definer set search_path = ''
+as $$
+    select c.id,
+           (select count(*) from public.messages m
+             where m.conversation_id = c.id and m.sender_id <> p_actor
+               and m.created_at > coalesce(r.last_read_at, '-infinity'::timestamptz))
+         + (select count(*) from public.offers o
+             where o.conversation_id = c.id and o.sender_id <> p_actor
+               and o.created_at > coalesce(r.last_read_at, '-infinity'::timestamptz))
+         + (select count(*) from public.offers o
+             where o.conversation_id = c.id and o.sender_id = p_actor
+               and o.status in ('accepted', 'declined')
+               and o.responded_at > coalesce(r.last_read_at, '-infinity'::timestamptz))
+    from public.conversations c
+    left join public.conversation_reads r
+           on r.conversation_id = c.id and r.profile_id = p_actor
+    where p_actor in (c.buyer_id, c.seller_id);
+$$;
+revoke all on function public.messaging_unread_counts(bigint) from public, anon, authenticated;
+grant execute on function public.messaging_unread_counts(bigint) to service_role;
 
 -- Private idempotency records serialize retries even if they target different
 -- conversations. Store normalized arguments, so reusing a key for another action

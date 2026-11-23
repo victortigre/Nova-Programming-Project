@@ -5,7 +5,7 @@
 [theme]
 base = "light"
 primaryColor = "#5F47F5"             # violet: buttons, links, selected pills
-backgroundColor = "#F1F2F6"          # light grey page
+backgroundColor = "#F8F7F5"          # warm light grey (ui.py adds the fade)
 secondaryBackgroundColor = "#FFFFFF" # input boxes are white
 textColor = "#1B1B29"
 borderColor = "#E4E4EE"

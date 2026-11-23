@@ -49,6 +49,10 @@ def show_profile_form(email: str, profile: dict | None, save_label: str = "Save 
         placeholder="Choose your program",
     )
 
+    # A saved date that has passed is out of date: start with the box unticked,
+    # so the profile can still be saved (a date in the past is refused).
+    if saved_date is not None and saved_date < date.today():
+        saved_date = None
     leaving_lisbon_on = None
     if st.checkbox(
         "I know when I am leaving Lisbon",
@@ -76,7 +80,10 @@ def show_profile_form(email: str, profile: dict | None, save_label: str = "Save 
     with photo_column:
         # Show the new photo right away, before it is saved.
         if uploaded is not None:
-            st.image(uploaded, width=120, caption="New photo")
+            try:
+                st.image(uploaded, width=120, caption="New photo")
+            except Exception:  # not a real picture; Save explains what is wrong
+                st.caption("This file can't be shown as a photo.")
         elif saved_photo and not remove_photo:
             st.image(database.photo_url(saved_photo), width=120)
 

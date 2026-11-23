@@ -445,3 +445,77 @@ def test_waiting_on_me_shows_cash_deals_to_both(db):
     check = deals.waiting_on_me(db, SELLER)["check_payment"][0]
     assert check["cash"] is True and check["paid"] is False
 
+
+# --- a blocked seller ---------------------------------------------------------------
+
+def test_nobody_can_start_buying_from_a_blocked_seller(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    db.listings[lid]["price_cents"] = 2000  # so it can also be bought at the listed price
+    chat = a_chat(db, lid)
+    db.profiles[SELLER]["blocked_at"] = "now"
+    with pytest.raises(ListingError, match="seller isn't available"):
+        deals.buy_now(db, BUYER, chat)
+    with pytest.raises(ListingError, match="seller isn't available"):
+        deals.buy_at_listed_price(db, BUYER, chat)
+    assert db.requests == {} and db.get_listing(lid)["status"] != RESERVED
+
+
+def test_buy_now_twice_says_you_already_started(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    chat = a_chat(db, lid)
+    deals.buy_now(db, BUYER, chat)
+    with pytest.raises(ListingError, match="already started buying"):
+        deals.buy_now(db, BUYER, chat)
+
+
+# --- Buy Now on the item page after a price was agreed ------------------------------
+
+def test_buy_now_on_the_item_page_uses_the_price_agreed_in_the_chat(db):
+    lid = a_listing(db)
+    db.listings[lid]["price_cents"] = 5000
+    give_bank_details(db, SELLER)
+    chat = a_chat(db, lid, amount=4000)  # an accepted offer of 40
+    deal = deals.buy_at_listed_price(db, BUYER, chat)
+    assert deal["agreed_price_cents"] == 4000
+
+
+# --- when saving the purchase fails --------------------------------------------------
+
+def test_the_item_is_free_again_if_the_purchase_could_not_be_saved(db, monkeypatch):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    chat = a_chat(db, lid)
+
+    def broken(row):
+        raise RuntimeError("connection lost")
+    monkeypatch.setattr(db, "insert_request", broken)
+    with pytest.raises(RuntimeError):
+        deals.buy_now(db, BUYER, chat)
+    assert db.get_listing(lid)["status"] == "active"
+
+
+# --- unpaid deals end for everybody ---------------------------------------------------
+
+def test_an_unpaid_deal_ends_even_if_neither_side_opens_the_app(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    deal = deals.buy_now(db, BUYER, a_chat(db, lid))
+    soon = datetime.now(timezone.utc) + timedelta(hours=47)
+    assert deals.cancel_all_overdue(db, soon) == 0
+    assert db.get_listing(lid)["status"] == RESERVED
+    late = datetime.now(timezone.utc) + timedelta(hours=49)
+    assert deals.cancel_all_overdue(db, late) == 1
+    assert db.get_listing(lid)["status"] == "active"
+    assert db.get_request(deal["id"])["status"] == "cancelled"
+
+
+def test_a_paid_deal_is_never_ended_by_the_clock(db):
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    deal = deals.buy_now(db, BUYER, a_chat(db, lid))
+    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    late = datetime.now(timezone.utc) + timedelta(hours=49)
+    assert deals.cancel_all_overdue(db, late) == 0
+    assert db.get_listing(lid)["status"] == RESERVED

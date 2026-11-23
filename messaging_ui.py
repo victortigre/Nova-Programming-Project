@@ -233,6 +233,15 @@ INBOX_CSS = """
 .st-key-inbox-list .inbox-heading { color: #202433; }
 .st-key-inbox-list .inbox-listing { color: #737985; font-size: 0.85rem; display: block; }
 .st-key-inbox-list .inbox-preview { color: #626975; font-size: 0.85rem; margin-top: 4px; }
+/* Unread chat: the last message dark and bold, the time violet, and a violet
+   counter with how many are new (like WhatsApp). */
+.st-key-inbox-list .inbox-unread .inbox-preview { color: #1B1B29; font-weight: 600; }
+.st-key-inbox-list [class*="st-key-inbox-unreadtime-"] p { color: #5F47F5 !important; font-weight: 600; }
+.st-key-inbox-list .inbox-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+    background: #5F47F5; color: #FFFFFF; font-size: 0.72rem; font-weight: 600;
+}
 .st-key-inbox-list [data-testid="stColumn"] { min-width: 0; }
 /* The clickable person name: a borderless button styled like the name heading. */
 .st-key-inbox-list [class*="st-key-openname_"] button {
@@ -304,12 +313,12 @@ def inbox_summary(row: dict, activity: dict | None, *, with_name: bool = True) -
     name = html.escape(row["other_name"])
     title = html.escape(row["listing_title_snapshot"])
     preview = html.escape(inbox_activity_preview(activity, row["own_profile_id"]))
-    dot = "🔵 " if row.get("unread") else ""  # Preserve the existing unread indicator.
     unavailable = " · Listing no longer available" if row["listing_id"] is None else ""
     background = html.escape(avatar_background(row["other_name"], row.get("other_photo_url")), quote=True)
-    heading = f'<div class="inbox-heading"><strong>{dot}{name}</strong></div>' if with_name else ""
+    heading = f'<div class="inbox-heading"><strong>{name}</strong></div>' if with_name else ""
     st.html(
-        f'<div class="inbox-summary"><span class="inbox-avatar" role="img" '
+        f'<div class="inbox-summary{" inbox-unread" if row.get("unread") else ""}">'
+        f'<span class="inbox-avatar" role="img" '
         f'aria-label="{name} profile picture" style="background-image: {background}"></span>'
         f'<div class="inbox-information">{heading}'
         f'<div class="inbox-listing">{title}{unavailable}</div>'

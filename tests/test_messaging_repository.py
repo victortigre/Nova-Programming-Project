@@ -229,6 +229,34 @@ def test_inbox_still_loads_when_read_tracking_is_missing(context, monkeypatch):
     assert rows[0]["unread"] is False
 
 
+def _inbox_rows(context, monkeypatch):
+    """Two chats (CID and MID) in the inbox, as in test_inbox_flags_unread_chats."""
+    first = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
+    second = {**first, "id": MID}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
+        inbox_row(first), inbox_row(second),
+    ])
+    return repo.get_inbox()
+
+
+def test_inbox_counts_how_many_are_new(context, monkeypatch):
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID])
+    monkeypatch.setattr(database, "messaging_unread_counts", lambda actor: {CID: 3})
+    rows = {row["id"]: row for row in _inbox_rows(context, monkeypatch)}
+    assert rows[CID]["unread_count"] == 3
+    assert rows[MID]["unread_count"] == 0
+
+
+def test_inbox_counts_fall_back_to_one_without_the_counting_function(context, monkeypatch):
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID])
+
+    def missing(actor):
+        raise RuntimeError("function not in the database yet")
+    monkeypatch.setattr(database, "messaging_unread_counts", missing)
+    rows = {row["id"]: row for row in _inbox_rows(context, monkeypatch)}
+    assert rows[CID]["unread_count"] == 1
+
+
 def test_unread_conversations_returns_the_set(context, monkeypatch):
     monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID, MID, CID])
     assert repo.unread_conversations() == {CID, MID}
@@ -464,18 +492,23 @@ def test_inbox_row_without_a_profile_name_still_shows(context, monkeypatch):
 
 
 def test_offer_notices_use_the_one_inbox_request(context, monkeypatch):
-    mine = {**context[3], "listing_title_snapshot": "Bike"}
+    mine = {**context[3], "listing_title_snapshot": "Bike", "listing_id": 10}
     offer = {"id": MID, "status": "pending", "amount_cents": 4500, "sender_id": 8,
              "parent_offer_id": None, "created_at": "2026-11-20T10:00:00+00:00"}
     query = MagicMock(return_value=[inbox_row(mine, "Seller name", newest_offer=offer)])
     monkeypatch.setattr(database, "messaging_inbox", query)
     names = MagicMock(side_effect=AssertionError("The name came with the inbox row"))
     monkeypatch.setattr(database, "names_of", names)
+    on_sale = {"status": "active"}
+    monkeypatch.setattr(database, "get_listing", lambda listing_id: on_sale)
     assert repo.offers_to_answer() == [{
         "conversation_id": CID, "amount_cents": 4500, "counter": False, "sender_id": 8,
         "listing_title": "Bike", "created_at": offer["created_at"], "sender_name": "Seller name",
     }]
     query.assert_called_once_with(7)
+    # Sold in the meantime: the offer can't be answered, so no notice for it.
+    on_sale["status"] = "sold"
+    assert repo.offers_to_answer() == []
 
 
 def test_one_page_load_checks_the_student_and_chat_once(context, monkeypatch):

@@ -9,6 +9,7 @@ pass the real `database` module, the tests pass the in-memory fake database.
 """
 
 # Buyers filter by the same categories, conditions and pickup areas sellers pick.
+import unicodedata
 from datetime import date
 
 from listings import CATEGORIES, CONDITIONS, PICKUP_AREAS  # noqa: F401
@@ -21,6 +22,16 @@ SORTS = {
     "Available from: soonest to latest": "available_soonest",
     "Available from: latest to soonest": "available_latest",
 }
+
+
+_SEARCHED = ("title", "description", "category", "category_other",
+             "pickup_area", "pickup_area_other")
+
+
+def _plain(text: str) -> str:
+    """Lower case and without accents, so 'estacao' finds 'Estação'."""
+    split = unicodedata.normalize("NFD", text.lower())
+    return "".join(letter for letter in split if not unicodedata.combining(letter))
 
 
 def search_and_sort(items: list[dict], *, query: str | None = None,
@@ -36,14 +47,16 @@ def search_and_sort(items: list[dict], *, query: str | None = None,
     conditions / pickup_areas: keep only listings with one of these values.
     None or an empty list means "any" (nothing ticked = no filter).
     """
-    needle = (query or "").strip().lower()
+    words = _plain(query or "").split()
     result = []
     for item in items:
         if category and category != "All" and item.get("category") != category:
             continue
-        if needle:
-            haystack = f"{item.get('title', '')} {item.get('description', '')}".lower()
-            if needle not in haystack:
+        if words:
+            # Every typed word must appear somewhere, in any order. The typed
+            # texts for an "Other" category or pickup area are searched too.
+            haystack = _plain(" ".join(str(item.get(field) or "") for field in _SEARCHED))
+            if not all(word in haystack for word in words):
                 continue
         price = item.get("price_cents", 0)
         if min_cents is not None and price < min_cents:

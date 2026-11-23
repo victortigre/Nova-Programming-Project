@@ -103,9 +103,9 @@ def show_inbox() -> None:
                     with left:
                         # The name is a clickable button (another way to open the
                         # chat, besides "Open chat"); the summary below drops its own
-                        # name heading so the name isn't shown twice.
-                        dot = "🔵 " if row.get("unread") else ""
-                        if st.button(f"{dot}{row['other_name']}", type="tertiary",
+                        # name heading so the name isn't shown twice. Unread is shown
+                        # by the count badge and highlight (no dot), like elsewhere.
+                        if st.button(row['other_name'], type="tertiary",
                                      key=f"openname_{row['id']}"):
                             st.session_state.messaging_selected = row["id"]
                             st.session_state.messaging_history_limit = 50
@@ -114,9 +114,15 @@ def show_inbox() -> None:
                     with right:
                         with st.container(key=f"inbox-actions-{row['id']}", horizontal_alignment="right"):
                             with st.container(key=f"inbox-time-{row['id']}"):
-                                st.caption(messaging_ui.inbox_timestamp(
-                                    (last.get("activity_at") or last["created_at"])
-                                    if last else row["created_at"]))
+                                # Unread: the time turns violet, with a counter under it.
+                                with st.container(key=(f"inbox-unreadtime-{row['id']}"
+                                                       if row.get("unread") else None)):
+                                    st.caption(messaging_ui.inbox_timestamp(
+                                        (last.get("activity_at") or last["created_at"])
+                                        if last else row["created_at"]))
+                                if row.get("unread"):
+                                    count = row.get("unread_count") or 1
+                                    st.html(f'<span class="inbox-count">{min(count, 99)}</span>')
                             with st.container(horizontal_alignment="right"):
                                 if st.button("Open chat", key=f"chat_{row['id']}", type="secondary"):
                                     st.session_state.messaging_selected = row["id"]
@@ -207,9 +213,7 @@ def show_chat(selected: str) -> None:
                     st.rerun()  # The whole page: it switches back to the inbox.
             with participant:
                 participant_header = st.empty()
-            with refresh:
-                with st.container(horizontal_alignment="right"):
-                    st.button("Refresh chat")
+            # Preserve the empty right column so the participant header stays aligned.
         with st.container(key="chat-header-divider"):
             st.divider()
         limit = st.session_state.get("messaging_history_limit", 50)
@@ -269,7 +273,15 @@ def show_chat(selected: str) -> None:
                     # Own keyed box with space on top: the chat styles pull the line
                     # under a subheader up into it otherwise.
                     with st.container(key=f"dm-offer-details-{message['id']}"):
-                        st.text(f"Status: {OFFER_STATUS_LABELS[message['status']]}")
+                        status_text = OFFER_STATUS_LABELS[message["status"]]
+                        # Nobody can answer it now: say why instead of "Pending".
+                        if message["status"] == "pending" and not negotiation_available:
+                            status_text = {
+                                "reserved": "On hold: the item is reserved",
+                                "sold": "Expired: the item is no longer on sale",
+                                "unavailable": "Expired: the item is no longer on sale",
+                            }.get(row.get("listing_status"), status_text)
+                        st.text(f"Status: {status_text}")
                         if message.get("note"):
                             st.text(message["note"])
                     if (current and current["id"] == message["id"] and message["status"] == "pending"
