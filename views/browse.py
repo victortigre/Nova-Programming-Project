@@ -267,7 +267,13 @@ if viewing is not None:
                                 st.session_state["messaging_history_limit"] = 50
                                 st.switch_page("views/messaging.py")
                     if item["status"] == listings.RESERVED:
-                        st.caption("This item is reserved for another buyer.")
+                        # The buyer who tapped Buy Now is the one it is reserved for.
+                        try:
+                            mine = database.live_request(my_id, item["id"]) is not None
+                        except Exception:  # buying isn't set up in the database yet
+                            mine = False
+                        st.caption("This item is reserved for you. See My purchases for how to pay."
+                                   if mine else "This item is reserved for another buyer.")
                     if (can_contact and item["status"] == listings.ACTIVE
                             and st.session_state.get("messaging_offer_browse") == item["id"]):
                         st.caption("Send a price offer directly to the chat. A personal message is optional.")

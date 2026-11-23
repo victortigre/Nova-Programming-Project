@@ -175,7 +175,8 @@ def sale_row(sale: dict) -> None:
     rid = sale["id"]
     buyer = listings.plain_text(sale["buyer_name"])
     st.divider()
-    st.caption(f"Sold to {buyer}")
+    # The price they agreed on, which can differ from the listed price above.
+    st.caption(f"Sold to {buyer} for {listings.format_price(sale['price_cents'])}")
     if not rating_ready:
         return
     if rid in my_ratings:
