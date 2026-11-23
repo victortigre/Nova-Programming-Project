@@ -146,6 +146,33 @@ with right:
                                           placeholder="e.g. Saldanha metro station")
 
 # --- when it's available (optional) -------------------------------------------
+# Streamlit draws the date boxes in the browser's language, so on a Portuguese
+# computer the calendar said "novembro" and "D S T Q Q S S". The whole app is in
+# English, so tell the date boxes the browser is English (day/month/year, as in
+# Portugal). A fixed script, nothing a student typed goes into it.
+# The date boxes read the language once when the app loads, so after changing
+# it we send the browser's "language changed" signal each time a date box shows up.
+ENGLISH_DATES = """<script>
+(function () {
+  if (window.nmEnglishDates) { return; }
+  window.nmEnglishDates = true;
+  try {
+    Object.defineProperty(Navigator.prototype, "language",
+                          { get: function () { return "en-GB"; }, configurable: true });
+  } catch (e) { return; }
+  var seen = -1;
+  function nudge() {
+    var count = document.querySelectorAll('[data-testid="stDateInput"]').length;
+    if (count !== seen) {
+      seen = count;
+      window.dispatchEvent(new Event("languagechange"));
+    }
+  }
+  nudge();
+  new MutationObserver(nudge).observe(document.body, { childList: true, subtree: true });
+})();
+</script>"""
+st.html(ENGLISH_DATES, unsafe_allow_javascript=True)
 saved_available = None
 if editing and editing.get("available_from"):
     saved_available = date.fromisoformat(editing["available_from"])
