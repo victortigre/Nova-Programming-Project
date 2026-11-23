@@ -196,8 +196,13 @@ def test_inbox_sorts_by_message_activity_and_uses_profile_name(context, monkeypa
     first = {**context[3], "created_at": "2026-11-18T10:00:00+00:00"}
     second = {**first, "id": MID, "created_at": "2026-11-19T10:00:00+00:00"}
     latest = {"id": 12, "created_at": "2026-11-20T10:00:00+00:00", "body": "Newest"}
+    # MID has no message but an earlier offer, so it still appears (and sorts below CID)
+    # while keeping its last_message None; CID's newer message sorts it to the top.
+    earlier_offer = {"id": 1, "status": "pending", "amount_cents": 1000, "sender_id": 8,
+                     "parent_offer_id": None, "created_at": "2026-11-19T10:00:00+00:00",
+                     "responded_at": None}
     monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
-        inbox_row(second, "Other participant"),
+        inbox_row(second, "Other participant", last_offer=earlier_offer),
         inbox_row(first, "Other participant", last_message=latest),
     ])
     rows = repo.get_inbox()
@@ -211,8 +216,9 @@ def test_inbox_sorts_by_message_activity_and_uses_profile_name(context, monkeypa
 def test_inbox_flags_unread_chats(context, monkeypatch):
     first = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
     second = {**first, "id": MID}
+    message = {"id": 1, "sender_id": 8, "body": "Hi", "created_at": "2026-11-20T10:00:00+00:00"}
     monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
-        inbox_row(first), inbox_row(second),
+        inbox_row(first, last_message=message), inbox_row(second, last_message=message),
     ])
     monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [CID])
     rows = {row["id"]: row for row in repo.get_inbox()}
@@ -222,7 +228,8 @@ def test_inbox_flags_unread_chats(context, monkeypatch):
 
 def test_inbox_still_loads_when_read_tracking_is_missing(context, monkeypatch):
     row = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
-    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(row)])
+    message = {"id": 1, "sender_id": 8, "body": "Hi", "created_at": "2026-11-20T10:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(row, last_message=message)])
     monkeypatch.setattr(database, "messaging_unread_conversations",
                         MagicMock(side_effect=RuntimeError("function not set up yet")))
     rows = repo.get_inbox()  # must not raise
@@ -233,8 +240,9 @@ def _inbox_rows(context, monkeypatch):
     """Two chats (CID and MID) in the inbox, as in test_inbox_flags_unread_chats."""
     first = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
     second = {**first, "id": MID}
+    message = {"id": 1, "sender_id": 8, "body": "Hi", "created_at": "2026-11-20T10:00:00+00:00"}
     monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
-        inbox_row(first), inbox_row(second),
+        inbox_row(first, last_message=message), inbox_row(second, last_message=message),
     ])
     return repo.get_inbox()
 
@@ -465,7 +473,10 @@ def test_unauthorized_conversation_never_loads_profile_photo(context, monkeypatc
 def test_one_authenticated_profile_has_buying_and_selling_conversations(context, monkeypatch):
     buying = {"id": CID, "buyer_id": 7, "seller_id": 8, "created_at": "2026-11-20T10:00:00+00:00"}
     selling = {"id": MID, "buyer_id": 9, "seller_id": 7, "created_at": "2026-11-20T11:00:00+00:00"}
-    query = MagicMock(return_value=[inbox_row(buying, "Seller"), inbox_row(selling, "Buyer")])
+    buy_msg = {"id": 1, "sender_id": 8, "body": "Hi", "created_at": "2026-11-20T10:00:00+00:00"}
+    sell_msg = {"id": 2, "sender_id": 9, "body": "Hi", "created_at": "2026-11-20T11:00:00+00:00"}
+    query = MagicMock(return_value=[inbox_row(buying, "Seller", last_message=buy_msg),
+                                    inbox_row(selling, "Buyer", last_message=sell_msg)])
     monkeypatch.setattr(database, "messaging_inbox", query)
     per_chat = MagicMock(side_effect=AssertionError("The inbox must not ask chat by chat"))
     for name in ("messaging_conversations", "messaging_messages", "messaging_offers", "get_profile_by_id"):
@@ -485,9 +496,26 @@ def test_inbox_rejects_a_row_the_student_is_not_part_of(context, monkeypatch):
         repo.get_inbox()
 
 
+def test_inbox_hides_empty_conversations_with_no_message_or_offer(context, monkeypatch):
+    # A bare "Buy Now" reservation with no chat activity yet: no last_message and
+    # no last_offer. It must not appear in the inbox until there is real activity.
+    empty = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
+    active = {**empty, "id": MID}
+    message = {"id": 1, "sender_id": 8, "body": "Hi", "created_at": "2026-11-20T11:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [
+        inbox_row(empty),  # last_message=None and last_offer=None -> hidden
+        inbox_row(active, last_message=message),  # has activity -> shown
+    ])
+    monkeypatch.setattr(database, "messaging_unread_conversations", lambda actor: [])
+    rows = repo.get_inbox()
+    assert [row["id"] for row in rows] == [MID]
+    assert all(row["id"] != CID for row in rows)
+
+
 def test_inbox_row_without_a_profile_name_still_shows(context, monkeypatch):
     row = {**context[3], "created_at": "2026-11-20T10:00:00+00:00"}
-    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(row, None)])
+    message = {"id": 1, "sender_id": 8, "body": "Hi", "created_at": "2026-11-20T10:00:00+00:00"}
+    monkeypatch.setattr(database, "messaging_inbox", lambda actor: [inbox_row(row, None, last_message=message)])
     assert repo.get_inbox()[0]["other_name"] == "Profile unavailable"
 
 
@@ -563,8 +591,9 @@ def test_get_offers_asks_again_when_more_are_wanted_than_were_loaded(context, mo
 def test_optional_inbox_photos_use_other_participant_once_per_load(context, monkeypatch, actor, other):
     context[2].return_value['id'] = actor
     first = {**context[3], 'created_at': '2026-11-20T10:00:00+00:00'}
+    message = {'id': 1, 'sender_id': other, 'body': 'Hi', 'created_at': '2026-11-20T10:00:00+00:00'}
     monkeypatch.setattr(database, 'messaging_inbox', lambda aid: [
-        inbox_row(first), inbox_row({**first, 'id': MID})])
+        inbox_row(first, last_message=message), inbox_row({**first, 'id': MID}, last_message=message)])
     monkeypatch.setattr(database, 'messaging_unread_conversations', lambda aid: [CID])
     # Two chats with the same student: one request for where the photos are
     # stored and one for their links, not one per chat.
@@ -583,7 +612,8 @@ def test_optional_inbox_photos_use_other_participant_once_per_load(context, monk
 @pytest.mark.parametrize('failure', ['missing_profile', 'no_photo', 'lookup_error', 'sign_error'])
 def test_optional_inbox_photo_failure_keeps_conversations(context, monkeypatch, failure):
     row = {**context[3], 'created_at': '2026-11-20T10:00:00+00:00'}
-    monkeypatch.setattr(database, 'messaging_inbox', lambda actor: [inbox_row(row)])
+    message = {'id': 1, 'sender_id': 8, 'body': 'Hi', 'created_at': '2026-11-20T10:00:00+00:00'}
+    monkeypatch.setattr(database, 'messaging_inbox', lambda actor: [inbox_row(row, last_message=message)])
     monkeypatch.setattr(database, 'messaging_unread_conversations', lambda actor: [])
     # A missing profile and a profile without a photo both come back as "no path".
     lookup = MagicMock(return_value={} if failure in ('missing_profile', 'no_photo')

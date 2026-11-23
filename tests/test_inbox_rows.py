@@ -60,11 +60,13 @@ def test_repository_chronology_and_compact_preview(ui, monkeypatch, sender, newe
     offer = {'id': SECOND, 'sender_id': 7, 'amount_cents': 2500, 'status': 'accepted',
              'created_at': '2026-11-21T09:00:00+00:00', 'responded_at': '2026-11-21T11:00:00+00:00'}
     older = {**ROW, 'id': SECOND, 'created_at': '2026-11-19T10:00:00+00:00'}
+    # The older chat has its own (older) message so it still appears, sorting below ROW.
+    older_message = {'id': 9, 'sender_id': 8, 'body': 'Older text', 'created_at': '2026-11-19T10:00:00+00:00'}
     monkeypatch.setattr(repository, 'get_inbox', REAL_INBOX)
     monkeypatch.setattr(database, 'messaging_actor_profile', lambda email: {'id': 7, 'rules_accepted_at': 'yes'})
     monkeypatch.setattr(database, 'messaging_unread_conversations', lambda actor: [])
     monkeypatch.setattr(database, 'messaging_inbox', lambda actor: [
-        {'conversation': older, 'other_name': 'Older', 'last_message': None, 'last_offer': None},
+        {'conversation': older, 'other_name': 'Older', 'last_message': older_message, 'last_offer': None},
         {'conversation': ROW, 'other_name': 'Newest', 'last_message': message, 'last_offer': offer},
     ])
     app.run()

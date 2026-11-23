@@ -177,8 +177,14 @@ def get_inbox(*, include_photos: bool = False) -> list[dict]:
         activity = max(events, key=lambda event: (
             datetime.fromisoformat(event["activity_at"]), event["type"], str(event["id"])
         ), default=None)
+        # An empty chat — a bare "Buy Now" reservation with no message or offer yet —
+        # is not shown in the inbox. It appears only once there's real activity (the
+        # buyer messages, makes an offer, or the "I've paid" line is posted). Paying
+        # and confirming still happen on My purchases / My listings, not here.
+        if activity is None:
+            continue
         summary["last_activity"] = activity
-        summary["activity_at"] = activity["activity_at"] if activity else row["created_at"]
+        summary["activity_at"] = activity["activity_at"]
         summaries.append(summary)
     return sorted(summaries, key=lambda row: (
         datetime.fromisoformat(row["activity_at"]), row["id"],

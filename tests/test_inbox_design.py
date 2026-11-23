@@ -49,8 +49,9 @@ def test_unified_inbox_uses_one_real_actor_for_buying_and_selling(ui, monkeypatc
     selling = {**ROW, 'id': SECOND, 'buyer_id': 9, 'seller_id': 7, 'listing_id': 11,
                'listing_title_snapshot': 'My listing', 'other_name': 'Buyer'}
     rows = {CID: buying, SECOND: selling}
+    message = {'id': 1, 'sender_id': 8, 'body': 'Hi', 'created_at': ROW['created_at']}
     query = MagicMock(return_value=[
-        {'conversation': row, 'other_name': row['other_name'], 'last_message': None,
+        {'conversation': row, 'other_name': row['other_name'], 'last_message': message,
          'last_offer': None, 'newest_offer': None} for row in rows.values()])
     monkeypatch.setattr(repository, 'get_inbox', REAL_INBOX)
     monkeypatch.setattr(repository, 'get_conversation_details', REAL_DETAILS)
