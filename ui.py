@@ -258,8 +258,8 @@ button[data-variant="pills"][data-selected="true"] p {{
 .st-key-card-price-range [data-testid="stNumberInputContainer"] {{
     border: 1px solid #DADDE5; border-radius: 10px; background: #FFFFFF;
 }}
-.st-key-card-price-range [data-testid="stSliderThumbValue"],
 .st-key-card-price-range [data-testid="stSliderTickBar"] {{ display: none; }}
+.st-key-card-price-range [data-testid="stSliderThumbValue"] {{ font-size: 0.75rem; font-weight: 600; }}
 .st-key-card-price-range [data-baseweb="slider"] [role="slider"] {{
     background: #FFFFFF; border: 2px solid {VIOLET}; box-shadow: none;
 }}

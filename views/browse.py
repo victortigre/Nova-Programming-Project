@@ -445,27 +445,24 @@ with browse_tab:
                         250, 300, 400, 500, 750, 1000, 1500, 2000, 3000, max_euros})
 
         def nearest_step(euros: int) -> int:
-            """The position on the slider closest to this price."""
-            return min(range(len(steps)), key=lambda place: abs(steps[place] - euros))
+            """The step on the slider closest to this price."""
+            return min(steps, key=lambda step: abs(step - euros))
 
         prices = st.session_state
         prices.setdefault("price-min", 0)
         prices.setdefault("price-max", max_euros)
-        slider_places = prices.get("price-slider")  # positions in `steps`, not euros
-        if (not isinstance(slider_places, (tuple, list)) or len(slider_places) != 2
-                or max(slider_places) >= len(steps)):
-            prices["price-slider"] = (0, len(steps) - 1)
+        # Typing a price makes a fresh slider (a new key) that starts at the typed
+        # prices. That is how Streamlit lets one widget follow another.
+        prices.setdefault("price-version", 0)
+        slider_key = f"price-slider-{prices['price-version']}"
 
         def prices_typed() -> None:
-            low_typed, high_typed = prices["price-min"], prices["price-max"]
-            if low_typed > high_typed:  # typed the wrong way round: swap them
-                low_typed, high_typed = high_typed, low_typed
-                prices["price-min"], prices["price-max"] = low_typed, high_typed
-            prices["price-slider"] = (nearest_step(low_typed), nearest_step(high_typed))
+            if prices["price-min"] > prices["price-max"]:  # typed the wrong way round
+                prices["price-min"], prices["price-max"] = prices["price-max"], prices["price-min"]
+            prices["price-version"] += 1
 
         def prices_slid() -> None:
-            low_place, high_place = prices["price-slider"]
-            prices["price-min"], prices["price-max"] = steps[low_place], steps[high_place]
+            prices["price-min"], prices["price-max"] = prices[slider_key]
 
         with ui.card("price-range"):
             st.markdown("**Price**")
@@ -474,9 +471,12 @@ with browse_tab:
                                  key="price-min", on_change=prices_typed)
             max_col.number_input("Max (€)", min_value=0, max_value=max_euros, step=5,
                                  key="price-max", on_change=prices_typed)
-            # The slider moves over the positions of `steps`; the boxes show euros.
-            st.slider("Price", 0, len(steps) - 1, key="price-slider",
-                      on_change=prices_slid, label_visibility="collapsed")
+            # Shows the price on each handle while you move it.
+            st.select_slider("Price (€)", options=steps, key=slider_key,
+                             value=(nearest_step(prices["price-min"]),
+                                    nearest_step(prices["price-max"])),
+                             format_func=lambda euros: f"€{euros}",
+                             on_change=prices_slid, label_visibility="collapsed")
         # The boxes hold the exact prices (the slider only has round steps).
         low, high = prices["price-min"], prices["price-max"]
         with ui.card("sort"):
