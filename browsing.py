@@ -12,7 +12,7 @@ pass the real `database` module, the tests pass the in-memory fake database.
 import unicodedata
 from datetime import date
 
-from listings import CATEGORIES, CONDITIONS, PICKUP_AREAS  # noqa: F401
+from listings import CATEGORIES, CONDITIONS, PICKUP_AREAS, expired  # noqa: F401
 
 # The label shown in the "Sort by" box -> how to sort.
 SORTS = {
@@ -48,8 +48,12 @@ def search_and_sort(items: list[dict], *, query: str | None = None,
     None or an empty list means "any" (nothing ticked = no filter).
     """
     words = _plain(query or "").split()
+    today = date.today()
     result = []
     for item in items:
+        # The seller said it's only available until a date that has passed.
+        if expired(item, today):
+            continue
         if category and category != "All" and item.get("category") != category:
             continue
         if words:

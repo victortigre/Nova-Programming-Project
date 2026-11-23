@@ -159,6 +159,21 @@ if st.checkbox("I can only hand it over from a later date",
                                    min_value=earliest, format="DD/MM/YYYY",
                                    key=key("available-from"))
 
+saved_until = None
+if editing and editing.get("available_until"):
+    saved_until = date.fromisoformat(editing["available_until"])
+available_until = None
+if st.checkbox("It's only available until a certain date",
+               value=saved_until is not None, key=key("available-until-on"),
+               help="After this day it no longer shows on Browse and can't be bought."):
+    # Same as above: a saved date that has passed must still fit in the box,
+    # so the check in listings.py can explain what to change.
+    earliest_until = min(date.today(), saved_until or date.today())
+    available_until = st.date_input("Available until",
+                                    value=saved_until or available_from or date.today(),
+                                    min_value=earliest_until, format="DD/MM/YYYY",
+                                    key=key("available-until"))
+
 # --- current photos (only when editing) --------------------------------------
 keep_paths = None
 if editing:
@@ -192,7 +207,7 @@ if st.button("Save changes" if editing else "Publish listing", type="primary"):
         title=title, description=description, free=free, price_cents=price_cents,
         category=category, category_other=category_other, condition=condition,
         pickup_area=pickup_area, pickup_area_other=pickup_area_other,
-        available_from=available_from,
+        available_from=available_from, available_until=available_until,
     )
     new_photos = [upload.getvalue() for upload in uploads or []]
     try:

@@ -103,6 +103,15 @@ def test_buy_now_twice_starts_one_deal(db):
     assert len(db.requests) == 1
 
 
+def test_an_item_past_its_available_until_date_cannot_be_bought(db):
+    from datetime import date, timedelta
+    lid = a_listing(db)
+    give_bank_details(db, SELLER)
+    db.listings[lid]["available_until"] = (date.today() - timedelta(days=1)).isoformat()
+    with pytest.raises(ListingError, match="available until"):
+        deals.buy_now(db, BUYER, a_chat(db, lid))
+    assert db.listings[lid]["status"] == "active"
+
 # --- Buy Now from the item page (the listed price, no offer) ------------------------
 
 def a_plain_chat(db, listing_id, chat_id="plain"):
