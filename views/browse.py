@@ -438,10 +438,33 @@ with browse_tab:
         # Always €0 to the highest price a listing may have, so the range is the
         # same for everyone, whatever is on sale right now.
         max_euros = listings.MAX_PRICE_CENTS // 100
+        # Two boxes to type a price (Min, Max) and a slider under them. They show
+        # the same range: changing one moves the other.
+        prices = st.session_state
+        prices.setdefault("price-min", 0)
+        prices.setdefault("price-max", max_euros)
+        prices.setdefault("price-slider", (0, max_euros))
+
+        def prices_typed() -> None:
+            low_typed, high_typed = prices["price-min"], prices["price-max"]
+            if low_typed > high_typed:  # typed the wrong way round: swap them
+                low_typed, high_typed = high_typed, low_typed
+                prices["price-min"], prices["price-max"] = low_typed, high_typed
+            prices["price-slider"] = (low_typed, high_typed)
+
+        def prices_slid() -> None:
+            prices["price-min"], prices["price-max"] = prices["price-slider"]
+
         with ui.card("price-range"):
-            st.markdown("**Price range**")
-            low, high = st.slider("Price (€)", 0, max_euros, (0, max_euros), step=10,
-                                  format="€%d", label_visibility="collapsed")
+            st.markdown("**Price**")
+            min_col, max_col = st.columns(2, gap="small")
+            min_col.number_input("Min (€)", min_value=0, max_value=max_euros, step=5,
+                                 key="price-min", on_change=prices_typed)
+            max_col.number_input("Max (€)", min_value=0, max_value=max_euros, step=5,
+                                 key="price-max", on_change=prices_typed)
+            st.slider("Price (€)", 0, max_euros, step=5, format="€%d", key="price-slider",
+                      on_change=prices_slid, label_visibility="collapsed")
+            low, high = prices["price-slider"]
         with ui.card("sort"):
             st.markdown("**Sort by**")
             sort_label = st.radio("Sort by", list(browsing.SORTS),

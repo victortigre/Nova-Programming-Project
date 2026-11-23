@@ -250,6 +250,20 @@ button[data-variant="pills"][data-selected="true"] p {{
 }}
 [class*="st-key-notice-warm-"] {{ border-left-color: #F2A93B; background: #FFFBF2; }}
 [class*="st-key-notice-green-"] {{ border-left-color: #2E9E6B; background: #F5FCF8; }}
+/* Browse, Price: Min and Max boxes without the +/- buttons, and a slider without
+   its own number labels (the boxes already show the range). */
+.st-key-price-range [data-testid="stNumberInputStepUp"],
+.st-key-price-range [data-testid="stNumberInputStepDown"] {{ display: none; }}
+.st-key-price-range [data-testid="stNumberInput"] label p {{ font-size: 0.75rem; color: {GREY_TEXT}; }}
+.st-key-price-range [data-testid="stNumberInputContainer"] {{
+    border: 1px solid #DADDE5; border-radius: 10px; background: #FFFFFF;
+}}
+.st-key-price-range [data-testid="stSliderThumbValue"],
+.st-key-price-range [data-testid="stSliderTickBarMin"],
+.st-key-price-range [data-testid="stSliderTickBarMax"] {{ display: none; }}
+.st-key-price-range [data-baseweb="slider"] [role="slider"] {{
+    background: #FFFFFF; border: 2px solid {VIOLET}; box-shadow: none;
+}}
 .nm-notice {{ display: flex; align-items: center; gap: 14px; }}
 .nm-notice-icon {{
     flex: 0 0 44px; height: 44px; border-radius: 50%; background: #EEEBFF;
