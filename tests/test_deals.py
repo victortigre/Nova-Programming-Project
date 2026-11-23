@@ -550,3 +550,10 @@ def test_a_paid_deal_is_never_ended_by_the_clock(db):
     late = datetime.now(timezone.utc) + timedelta(minutes=16)
     assert deals.cancel_all_overdue(db, late) == 0
     assert db.get_listing(lid)["status"] == RESERVED
+
+
+def test_waiting_on_me_says_when_each_deal_happened(db):
+    deal = start_purchase(db, a_listing(db), BUYER)
+    assert deals.waiting_on_me(db, BUYER)["pay"][0]["at"] is not None
+    deals.mark_paid(db, deal["id"], BUYER, "bank")
+    assert deals.waiting_on_me(db, SELLER)["check_payment"][0]["at"] is not None

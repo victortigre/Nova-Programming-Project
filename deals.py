@@ -538,8 +538,11 @@ def waiting_on_me(db, email: str) -> dict[str, list[dict]]:
     """The deals behind to_do's "pay" and "check_payment", with names, for the
     notifications on Browse ("Maria says she paid you €20.00").
 
-        pay            [{"request_id", "seller_name", "title", "price_cents", "cash"}]
-        check_payment  [{"request_id", "buyer_name", "title", "price_cents", "cash", "paid"}]
+        pay            [{"request_id", "seller_name", "title", "price_cents", "cash", "at"}]
+        check_payment  [{"request_id", "buyer_name", "title", "price_cents", "cash", "paid",
+                         "at"}]
+
+    "at" is when it last happened (Buy Now, or "I've paid"), to show the newest first.
     """
     me = _profile(db, email)
     live = db.live_deals_of(me["id"])
@@ -553,10 +556,11 @@ def waiting_on_me(db, email: str) -> dict[str, list[dict]]:
     check = [{"request_id": r["id"], "buyer_name": names.get(r["buyer_id"], "A student"),
               "title": listings_of[r["id"]].get("title", "your item"),
               "price_cents": price_of(r, listings_of[r["id"]]),
-              "cash": paying_cash(r), "paid": bool(r.get("paid_at"))} for r in selling]
+              "cash": paying_cash(r), "paid": bool(r.get("paid_at")),
+              "at": r.get("paid_at") or r.get("created_at")} for r in selling]
     pay = [{"request_id": r["id"],
             "seller_name": names.get(listings_of[r["id"]].get("seller_id"), "the seller"),
             "title": listings_of[r["id"]].get("title", "an item"),
             "price_cents": price_of(r, listings_of[r["id"]]),
-            "cash": paying_cash(r)} for r in buying]
+            "cash": paying_cash(r), "at": r.get("created_at")} for r in buying]
     return {"pay": pay, "check_payment": check}
