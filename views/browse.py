@@ -438,9 +438,10 @@ with browse_tab:
         # Always €0 to the highest price a listing may have, so the range is the
         # same for everyone, whatever is on sale right now.
         max_euros = listings.MAX_PRICE_CENTS // 100
-        # Two boxes to type a price (Min, Max) and a slider under them. Typing a
-        # range zooms the slider into it: type 10 and 30, and the slider goes from
-        # €10 at the left end to €30 at the right end, to fine-tune inside it.
+        # Two boxes to type a price (Min, Max) and a slider under them. Choosing a
+        # range (typing it or moving the slider) zooms the slider into it: choose 10
+        # and 30, and the slider goes from €10 at the left end to €30 at the right
+        # end, to fine-tune inside it. "Any price" goes back to every price.
         # Without a typed range it covers every price, with bigger steps as prices
         # grow, so €0-€100 (most items) uses most of its length.
         wide_steps = sorted({0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200,
@@ -470,7 +471,10 @@ with browse_tab:
             prices["price-version"] += 1
 
         def prices_slid() -> None:
+            # The chosen range becomes the slider's new ends too.
             prices["price-min"], prices["price-max"] = prices[slider_key]
+            prices["price-scale"] = prices[slider_key]
+            prices["price-version"] += 1
 
         def any_price() -> None:
             prices["price-min"], prices["price-max"] = 0, max_euros
