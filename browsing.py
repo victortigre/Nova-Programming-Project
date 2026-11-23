@@ -10,7 +10,7 @@ pass the real `database` module, the tests pass the in-memory fake database.
 
 # Buyers filter by the same categories, conditions and pickup areas sellers pick.
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timezone
 
 from listings import CATEGORIES, CONDITIONS, PICKUP_AREAS, expired  # noqa: F401
 
@@ -114,3 +114,25 @@ def toggle_saved(db, profile_id: int, listing_id: int) -> bool:
         return False
     db.add_favorite(profile_id, listing_id)
     return True
+
+
+# --- notifications --------------------------------------------------------------
+
+def _moment(value) -> float:
+    """A time as a number to sort by: an ISO date-time from the database, or the
+    counter the test database uses. Unknown = oldest."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        moment = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return float("-inf")
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.timestamp()
+
+
+def newest_first(cards: list[dict]) -> list[dict]:
+    """The notification cards with the most recent ("at") first. Cards without a
+    time keep their order, after the others."""
+    return sorted(cards, key=lambda card: _moment(card.get("at")), reverse=True)

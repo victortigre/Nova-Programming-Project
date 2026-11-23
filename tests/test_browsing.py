@@ -197,3 +197,11 @@ def test_search_looks_at_category_and_pickup_area_too():
     assert [i["title"] for i in browsing.search_and_sort(items, query="bike")] == ["Helmet"]
     assert [i["title"] for i in browsing.search_and_sort(items, query="saldanha")] == ["Helmet"]
     assert [i["title"] for i in browsing.search_and_sort(items, query="carcavelos")] == ["Chair"]
+
+
+def test_notifications_newest_first():
+    cards = [{"key": "old", "at": "2026-11-23T10:00:00+00:00"},
+             {"key": "no-time"},
+             {"key": "new", "at": "2026-11-23T17:00:00Z"},
+             {"key": "middle", "at": "2026-11-23T12:00:00.123456+00:00"}]
+    assert [c["key"] for c in browsing.newest_first(cards)] == ["new", "middle", "old", "no-time"]

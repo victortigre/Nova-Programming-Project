@@ -338,7 +338,7 @@ try:
 except Exception:
     offers_waiting = []
 
-# Build every card that applies, in order. The count (or an offer's amount) is
+# Build every card that applies. The count (or an offer's amount) is
 # part of each key, so a card that was dismissed comes back when there is new
 # activity (another buyer, a new offer).
 notices = []
@@ -355,14 +355,14 @@ for deal in waiting["check_payment"]:
             key=f"check-payment-{deal['request_id']}-paid", emoji="💶",
             title=f"{name} says they paid you {price}",
             text=f"For {title}. Check that it arrived, then confirm on My listings.",
-            page=SALES, label="Confirm", section="reserved"))
+            page=SALES, label="Confirm", section="reserved", at=deal.get("at")))
     else:
         notices.append(dict(
             key=f"check-payment-{deal['request_id']}-cash", emoji="💶",
             title=f"{name} will pay you {price} in cash",
             text=f"For {title}. Agree where to meet in the chat, and confirm on My listings "
                  "once you have the money.",
-            page=SALES, label="Open", section="reserved"))
+            page=SALES, label="Open", section="reserved", at=deal.get("at")))
 if to_do.get("answer"):
     notices.append(dict(
         key=f"answer-{to_do['answer']}", emoji="🛍️",
@@ -377,7 +377,8 @@ for item in offers_waiting:
               f"{listings.format_price(item['amount_cents'])}",
         text=f"For {html.escape(item['listing_title'])}. "
              "Accept, decline or counter in your Inbox.",
-        page="views/messaging.py", label="See offer", open_chat=item["conversation_id"]))
+        page="views/messaging.py", label="See offer", open_chat=item["conversation_id"],
+        at=item.get("created_at")))
 for deal in waiting["pay"]:
     name, title = html.escape(deal["seller_name"]), html.escape(deal["title"])
     price = listings.format_price(deal["price_cents"])
@@ -388,7 +389,10 @@ for deal in waiting["pay"]:
         text=(f"For {title}. Agree the time and place in the chat." if deal["cash"]
               else f"For {title}. Pay within 15 minutes (bank transfer), or choose cash "
                    "in person, then confirm."),
-        page=PURCHASES, label="Pay", tone="green"))
+        page=PURCHASES, label="Pay", tone="green", at=deal.get("at")))
+
+# The most recent first (old purchase requests have no time and go last).
+notices = browsing.newest_first(notices)
 
 # Dismissals last for this session only; the task itself is unchanged.
 dismissed = st.session_state.setdefault("dismissed_notices", set())
