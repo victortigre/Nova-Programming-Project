@@ -439,7 +439,14 @@ with browse_tab:
         # same for everyone, whatever is on sale right now.
         max_euros = listings.MAX_PRICE_CENTS // 100
         # Two boxes to type a price (Min, Max) and a slider under them. They show
-        # the same range: changing one moves the other.
+        # the same range: changing one moves the other. The slider takes bigger
+        # steps as prices grow, so €0-€100 (most items) uses most of its length.
+        steps = sorted({0, 5, 10, 15, 20, 25, 30, 40, 50, 60, 75, 100, 125, 150, 200,
+                        250, 300, 400, 500, 750, 1000, 1500, 2000, 3000, max_euros})
+
+        def nearest_step(euros: int) -> int:
+            return min(steps, key=lambda step: abs(step - euros))
+
         prices = st.session_state
         prices.setdefault("price-min", 0)
         prices.setdefault("price-max", max_euros)
@@ -450,7 +457,7 @@ with browse_tab:
             if low_typed > high_typed:  # typed the wrong way round: swap them
                 low_typed, high_typed = high_typed, low_typed
                 prices["price-min"], prices["price-max"] = low_typed, high_typed
-            prices["price-slider"] = (low_typed, high_typed)
+            prices["price-slider"] = (nearest_step(low_typed), nearest_step(high_typed))
 
         def prices_slid() -> None:
             prices["price-min"], prices["price-max"] = prices["price-slider"]
@@ -462,9 +469,11 @@ with browse_tab:
                                  key="price-min", on_change=prices_typed)
             max_col.number_input("Max (€)", min_value=0, max_value=max_euros, step=5,
                                  key="price-max", on_change=prices_typed)
-            st.slider("Price (€)", 0, max_euros, step=5, format="€%d", key="price-slider",
-                      on_change=prices_slid, label_visibility="collapsed")
-            low, high = prices["price-slider"]
+            st.select_slider("Price (€)", options=steps, key="price-slider",
+                             format_func=lambda euros: f"€{euros}",
+                             on_change=prices_slid, label_visibility="collapsed")
+        # The boxes hold the exact prices (the slider only has round steps).
+        low, high = prices["price-min"], prices["price-max"]
         with ui.card("sort"):
             st.markdown("**Sort by**")
             sort_label = st.radio("Sort by", list(browsing.SORTS),
