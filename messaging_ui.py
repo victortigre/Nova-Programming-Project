@@ -255,6 +255,22 @@ INBOX_CSS = """
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .st-key-inbox-list [class*="st-key-openname_"] button:hover p { color: #5F47F5; }
+/* With the name as a button above the summary, the photo sits beside all three
+   lines (name, item, last message), centred, like WhatsApp: it is placed against
+   the whole row, and the name and the two lines below it sit close together. */
+.st-key-inbox-list [class*="st-key-inbox-row-"] { position: relative; }
+.st-key-inbox-list [class*="st-key-inbox-row-"] [data-testid="stColumn"],
+.st-key-inbox-list [class*="st-key-inbox-row-"] [data-testid="stVerticalBlock"],
+.st-key-inbox-list [class*="st-key-inbox-row-"] [data-testid="stElementContainer"],
+.st-key-inbox-list [class*="st-key-inbox-row-"] [data-testid="stHtml"],
+.st-key-inbox-list .inbox-noname { position: static !important; }
+.st-key-inbox-list .inbox-noname .inbox-avatar {
+    position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+}
+.st-key-inbox-list .inbox-noname .inbox-information { margin-left: 58px; }
+.st-key-inbox-list [class*="st-key-inbox-row-"] [data-testid="stColumn"]:first-child > [data-testid="stVerticalBlock"] {
+    gap: 2px !important;
+}
 .st-key-inbox-list [class*="st-key-inbox-row-"] > [data-testid="stHorizontalBlock"] {
     flex-wrap: nowrap; gap: 12px;
 }
@@ -319,7 +335,8 @@ def inbox_summary(row: dict, activity: dict | None, *, with_name: bool = True) -
     background = html.escape(avatar_background(row["other_name"], row.get("other_photo_url")), quote=True)
     heading = f'<div class="inbox-heading"><strong>{name}</strong></div>' if with_name else ""
     st.html(
-        f'<div class="inbox-summary{" inbox-unread" if row.get("unread") else ""}">'
+        f'<div class="inbox-summary{" inbox-unread" if row.get("unread") else ""}'
+        f'{"" if with_name else " inbox-noname"}">'
         f'<span class="inbox-avatar" role="img" '
         f'aria-label="{name} profile picture" style="background-image: {background}"></span>'
         f'<div class="inbox-information">{heading}'
