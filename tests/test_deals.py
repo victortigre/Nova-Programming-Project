@@ -394,10 +394,20 @@ def test_a_cash_only_seller_can_be_bought_from(db):
     assert [m["key"] for m in details["methods"]] == ["cash"]
 
 
+def test_buying_from_a_cash_only_seller_has_no_15_minute_deadline(db):
+    seller_accepts(db, accepts_cash=True)  # no IBAN: cash is the only way
+    deal = start_purchase(db, a_listing(db), BUYER)
+    fresh = db.get_request(deal["id"])
+    assert deals.paying_cash(fresh) and deals.pay_due(fresh) is None
+    overdue(db, deal["id"], minutes_late=60)
+    assert deals.cancel_overdue(db, BUYER) == 0
+    assert deals.waiting_on_me(db, BUYER)["pay"][0]["cash"]
+
+
 def test_the_buyer_can_only_say_they_paid_in_a_way_the_seller_accepts(db):
     seller_accepts(db, accepts_cash=True)  # no IBAN
     deal = start_purchase(db, a_listing(db), BUYER)
-    for method in ("bank", None, "bitcoin"):
+    for method in ("bank", "bitcoin"):
         with pytest.raises(ListingError, match="Choose how you paid"):
             deals.mark_paid(db, deal["id"], BUYER, method)
     deals.mark_paid(db, deal["id"], BUYER, "cash")  # e.g. paid when they met
